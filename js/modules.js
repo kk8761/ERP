@@ -1,64 +1,55 @@
-﻿/**
+/**
  * NexaERP â€” Modules.js
  * Renders all remaining modules: Orders, Customers, Staff,
  * Payroll, Suppliers, Accounting, Notifications, Settings
  */
 
-// â”€â”€â”€ ORDERS MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function renderOrders() {
+// â”€â”€â”€ ORDERS MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€âfunction renderOrders() {
   document.getElementById('page-body').innerHTML = `
-    <div class="page-header">
+    <div class="page-header" style="padding-bottom: 20px;">
       <div>
-        <div class="page-heading">Orders</div>
-        <div class="page-meta">${DemoData.orders.length} total orders</div>
+        <div class="page-heading">List of Sales Orders</div>
+        <div class="page-meta">${DemoData.orders.length} standard sales documents (OR)</div>
       </div>
       <div style="display:flex;gap:var(--space-3)">
-        <button class="btn btn-secondary" onclick="exportCSV(DemoData.orders,'orders.csv');Toast.success('Exported!')">Export CSV</button>
-        <button class="btn btn-primary" onclick="openNewOrderModal()">+ New Order</button>
+        <div class="btn-group">
+          <button class="btn btn-secondary" style="border-radius: 8px 0 0 8px;" onclick="exportCSV(DemoData.orders,'sales_orders.csv')">📦 Local File...</button>
+          <button class="btn btn-secondary" style="border-radius: 0 8px 8px 0; border-left: none;" onclick="Toast.info('Opening Print Preview...')">📠 Print Preview</button>
+        </div>
+        <button class="btn btn-primary" onclick="openNewOrderModal()">+ Create Sales Order</button>
       </div>
     </div>
 
-    <!-- Stats -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-4);margin-bottom:var(--space-6)">
-      ${[
-        { label:'Total Orders', value:DemoData.orders.length, color:'#6366f1' },
-        { label:'Completed', value:DemoData.orders.filter(o=>o.status==='completed').length, color:'#10b981' },
-        { label:'Pending', value:DemoData.orders.filter(o=>o.status==='pending').length, color:'#f59e0b' },
-        { label:'Total Revenue', value:Format.currency(DemoData.orders.reduce((s,o)=>s+o.total,0)), color:'#a855f7' },
-      ].map(s=>`
-        <div class="stat-card" style="padding:var(--space-5)">
-          <div style="font-size:var(--text-xs);color:var(--color-text-secondary);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:var(--space-1)">${s.label}</div>
-          <div style="font-size:var(--text-2xl);font-weight:700;color:${s.color}">${s.value}</div>
-        </div>
-      `).join('')}
+    <!-- SAP Tool Bar -->
+    <div style="background:var(--color-bg-tertiary); padding: 8px 16px; border-radius: 8px 8px 0 0; border: 1px solid var(--color-border-default); border-bottom: none; display: flex; gap: 20px; align-items: center;">
+      <div style="display:flex; gap: 8px; align-items: center;">
+        <span class="sap-field-label" style="margin:0">Search:</span>
+        <input type="text" class="form-input" id="order-search" placeholder="Enter doc ID..." style="width: 200px; padding: 4px 8px; font-size: 12px;" oninput="filterOrders()" />
+      </div>
+      <div style="display:flex; gap: 8px; align-items: center;">
+        <span class="sap-field-label" style="margin:0">Status:</span>
+        <select class="form-select" id="order-status" style="width: 120px; padding: 4px 8px; font-size: 12px;" onchange="filterOrders()">
+          <option value="">All Entries</option>
+          <option value="completed">Completed</option>
+          <option value="pending">Open</option>
+        </select>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="filterOrders()">🔄 Refresh</button>
     </div>
 
-    <!-- Filters -->
-    <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-4);flex-wrap:wrap">
-      <input type="text" class="form-input" id="order-search" placeholder="Search order ID, customer..." style="flex:1;min-width:200px" oninput="filterOrders()" />
-      <select class="form-select" id="order-status" style="width:155px" onchange="filterOrders()">
-        <option value="">All Status</option>
-        <option value="completed">Completed</option>
-        <option value="pending">Pending</option>
-        <option value="processing">Processing</option>
-      </select>
-      <input type="date" class="form-input" id="order-date" style="width:160px" onchange="filterOrders()" />
-    </div>
-
-    <!-- Table -->
-    <div class="panel-card">
+    <div class="panel-card" style="padding: 0; border-radius: 0 0 8px 8px;">
       <div style="overflow-x:auto">
-        <table class="data-table" id="orders-table">
+        <table class="sap-dense-table" id="orders-table">
           <thead>
             <tr>
-              <th>Order ID</th>
-              <th>Customer</th>
-              <th>Items</th>
-              <th>Total</th>
-              <th>Payment</th>
+              <th>SD Doc.</th>
+              <th>TrG</th>
+              <th>Description</th>
+              <th>SaTy</th>
+              <th>Sold-to pt</th>
               <th>Status</th>
-              <th>Date</th>
-              <th>Actions</th>
+              <th>Created on</th>
+              <th style="width:40px"></th>
             </tr>
           </thead>
           <tbody id="orders-tbody"></tbody>
@@ -72,29 +63,26 @@ function renderOrders() {
 function renderOrdersTable() {
   const search = document.getElementById('order-search')?.value?.toLowerCase() || '';
   const status = document.getElementById('order-status')?.value || '';
-  const date   = document.getElementById('order-date')?.value || '';
 
   const filtered = DemoData.orders.filter(o => {
     const matchSearch = !search || o.id.toLowerCase().includes(search) || o.customer.toLowerCase().includes(search);
     const matchStatus = !status || o.status === status;
-    const matchDate   = !date   || o.date === date;
-    return matchSearch && matchStatus && matchDate;
+    return matchSearch && matchStatus;
   });
 
-  const payIcons = { cash:'ðŸ’µ', upi:'ðŸ“±', card:'ðŸ’³', credit:'ðŸ“‹' };
   document.getElementById('orders-tbody').innerHTML = filtered.map(o => `
-    <tr>
-      <td><code style="font-size:var(--text-xs);background:var(--color-bg-elevated);padding:2px 6px;border-radius:4px;cursor:pointer" onclick="viewOrder('${o.id}')">${o.id}</code></td>
-      <td style="font-weight:500">${o.customer}</td>
-      <td style="font-size:var(--text-xs);color:var(--color-text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis">${o.items.join(', ')}</td>
-      <td style="font-weight:700">${Format.currency(o.total)}</td>
-      <td>${payIcons[o.payment]||'ðŸ’°'} ${o.payment?.toUpperCase()}</td>
-      <td><span class="badge badge-${o.status==='completed'?'success':o.status==='pending'?'warning':'info'}">${o.status}</span></td>
-      <td style="font-size:var(--text-xs);color:var(--color-text-secondary)">${Format.date(o.date)}</td>
-      <td>
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-sm btn-secondary" onclick="viewOrder('${o.id}')">View</button>
-          <button class="btn btn-sm btn-ghost" onclick="printOrderInvoice('${o.id}')">ðŸ–¨ï¸</button>
+    <tr oncontextmenu="event.preventDefault(); Toast.info('Right-click menu: [Local File, Copy, Details]')">
+      <td style="font-family:var(--font-mono); color:var(--color-brand-400); cursor:pointer" onclick="viewOrder('${o.id}')">${o.id.replace('ORD-','')}</td>
+      <td>0</td>
+      <td>Standard Sales Order</td>
+      <td>OR</td>
+      <td>${o.customer}</td>
+      <td><span class="badge badge-${o.status==='completed'?'success':'warning'}" style="font-size:10px; padding:2px 6px;">${o.status.toUpperCase()}</span></td>
+      <td>${Format.date(o.date)}</td>
+      <td style="text-align:center">
+        <div style="display:flex; gap:4px">
+          <button class="btn btn-sm btn-ghost" style="padding:2px" onclick="viewOrder('${o.id}')">➡️</button>
+          <button class="btn btn-sm btn-ghost" style="padding:2px" onclick="printOrderInvoice('${o.id}')">🖨️</button>
         </div>
       </td>
     </tr>

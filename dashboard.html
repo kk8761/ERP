@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard â€” NexaERP</title>
+  <title>Dashboard — NexaERP</title>
   <meta name="description" content="NexaERP business management dashboard with real-time analytics, inventory, billing, and more." />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/design-system.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
   <link rel="stylesheet" href="css/modules.css" />
-  <!-- Backend config â€” change NEXAERP_API to your Render.com URL -->
+  <!-- Backend config — change NEXAERP_API to your Render.com URL -->
   <script>
     window.NEXAERP_API    = 'https://nexaerp-api.onrender.com/api';
     window.NEXAERP_SOCKET = 'https://nexaerp-api.onrender.com';
@@ -20,7 +20,7 @@
 
 <div class="app-layout">
 
-  <!-- â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+  <!-- ── Sidebar ────────────────────────────────────────────── -->
   <aside class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
     <!-- Logo -->
     <div class="sidebar-logo">
@@ -39,6 +39,32 @@
       </div>
       <div class="sidebar-logo-text">
         <span style="color:var(--color-text-primary)">Nexa</span><span style="background:var(--gradient-brand);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">ERP</span>
+      </div>
+    </div>
+
+    <!-- Branch Selector -->
+    <div class="sidebar-branch-selector" style="padding: 0 16px; margin-bottom: 20px;">
+      <div style="font-size: 10px; color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; font-weight: 700;">Active Branch</div>
+      <div class="branch-dropdown" id="branch-dropdown-toggle" onclick="toggleBranchList()">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-success-400);"></div>
+          <span id="current-branch-label" style="font-size: 13px; font-weight: 600; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">All Branches</span>
+        </div>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+      </div>
+      <div class="branch-list-container" id="branch-list" style="display:none;">
+        <div class="branch-item" onclick="setBranch('all')">
+          <input type="checkbox" id="br-all" checked> <label for="br-all">All Branches</label>
+        </div>
+        <div class="branch-item" onclick="setBranch('main')">
+          <input type="checkbox" id="br-main"> <label for="br-main">Main Store</label>
+        </div>
+        <div class="branch-item" onclick="setBranch('branch1')">
+          <input type="checkbox" id="br-branch1"> <label for="br-branch1">Warehouse A</label>
+        </div>
+        <div class="branch-item" onclick="setBranch('branch2')">
+          <input type="checkbox" id="br-branch2"> <label for="br-branch2">Retail B</label>
+        </div>
       </div>
     </div>
 
@@ -130,6 +156,12 @@
           </span>
           <span class="nav-item-label">Reports</span>
         </button>
+        <button class="nav-item" onclick="navigateTo('approvals')" id="nav-approvals">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </span>
+          <span class="nav-item-label">Approvals</span>
+        </button>
       </div>
 
 
@@ -179,6 +211,12 @@
           </span>
           <span class="nav-item-label">Settings</span>
         </button>
+        <button class="nav-item" onclick="navigateTo('export')" id="nav-export">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </span>
+          <span class="nav-item-label">Export Center</span>
+        </button>
       </div>
     </nav>
 
@@ -200,7 +238,7 @@
   <!-- Sidebar backdrop (mobile) -->
   <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="closeMobileSidebar()"></div>
 
-  <!-- â”€â”€ Main Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+  <!-- ── Main Content ────────────────────────────────────────── -->
   <main class="main-content" id="main-content">
 
     <!-- Top Header -->
@@ -263,7 +301,7 @@
       </div>
     </header>
 
-    <!-- â”€â”€ Page Body (modules rendered here) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+    <!-- Page Body (modules rendered here) ──────────────── -->
     <div id="page-body" class="page-content">
       <!-- Dashboard module rendered here by JS -->
       <div id="dashboard-view"></div>
@@ -277,7 +315,7 @@
   <div class="modal" style="max-width:640px">
     <div class="modal-header">
       <div class="flex items-center gap-3">
-        <div style="width:36px;height:36px;background:var(--gradient-brand);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;font-size:18px">âœ¨</div>
+        <div style="width:36px;height:36px;background:var(--gradient-brand);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;font-size:18px">✨</div>
         <div>
           <div class="heading-4">NexaAI Assistant</div>
           <div class="caption">Powered by business intelligence</div>
@@ -302,7 +340,7 @@
 <!-- Theme Picker Modal -->
 <div id="theme-picker-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)" onclick="if(event.target===this)this.style.display='none'">
   <div style="background:var(--color-bg-elevated);border:1px solid var(--color-border-default);border-radius:var(--radius-2xl);padding:var(--space-8);width:480px;max-width:95vw">
-    <div style="font-family:var(--font-display);font-size:var(--text-xl);font-weight:700;margin-bottom:var(--space-6)">ðŸŽ¨ Choose Theme</div>
+    <div style="font-family:var(--font-display);font-size:var(--text-xl);font-weight:700;margin-bottom:var(--space-6)">🎨 Choose Theme</div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:var(--space-3)" id="theme-grid">
       <!-- Rendered by JS -->
     </div>

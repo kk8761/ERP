@@ -539,23 +539,87 @@ const Loading = {
   hide() { document.getElementById('global-loader')?.remove(); }
 };
 
-// ─── CSV EXPORT ───────────────────────────────────────────
+// ─── CSV EXPORT (OPTIMIZED) ───────────────────────────────
 function exportCSV(data, filename = 'export.csv') {
   if (!data?.length) { Toast.warning('No data to export'); return; }
-  const keys = Object.keys(data[0]).filter(k => typeof data[0][k] !== 'object');
-  const csv = [
-    keys.join(','),
-    ...data.map(row => keys.map(k => `"${(row[k] ?? '').toString().replace(/"/g, '""')}"`).join(','))
-  ].join('\n');
+  
+  Loading.show(`Preparing ${filename}...`);
+  
+  // Use setTimeout to allow the loader to appear before the heavy work
+  setTimeout(() => {
+    try {
+      const keys = Object.keys(data[0]).filter(k => typeof data[0][k] !== 'object');
+      
+      // Build CSV with proper escaping for Excel compatibility
+      let csvContent = keys.join(',') + '\r\n';
+      
+      data.forEach(row => {
+        const line = keys.map(k => {
+          let val = row[k] ?? '';
+          if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
+            val = `"${val.replace(/"/g, '""')}"`;
+          }
+          return val;
+        }).join(',');
+        csvContent += line + '\r\n';
+      });
 
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.setAttribute('download', filename);
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      Toast.success(`✅ ${filename} ready!`);
+    } catch (err) {
+      console.error(err);
+      Toast.error('Failed to generate export file.');
+    } finally {
+      Loading.hide();
+    }
+  }, 100);
 }
+
+// ─── SAP UI COMPONENTS ────────────────────────────────────
+const SAP_UI = {
+  renderTabs(tabs, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    container.innerHTML = `
+      <div class="sap-tabs">
+        <div class="sap-tab-header">
+          ${tabs.map((t, i) => `
+            <button class="sap-tab-btn ${i===0?'active':''}" onclick="SAP_UI.switchTab(this, '${t.id}')">
+              ${t.label}
+            </button>
+          `).join('')}
+        </div>
+        <div class="sap-tab-content">
+          ${tabs.map((t, i) => `
+            <div id="${t.id}" class="sap-tab-pane ${i===0?'active':''}">
+              ${t.content}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  },
+  
+  switchTab(btn, paneId) {
+    const parent = btn.closest('.sap-tabs');
+    parent.querySelectorAll('.sap-tab-btn').forEach(b => b.classList.remove('active'));
+    parent.querySelectorAll('.sap-tab-pane').forEach(p => p.classList.remove('active'));
+    
+    btn.classList.add('active');
+    document.getElementById(paneId).classList.add('active');
+  }
+};
 
 // ─── PRINT ────────────────────────────────────────────────
 function printElement(el) {

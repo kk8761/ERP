@@ -34,6 +34,8 @@ function navigateTo(module) {
     assets:     { title: 'Asset Management', sub: 'SAP FI-AA â€” Fixed Asset Register & Depreciation' },
     notifications: { title: 'Notifications', sub: 'Alerts and updates' },
     settings:   { title: 'Settings', sub: 'Business and system settings' },
+    approvals:  { title: 'Approvals', sub: 'Release Strategy Â· Document Release' },
+    export:     { title: 'Export Center', sub: 'Data Exchange Â· Unified Governance' },
   };
 
   const info = titles[module] || { title: module, sub: '' };
@@ -64,6 +66,8 @@ function navigateTo(module) {
       case 'assets':      renderAssets(); break;
       case 'notifications': renderNotifications(); break;
       case 'settings':    renderSettings(); break;
+      case 'approvals':   renderApprovals(); break;
+      case 'export':      renderExport(); break;
       default:            renderDashboard();
     }
   }, 150);
@@ -563,4 +567,79 @@ function renderCategoryDonut() {
   `;
 }
 
-// â”€â”€â”€ Analytics Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Interaction Handlers ─────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadUserInfo();
+  loadBranches();
+  
+  // Close branch list on outside click
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.sidebar-branch-selector')) {
+      const list = document.getElementById('branch-list');
+      if (list) list.style.display = 'none';
+    }
+  });
+});
+
+// ─── Branch Selector Logic ────────────────────────────────────
+let selectedBranches = Storage.get('nexaerp_branches') || ['all'];
+
+function loadBranches() {
+  const currentLabel = document.getElementById('current-branch-label');
+  if (!currentLabel) return;
+
+  const branches = {
+    all: 'All Branches',
+    main: 'Main Store',
+    branch1: 'Warehouse A',
+    branch2: 'Retail B'
+  };
+
+  // Sync checkboxes
+  document.querySelectorAll('.branch-item input').forEach(input => {
+    const br = input.id.replace('br-', '');
+    input.checked = selectedBranches.includes(br);
+  });
+
+  if (selectedBranches.includes('all')) {
+    currentLabel.textContent = 'All Branches';
+  } else if (selectedBranches.length === 1) {
+    currentLabel.textContent = branches[selectedBranches[0]] || selectedBranches[0];
+  } else {
+    currentLabel.textContent = `${selectedBranches.length} Branches Selected`;
+  }
+}
+
+function toggleBranchList() {
+  const list = document.getElementById('branch-list');
+  if (list) {
+    list.style.display = list.style.display === 'none' ? 'block' : 'none';
+  }
+}
+
+function setBranch(branch) {
+  if (branch === 'all') {
+    selectedBranches = ['all'];
+  } else {
+    // Remove 'all' if present
+    selectedBranches = selectedBranches.filter(b => b !== 'all');
+    
+    if (selectedBranches.includes(branch)) {
+      selectedBranches = selectedBranches.filter(b => b !== branch);
+    } else {
+      selectedBranches.push(branch);
+    }
+    
+    // If empty, default to 'all'
+    if (selectedBranches.length === 0) selectedBranches = ['all'];
+  }
+
+  Storage.set('nexaerp_branches', selectedBranches);
+  loadBranches();
+  
+  // Reload current module to reflect changes
+  Toast.info(`Switched context to: ${selectedBranches.includes('all') ? 'Global' : selectedBranches.join(', ')}`);
+  navigateTo(currentModule);
+}
+
+// ─── Analytics Page ───────────────────────────────────────────

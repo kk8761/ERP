@@ -736,3 +736,85 @@ body {
 }
 
 .tab:hover:not(.active) { color: var(--color-text-primary); }
+
+/* === SAP ENTERPRISE UI (CLASSIC DENSE) === */
+.sap-dense-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: 13px; /* SAP default size approx */
+}
+
+.sap-dense-table thead th {
+  background: #2a2d3e; /* Classic SAP header dark */
+  color: #c9ccd6;
+  padding: 6px 12px;
+  text-align: left;
+  border: 1px solid rgba(255,255,255,0.1);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sap-dense-table tbody td {
+  padding: 6px 12px;
+  border: 1px solid rgba(255,255,255,0.05);
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.sap-dense-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+.sap-dense-table tbody tr:hover { background: rgba(99,102,241,0.08); }
+
+.sap-tabs {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.sap-tab-header {
+  display: flex;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.sap-tab-btn {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-right: 1px solid var(--color-border-subtle);
+  transition: all 0.2s;
+}
+
+.sap-tab-btn.active {
+  background: var(--color-bg-card);
+  color: var(--color-brand-400);
+  border-bottom: 2px solid var(--color-brand-400);
+}
+
+.sap-tab-btn:hover:not(.active) { background: rgba(255,255,255,0.03); }
+
+.sap-tab-content { padding: 20px; }
+.sap-tab-pane { display: none; }
+.sap-tab-pane.active { display: block; animation: fade-in 0.2s ease; }
+
+.sap-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.sap-field-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  font-weight: 700;
+  margin-bottom: 5px;
+}

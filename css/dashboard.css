@@ -655,3 +655,68 @@
 .notif-content { flex: 1; }
 .notif-title { font-size: var(--text-sm); font-weight: var(--font-medium); margin-bottom: 2px; }
 .notif-time  { font-size: var(--text-xs); color: var(--color-text-tertiary); }
+
+/* ─── Branch Selector Styles ──────────────────────────── */
+.branch-dropdown {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.branch-dropdown:hover {
+  border-color: var(--color-brand-500);
+  background: var(--color-bg-elevated);
+}
+
+.branch-list-container {
+  position: absolute;
+  top: 100%;
+  left: 16px;
+  right: 16px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  margin-top: 4px;
+  padding: 8px;
+  z-index: 100;
+  box-shadow: var(--shadow-2xl);
+  backdrop-filter: blur(20px);
+}
+
+.branch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.branch-item:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.branch-item input {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-brand-500);
+}
+
+.branch-item label {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  flex: 1;
+}
+
+.sidebar.collapsed .sidebar-branch-selector {
+  display: none;
+}

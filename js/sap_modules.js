@@ -346,7 +346,7 @@ function previewReport(type) {
             <td>${opening} ${p.unit}</td>
             <td style="color:var(--color-success-400)">+${purchased}</td>
             <td style="color:var(--color-danger-400)">-${sold}</td>
-            <td style="color:${adj>=0?'var(--color-warning-400)':'var(--color-danger-400)'};">${adj>=0?'+':''}{adj}</td>
+            <td style="color:${adj>=0?'var(--color-warning-400)':'var(--color-danger-400)'};">${adj>=0?'+':''}${adj}</td>
             <td style="font-weight:700">${p.stock} ${p.unit}</td>
           </tr>`;
         }).join('')}
@@ -807,118 +807,225 @@ function saveAsset() {
 
 // ─── ENHANCED PAYROLL MODULE (SAP HCM) ───────────────────────
 function renderPayroll() {
+  const body = document.getElementById('page-body');
+  body.innerHTML = `
+    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:400px; gap:20px;">
+      <div style="font-weight:700; font-size:18px; color:var(--color-text-secondary)">📊 Accessing HR & Payroll Records...</div>
+      <div class="progress-bar" style="width:300px; height:10px;">
+        <div class="progress-fill" id="payroll-loading-bar" style="width:0%; background:var(--gradient-brand)"></div>
+      </div>
+      <div id="payroll-loading-msg" style="font-size:12px; color:var(--color-text-tertiary)">Initializing enterprise secure session...</div>
+    </div>
+  `;
+
+  let p = 0;
+  const bar = document.getElementById('payroll-loading-bar');
+  const msg = document.getElementById('payroll-loading-msg');
+  const interval = setInterval(() => {
+    p += Math.random() * 25;
+    if (p >= 100) {
+      p = 100;
+      clearInterval(interval);
+      showPayrollUI();
+    }
+    if (bar) bar.style.width = p + '%';
+    if (p > 40 && msg) msg.textContent = 'Calculating deductions and contributions...';
+    if (p > 80 && msg) msg.textContent = 'Syncing with bank gateway...';
+  }, 300);
+}
+
+function showPayrollUI() {
+  const payrollItems = DemoData.staff.map(s => {
+    const basic = s.salary;
+    const hra = Math.round(basic * 0.4);
+    const da = Math.round(basic * 0.1);
+    const pf = Math.round(basic * 0.12);
+    const esi = Math.round(basic * 0.0175);
+    const tds = basic > 41667 ? Math.round((basic - 41667) * 0.05) : 0;
+    const net = (basic + hra + da) - (pf + esi + tds);
+    return { ...s, basic, hra, da, pf, esi, tds, net, worked: 24 + (Math.floor(Math.random()*3)) };
+  });
+
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
-      <div><div class="page-heading">Payroll & HR</div><div class="page-meta">SAP HCM — Attendance, Leave & Payslip Management</div></div>
+      <div><div class="page-heading">Payroll Management (SAP HCM)</div><div class="page-meta">Statutory Reports · Employee Payouts · TDS Compliance</div></div>
       <div style="display:flex;gap:var(--space-3)">
-        <select class="form-select" style="width:auto" id="payroll-month"><option value="2026-04">April 2026</option><option value="2026-03">March 2026</option></select>
-        <button class="btn btn-secondary" onclick="downloadReport('payroll')">⬇️ Export</button>
-        <button class="btn btn-primary" onclick="processBulkPayroll()">💳 Process Payroll</button>
+        <select class="form-select" id="payroll-month" style="width:auto"><option>April 2026</option><option>March 2026</option></select>
+        <button class="btn btn-secondary" onclick="exportCSV(DemoData.staff, 'payroll_master_report.csv')">📦 Local File...</button>
+        <button class="btn btn-primary" onclick="processBulkPayroll()">Process Runs</button>
       </div>
     </div>
 
-    <!-- Payroll Summary -->
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:var(--space-4);margin-bottom:var(--space-6)">
-      ${[
-        { l:'Total Employees', v:DemoData.staff.length, icon:'👥', color:'var(--color-brand-400)' },
-        { l:'Gross Payroll',   v:Format.currency(DemoData.staff.reduce((s,e)=>s+e.salary*1.4,0)), icon:'💰', color:'var(--color-success-400)' },
-        { l:'PF Contribution', v:Format.currency(DemoData.staff.reduce((s,e)=>s+e.salary*0.12,0)), icon:'🏦', color:'var(--color-warning-400)' },
-        { l:'ESI',             v:Format.currency(DemoData.staff.reduce((s,e)=>s+e.salary*0.0175,0)), icon:'🏥', color:'var(--color-brand-400)' },
-        { l:'Net Payroll',     v:Format.currency(DemoData.staff.reduce((s,e=>{const b=e.salary;return s+b+b*0.4-b*0.12-b*0.0175;}),0)), icon:'💳', color:'var(--color-success-400)' },
-      ].map(s=>`
-        <div class="stat-card" style="padding:var(--space-5)">
-          <div style="font-size:24px;margin-bottom:var(--space-2)">${s.icon}</div>
-          <div style="font-size:var(--text-xs);color:var(--color-text-secondary);font-weight:600;margin-bottom:4px">${s.l}</div>
-          <div style="font-size:var(--text-xl);font-weight:800;color:${s.color}">${s.v}</div>
-        </div>
-      `).join('')}
-    </div>
-
-    <!-- Employee Payroll Table -->
-    <div class="panel-card" style="overflow-x:auto;margin-bottom:var(--space-5)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4)">
-        <div style="font-weight:700">👤 Employee Payslips — April 2026</div>
-      </div>
-      <table class="data-table">
-        <thead><tr><th>Employee</th><th>Role</th><th>Days Worked</th><th>Basic</th><th>HRA</th><th>DA</th><th>PF (-)</th><th>ESI (-)</th><th>TDS (-)</th><th>Net Pay</th><th>Action</th></tr></thead>
-        <tbody>
-          ${DemoData.staff.map((s,i)=>{
-            const worked = [26,25,26,24,26,25,23,26][i%8]||25;
-            const total  = 26;
-            const basic  = Math.round((s.salary / total) * worked);
-            const hra    = Math.round(basic * 0.4);
-            const da     = Math.round(basic * 0.1);
-            const pf     = Math.round(basic * 0.12);
-            const esi    = Math.round(basic * 0.0175);
-            const tds    = basic > 41667 ? Math.round((basic - 41667) * 0.05) : 0;
-            const net    = basic + hra + da - pf - esi - tds;
-            return `<tr>
-              <td>
-                <div style="display:flex;align-items:center;gap:var(--space-2)">
-                  <div style="width:30px;height:30px;border-radius:50%;background:var(--gradient-brand);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0">${s.name[0]}</div>
-                  <div style="font-weight:600;font-size:var(--text-sm)">${s.name}</div>
-                </div>
-              </td>
-              <td><span class="chip">${s.role}</span></td>
-              <td>
-                <span style="font-weight:600;color:${worked<22?'var(--color-danger-400)':'var(--color-success-400)'}">${worked}/${total}</span>
-              </td>
-              <td>${Format.currency(basic)}</td>
-              <td>${Format.currency(hra)}</td>
-              <td>${Format.currency(da)}</td>
-              <td style="color:var(--color-danger-400)">-${Format.currency(pf)}</td>
-              <td style="color:var(--color-danger-400)">-${Format.currency(esi)}</td>
-              <td style="color:var(--color-danger-400)">${tds>0?'-'+Format.currency(tds):'—'}</td>
-              <td style="font-weight:700;font-size:var(--text-base);color:var(--color-success-400)">${Format.currency(net)}</td>
-              <td>
-                <button class="btn btn-sm btn-secondary" onclick="viewPayslip('${s.name}',${basic},${hra},${da},${pf},${esi},${tds},${net},${worked})">📄 Payslip</button>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Leave Management -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-5)">
-      <div class="panel-card">
-        <div style="font-weight:700;margin-bottom:var(--space-4)">🏖️ Leave Requests</div>
-        ${DemoData.staff.slice(0,4).map((s,i)=>{
-          const types  = ['Sick Leave','Casual Leave','Emergency Leave','Annual Leave'];
-          const dates  = ['Apr 22-23','Apr 25','Apr 28-30','May 1-3'];
-          const status = ['pending','approved','rejected','pending'];
-          return `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-3) 0;border-bottom:1px solid var(--color-border-subtle)">
-              <div style="flex:1">
-                <div style="font-weight:600;font-size:var(--text-sm)">${s.name}</div>
-                <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">${types[i]} · ${dates[i]}</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:var(--space-2)">
-                <span class="badge badge-${status[i]==='approved'?'success':status[i]==='rejected'?'danger':'warning'}">${status[i]}</span>
-                ${status[i]==='pending'?`
-                  <button class="btn btn-sm btn-primary" onclick="Toast.success('Leave approved!')">✅</button>
-                  <button class="btn btn-sm btn-danger" onclick="Toast.error('Leave rejected!')">❌</button>
-                `:''}
-              </div>
-            </div>
-          `;
-        }).join('')}
-        <button class="btn btn-sm btn-secondary" style="width:100%;margin-top:var(--space-3)" onclick="Toast.info('Leave application form opening...')">+ Apply for Leave</button>
-      </div>
-
-      <!-- Leave Balance -->
-      <div class="panel-card">
-        <div style="font-weight:700;margin-bottom:var(--space-4)">📊 Leave Balance Summary</div>
-        <table class="data-table">
-          <thead><tr><th>Employee</th><th>Casual</th><th>Sick</th><th>Annual</th><th>Taken</th></tr></thead>
+    <div class="panel-card" style="padding:0; margin-bottom:var(--space-6)">
+      <div style="background:var(--color-bg-tertiary); padding: 8px 16px; border-bottom: 1px solid var(--color-border-default); font-weight:700; font-size:11px; color:var(--color-text-secondary);">PAYROLL REGISTRY</div>
+      <div style="overflow-x:auto">
+        <table class="sap-dense-table">
+          <thead>
+            <tr>
+              <th>Emp. No</th>
+              <th>Personnel Name</th>
+              <th>Basic Pay</th>
+              <th>HRA</th>
+              <th>DA</th>
+              <th>PF Ded.</th>
+              <th>ESI</th>
+              <th>TDS</th>
+              <th>Net Amount</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
           <tbody>
-            ${DemoData.staff.slice(0,6).map(s=>`
+            ${payrollItems.map(p => `
               <tr>
-                <td style="font-weight:500;font-size:var(--text-sm)">${s.name}</td>
-                <td style="color:var(--color-success-400)">8</td>
-                <td style="color:var(--color-warning-400)">12</td>
-                <td style="color:var(--color-brand-400)">15</td>
-                <td style="color:var(--color-danger-400)">${Math.floor(Math.random()*8+2)}</td>
+                <td style="font-family:var(--font-mono)">${p.id || 'E-SYD'+Math.floor(Math.random()*1000)}</td>
+                <td style="font-weight:600">${p.name}</td>
+                <td>${Format.currency(p.basic)}</td>
+                <td>${Format.currency(p.hra)}</td>
+                <td>${Format.currency(p.da)}</td>
+                <td style="color:var(--color-danger-400)">-${Format.currency(p.pf)}</td>
+                <td style="color:var(--color-danger-400)">-${Format.currency(p.esi)}</td>
+                <td style="color:var(--color-danger-400)">${p.tds>0?'-'+Format.currency(p.tds):'0.00'}</td>
+                <td style="font-weight:900; color:var(--color-brand-400)">${Format.currency(p.net)}</td>
+                <td><span class="badge badge-success" style="font-size:9px">POSTED</span></td>
+                <td><button class="btn btn-sm btn-ghost" onclick="viewPayslip('${p.name}', ${p.basic}, ${p.hra}, ${p.da}, ${p.pf}, ${p.esi}, ${p.tds}, ${p.net}, ${p.worked})">📄</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--space-6)">
+      <div class="panel-card">
+        <div style="font-weight:700; margin-bottom:15px;">🌴 Leave Entitlements Summary</div>
+        <table class="sap-dense-table">
+          <thead><tr><th>Personnel</th><th>Casual</th><th>Sick</th><th>Earned</th><th>Balance</th></tr></thead>
+          <tbody>
+            ${DemoData.staff.slice(0,5).map(s=>`
+              <tr>
+                <td>${s.name}</td>
+                <td>8</td><td>12</td><td>15</td>
+                <td style="font-weight:700; color:var(--color-success-400)">${35 - Math.floor(Math.random()*10)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="panel-card">
+        <div style="font-weight:700; margin-bottom:15px;">📊 Statutory Contribution Totals</div>
+        <div style="display:flex; flex-direction:column; gap:10px">
+          ${[
+            { l:'EPF Contribution (Employer)', v:Format.currency(payrollItems.reduce((s,p)=>s+p.pf,0)) },
+            { l:'ESI Contribution', v:Format.currency(payrollItems.reduce((s,p)=>s+p.esi,0)) },
+            { l:'Professional Tax', v:Format.currency(DemoData.staff.length * 200) },
+          ].map(c => `
+            <div style="display:flex; justify-content:space-between; font-size:12px; border-bottom:1px solid var(--color-border-subtle); padding-bottom:5px">
+              <span>${c.l}</span><span style="font-weight:700">${c.v}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function processBulkPayroll() {
+  Toast.info('Initiating bulk payroll run for all personnel...');
+  setTimeout(() => Toast.success('Bulk payroll processed! 8 Personnel updated.'), 2000);
+}
+
+function viewPayslip(name, basic, hra, da, pf, esi, tds, net, worked) {
+  Modal.create({
+    title: `Payslip — ${name} (April 2026)`,
+    body: `
+      <div style="font-family:monospace; font-size:12px; border:1px solid var(--color-border-default); padding:20px; background:white; color:black;">
+        <div style="text-align:center; font-weight:800; font-size:14px; margin-bottom:10px;">NEXA ENTERPRISE SOLUTIONS</div>
+        <div style="border-bottom:2px solid black; margin-bottom:15px;"></div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; margin-bottom:15px;">
+          <div>Emp Name: ${name}</div>
+          <div>Worked Days: ${worked}/26</div>
+          <div>Emp ID: E-SYD${Math.floor(Math.random()*1000)}</div>
+          <div>Month: April 2026</div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+          <div>
+            <div style="border-bottom:1px solid black; font-weight:700;">Earnings</div>
+            <div style="display:flex; justify-content:space-between;"><span>Basic Pay</span><span>${Format.currency(basic)}</span></div>
+            <div style="display:flex; justify-content:space-between;"><span>HRA</span><span>${Format.currency(hra)}</span></div>
+            <div style="display:flex; justify-content:space-between;"><span>DA</span><span>${Format.currency(da)}</span></div>
+          </div>
+          <div>
+            <div style="border-bottom:1px solid black; font-weight:700;">Deductions</div>
+            <div style="display:flex; justify-content:space-between;"><span>PF Contribution</span><span>${Format.currency(pf)}</span></div>
+            <div style="display:flex; justify-content:space-between;"><span>ESI</span><span>${Format.currency(esi)}</span></div>
+            <div style="display:flex; justify-content:space-between;"><span>IT / TDS</span><span>${Format.currency(tds)}</span></div>
+          </div>
+        </div>
+        <div style="border-top:2px solid black; margin-top:20px; padding-top:5px; font-weight:800; font-size:14px; display:flex; justify-content:space-between;">
+          <span>Net Salary Paid</span>
+          <span>${Format.currency(net)}</span>
+        </div>
+      </div>
+    `,
+    footer: `<button class="btn btn-primary" onclick="window.print()">🖨️ Print Payslip</button>`
+  });
+}
+
+// ─── PURCHASE ORDERS (SAP MM) ────────────────────────────────
+function renderPurchaseOrders() {
+  const pos = [
+    { id: '4500017777', vendor: 'HUL Suppliers', date: '2026-04-20', total: 42800, status: 'Confirmed', approval: 'Released', branch: 'main' },
+    { id: '4500017778', vendor: 'Heritage Dairy', date: '2026-04-22', total: 15400, status: 'Draft', approval: 'To Release', branch: 'branch1' },
+    { id: '4500017779', vendor: 'Reliance Market', date: '2026-04-24', total: 82000, status: 'In Ship', approval: 'Released', branch: 'branch2' },
+    { id: '4500017780', vendor: 'Nestle India', date: '2026-04-25', total: 29300, status: 'Draft', approval: 'Rejected', branch: 'main' },
+  ];
+
+  const filtered = selectedBranches.includes('all') ? pos : pos.filter(p => selectedBranches.includes(p.branch));
+
+  document.getElementById('page-body').innerHTML = `
+    <div class="page-header">
+      <div><div class="page-heading">Purchasing Documents (MM-PUR)</div><div class="page-meta">Materials Management · Procurement Workflow</div></div>
+      <div style="display:flex;gap:var(--space-3)">
+        <button class="btn btn-secondary" onclick="exportCSV(pos, 'po_master.csv')">📦 Local File...</button>
+        <button class="btn btn-primary" onclick="openPOSAPModal()">+ Create Purchase Order</button>
+      </div>
+    </div>
+
+    <div class="panel-card" style="padding:0">
+      <div style="background:var(--color-bg-tertiary); padding: 8px 16px; border-bottom: 1px solid var(--color-border-default); display: flex; justify-content:space-between;">
+        <div style="font-size:11px; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase;">STND PURCHASE ORDERS</div>
+        <div style="font-size:10px; color:var(--color-text-tertiary); font-weight:600;">CONTEXT: ${selectedBranches.includes('all') ? 'Global' : selectedBranches.join(', ').toUpperCase()}</div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="sap-dense-table">
+          <thead>
+            <tr>
+              <th>Document</th>
+              <th>Vendor Account</th>
+              <th>Doc. Date</th>
+              <th>Purch. Org.</th>
+              <th>Net Amount</th>
+              <th>Status</th>
+              <th>Release Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(p => `
+              <tr>
+                <td style="font-family:var(--font-mono); font-weight:700; color:var(--color-brand-400)">${p.id}</td>
+                <td>${p.vendor}</td>
+                <td>${Format.date(p.date)}</td>
+                <td>3000</td>
+                <td style="font-weight:700">${Format.currency(p.total)}</td>
+                <td><span class="badge badge-info" style="font-size:9px">${p.status.toUpperCase()}</span></td>
+                <td>
+                  <span class="badge badge-${p.approval==='Released'?'success':p.approval==='Rejected'?'danger':'warning'}" style="font-size:9px">
+                    ${p.approval}
+                  </span>
+                </td>
+                <td style="text-align:center"><button class="btn btn-sm btn-ghost" style="padding:2px" onclick="Toast.info('Opening Object ${p.id}...')">🔍</button></td>
               </tr>
             `).join('')}
           </tbody>
@@ -928,279 +1035,63 @@ function renderPayroll() {
   `;
 }
 
-function viewPayslip(name, basic, hra, da, pf, esi, tds, net, worked) {
-  const month = document.getElementById('payroll-month')?.value || 'April 2026';
-  Modal.create({
-    title: `📄 Payslip — ${name} · ${month}`,
+function openPOSAPModal() {
+  const modal = Modal.create({
+    title: 'Create Standard Purchase Order (ME21N)',
+    size: 'lg',
     body: `
-      <div style="background:var(--color-bg-secondary);border-radius:var(--radius-xl);padding:var(--space-6);font-family:monospace">
-        <div style="text-align:center;margin-bottom:var(--space-4)">
-          <div style="font-size:var(--text-lg);font-weight:700;font-family:var(--font-display)">NexaERP Store</div>
-          <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">Payslip for ${month} · ${worked}/26 days worked</div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)">
-          <div>
-            <div style="font-size:var(--text-xs);font-weight:700;margin-bottom:var(--space-2);color:var(--color-success-400)">EARNINGS</div>
-            ${[['Basic Salary',basic],['HRA',hra],['DA',da]].map(([l,v])=>`
-              <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:var(--text-sm);border-bottom:1px solid var(--color-border-subtle)">
-                <span>${l}</span><span>${Format.currency(v)}</span>
-              </div>
-            `).join('')}
-            <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;border-top:2px solid var(--color-border-default);margin-top:4px">
-              <span>Gross</span><span style="color:var(--color-success-400)">${Format.currency(basic+hra+da)}</span>
-            </div>
-          </div>
-          <div>
-            <div style="font-size:var(--text-xs);font-weight:700;margin-bottom:var(--space-2);color:var(--color-danger-400)">DEDUCTIONS</div>
-            ${[['PF (12%)',pf],['ESI (1.75%)',esi],['TDS',tds]].map(([l,v])=>`
-              <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:var(--text-sm);border-bottom:1px solid var(--color-border-subtle)">
-                <span>${l}</span><span style="color:var(--color-danger-400)">-${Format.currency(v)}</span>
-              </div>
-            `).join('')}
-            <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;border-top:2px solid var(--color-border-default);margin-top:4px">
-              <span>Total Deductions</span><span style="color:var(--color-danger-400)">-${Format.currency(pf+esi+tds)}</span>
-            </div>
-          </div>
-        </div>
-        <div style="background:rgba(99,102,241,0.1);border-radius:var(--radius-lg);padding:var(--space-4);margin-top:var(--space-4);text-align:center">
-          <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">NET TAKE-HOME PAY</div>
-          <div style="font-size:var(--text-3xl);font-weight:900;color:var(--color-brand-400)">${Format.currency(net)}</div>
-        </div>
-      </div>
+      <div id="po-sap-container"></div>
     `,
     footer: `
-      <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Close</button>
-      <button class="btn btn-primary" onclick="Toast.success('Payslip sent to ${name}!');document.querySelector('.modal-backdrop').remove()">📧 Email Payslip</button>
+      <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Cancel Document</button>
+      <button class="btn btn-secondary" onclick="Toast.info('Hold document successful.')">📦 Hold Document</button>
+      <button class="btn btn-primary" onclick="Toast.success('PO 4500017781 Created!');document.querySelector('.modal-backdrop').remove()">💾 Post Document</button>
     `
   });
-}
 
-function processBulkPayroll() {
-  const total = DemoData.staff.reduce((s,e)=>{const b=e.salary;return s+b+b*0.4-b*0.12-b*0.0175;},0);
-  Modal.create({
-    title: '💳 Process Bulk Payroll',
-    body: `
-      <div style="text-align:center;padding:var(--space-6)">
-        <div style="font-size:48px;margin-bottom:var(--space-4)">💳</div>
-        <div style="font-weight:700;font-size:var(--text-xl);margin-bottom:var(--space-2)">April 2026 Payroll</div>
-        <div style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-bottom:var(--space-4)">${DemoData.staff.length} employees · Ready to process</div>
-        <div style="font-size:var(--text-3xl);font-weight:900;color:var(--color-brand-400)">${Format.currency(total)}</div>
-        <div style="font-size:var(--text-xs);color:var(--color-text-secondary);margin-top:4px">Total Net Payout</div>
+  const tabs = [
+    { id: 'po-header', label: 'Header (General)', content: `
+      <div class="sap-form-grid">
+        <div><label class="sap-field-label">Vendor Account</label><select class="form-select">${DemoData.suppliers.map(s=>`<option>${s.name}</option>`).join('')}</select></div>
+        <div><label class="sap-field-label">Purch. Org.</label><input type="text" class="form-input" value="3000" /></div>
+        <div><label class="sap-field-label">Purch. Group</label><input type="text" class="form-input" value="001" /></div>
+        <div><label class="sap-field-label">Company Code</label><input type="text" class="form-input" value="1000" /></div>
+        <div><label class="sap-field-label">Doc. Date</label><input type="date" class="form-input" value="${new Date().toISOString().split('T')[0]}" /></div>
+        <div><label class="sap-field-label">Payment Terms</label><input type="text" class="form-input" value="ZT01" /></div>
       </div>
-    `,
-    footer: `
-  });
-}
-
-// ─── BRANCH MANAGEMENT & PERMISSIONS ─────────────────────────
-window.currentBranch = 'all';
-
-function handleBranchChange() {
-  const selector = document.getElementById('store-selector');
-  if(!selector) return;
-  window.currentBranch = selector.value;
-  const branchName = selector.options[selector.selectedIndex].text;
-  
-  Toast.info(`🔄 Switching to ${branchName}...`);
-  
-  // Refresh current view
-  const currentView = window.location.hash.slice(1) || 'dashboard';
-  setTimeout(() => {
-    navigateTo(currentView);
-    Toast.success(`✅ Active Workspace: ${branchName}`);
-  }, 400);
-}
-
-// Global data filter helper
-function getFilteredData(dataArray, branchKey = 'branch') {
-  if (window.currentBranch === 'all') return dataArray;
-  return dataArray.filter(item => item[branchKey] === window.currentBranch || !item[branchKey]);
-}
-
-// ─── UNIFIED MESSENGER (ENTERPRISE WORK ZONE) ─────────────────
-function renderChat() {
-  const contacts = [
-    { name: 'HUL Suppliers', role: 'Vendor', avatar: '🚛', online: true, lastMsg: 'Your PO #4421 is confirmed.' },
-    { name: 'Store Manager - North', role: 'Employee', avatar: '👨', online: true, lastMsg: 'Closing stock updated.' },
-    { name: 'Arun (Accountant)', role: 'Employee', avatar: '👨', online: false, lastMsg: 'GST challan is ready.' },
-    { name: 'NexaSupport AI', role: 'Assistant', avatar: '🤖', online: true, lastMsg: 'How can I help you today?' },
-    { name: 'Parle Distribution', role: 'Vendor', avatar: '🚛', online: false, lastMsg: 'Prices updated for biscuits.' },
-  ];
-
-  document.getElementById('page-body').innerHTML = `
-    <div style="display:grid;grid-template-columns:300px 1fr;height:calc(100vh - 180px);background:var(--color-bg-elevated);border-radius:var(--radius-xl);overflow:hidden;border:1px solid var(--color-border-default)">
-      <!-- Sidebar -->
-      <div style="border-right:1px solid var(--color-border-subtle);display:flex;flex-direction:column">
-        <div style="padding:var(--space-4);border-bottom:1px solid var(--color-border-subtle)">
-          <div style="font-weight:800;font-size:var(--text-lg);margin-bottom:var(--space-1)">NexaMessenger</div>
-          <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">Secure Business Communication</div>
-        </div>
-        <div style="padding:var(--space-3)">
-          <input type="search" class="form-input" placeholder="Search contacts..." style="font-size:var(--text-xs);border-radius:var(--radius-full)" />
-        </div>
-        <div style="flex:1;overflow-y:auto">
-          ${contacts.map((c, i) => `
-            <div style="padding:var(--space-4);border-bottom:1px solid var(--color-border-subtle);cursor:pointer;display:flex;gap:var(--space-3);${i===0?'background:rgba(99,102,241,0.08)':''}" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='${i===0?'rgba(99,102,241,0.08)':'transparent'}'">
-              <div style="width:40px;height:40px;border-radius:50%;background:var(--color-bg-secondary);display:flex;align-items:center;justify-content:center;font-size:20px;position:relative">
-                ${c.avatar}
-                ${c.online?`<div style="position:absolute;bottom:0;right:0;width:12px;height:12px;background:var(--color-success-400);border:2px solid var(--color-bg-elevated);border-radius:50%"></div>`:''}
-              </div>
-              <div style="flex:1;min-width:0">
-                <div style="display:flex;justify-content:space-between;margin-bottom:2px">
-                  <span style="font-weight:700;font-size:var(--text-sm)">${c.name}</span>
-                  <span style="font-size:10px;color:var(--color-text-secondary)">12:45</span>
-                </div>
-                <div style="font-size:var(--text-xs);color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.lastMsg}</div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-
-      <!-- Chat Window -->
-      <div style="display:flex;flex-direction:column">
-        <!-- Header -->
-        <div style="padding:var(--space-4);border-bottom:1px solid var(--color-border-subtle);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.01)">
-          <div style="display:flex;align-items:center;gap:var(--space-3)">
-            <div style="width:36px;height:36px;border-radius:50%;background:var(--gradient-brand);display:flex;align-items:center;justify-content:center;font-size:18px">🚛</div>
-            <div>
-              <div style="font-weight:700;font-size:var(--text-sm)">HUL Suppliers</div>
-              <div style="font-size:10px;color:var(--color-success-400)">● Active Now · Vendor ID #9921</div>
-            </div>
-          </div>
-          <div style="display:flex;gap:var(--space-2)">
-            <button class="btn btn-icon btn-ghost">📞</button>
-            <button class="btn btn-icon btn-ghost">📂</button>
-            <button class="btn btn-icon btn-ghost">⚙️</button>
-          </div>
-        </div>
-
-        <!-- Messages -->
-        <div style="flex:1;padding:var(--space-6);overflow-y:auto;display:flex;flex-direction:column;gap:var(--space-4);background:rgba(0,0,0,0.1)">
-          <div style="align-self:flex-start;max-width:70%;padding:var(--space-3) var(--space-4);background:var(--color-bg-secondary);border-radius:0 16px 16px 16px;font-size:var(--text-sm)">
-            Hi Arjun, your PO #4421 for "Dairy & Staples" has been confirmed. Shipping today.
-            <div style="font-size:10px;text-align:right;margin-top:4px;color:var(--color-text-secondary)">10:15 AM</div>
-          </div>
-          <div style="align-self:flex-end;max-width:70%;padding:var(--space-3) var(--space-4);background:var(--color-brand-600);color:white;border-radius:16px 16px 0 16px;font-size:var(--text-sm)">
-            Great, thanks. Please ensure the invoice has the correct GSTIN: 27AABCN1234Z1ZI.
-            <div style="font-size:10px;text-align:right;margin-top:4px;opacity:0.8">10:20 AM</div>
-          </div>
-          <div style="align-self:flex-start;max-width:70%;padding:var(--space-3) var(--space-4);background:var(--color-bg-secondary);border-radius:0 16px 16px 16px;font-size:var(--text-sm)">
-            Noted. You will receive it in the shipment box.
-            <div style="font-size:10px;text-align:right;margin-top:4px;color:var(--color-text-secondary)">10:22 AM</div>
-          </div>
-          <div style="text-align:center;font-size:10px;color:var(--color-text-tertiary);margin:var(--space-4) 0;text-transform:uppercase;letter-spacing:1px">Today</div>
-          <div style="align-self:flex-start;max-width:70%;padding:var(--space-3) var(--space-4);background:var(--color-bg-secondary);border-radius:0 16px 16px 16px;font-size:var(--text-sm)">
-            Tracking: #BLUEDART-542100 - ETA 5 PM Tomorrow.
-            <div style="font-size:10px;text-align:right;margin-top:4px;color:var(--color-text-secondary)">12:30 PM</div>
-          </div>
-        </div>
-
-        <!-- Input -->
-        <div style="padding:var(--space-4);border-top:1px solid var(--color-border-subtle);display:flex;gap:var(--space-3);align-items:center">
-          <button class="btn btn-icon btn-ghost">➕</button>
-          <input type="text" class="form-input" style="border-radius:var(--radius-full);background:var(--color-bg-secondary)" placeholder="Type a message or share a document..." onkeydown="if(event.key==='Enter'){Toast.success('Message sent!');this.value=''}" />
-          <button class="btn btn-primary" style="padding:var(--space-2) var(--space-6);border-radius:var(--radius-full)" onclick="Toast.success('Message sent!')">Send</button>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-// ─── PURCHASE ORDERS & APPROVAL WORKFLOW ──────────────────────
-function renderPurchaseOrders() {
-  const pos = [
-    { id: 'PO-4421', vendor: 'HUL Suppliers', date: '2026-04-20', total: 42800, status: 'Confirmed', approval: 'Approved', branch: 'main' },
-    { id: 'PO-4422', vendor: 'Heritage Dairy', date: '2026-04-22', total: 15400, status: 'Draft', approval: 'Pending', branch: 'branch1' },
-    { id: 'PO-4423', vendor: 'Reliance Market', date: '2026-04-24', total: 82000, status: 'Awaiting Ship', approval: 'Approved', branch: 'branch2' },
-    { id: 'PO-4424', vendor: 'Nestle India', date: '2026-04-25', total: 29300, status: 'Draft', approval: 'Rejected', branch: 'main' },
-    { id: 'PO-4425', vendor: 'ITC Ltd.', date: '2026-04-25', total: 54000, status: 'Draft', approval: 'Pending', branch: 'branch1' },
-  ];
-
-  const filtered = getFilteredData(pos);
-
-  document.getElementById('page-body').innerHTML = `
-    <div class="page-header">
-      <div><div class="page-heading">Purchase Orders</div><div class="page-meta">Procurement & Approval Workflows</div></div>
-      <div style="display:flex;gap:var(--space-3)">
-        <button class="btn btn-secondary" onclick="downloadReport('suppliers')">Supplier Base</button>
-        <button class="btn btn-primary" onclick="openPOModal()">+ Create Purchase Order</button>
-      </div>
-    </div>
-
-    <!-- PO Summary -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-4);margin-bottom:var(--space-6)">
-      ${[
-        { l: 'Total POs', v: filtered.length, icon: '📋', color: 'var(--color-brand-400)' },
-        { l: 'Pending Approval', v: filtered.filter(p=>p.approval==='Pending').length, icon: '⏳', color: 'var(--color-warning-400)' },
-        { l: 'Total Committed', v: Format.currency(filtered.reduce((s,p)=>s+p.total,0)), icon: '💰', color: 'var(--color-success-400)' },
-        { l: 'Rejected/Canceled', v: filtered.filter(p=>p.approval==='Rejected').length, icon: '❌', color: 'var(--color-danger-400)' },
-      ].map(s => `
-        <div class="stat-card" style="padding:var(--space-5)">
-          <div style="font-size:24px;margin-bottom:var(--space-2)">${s.icon}</div>
-          <div style="font-size:var(--text-xs);color:var(--color-text-secondary);font-weight:600">${s.l}</div>
-          <div style="font-size:var(--text-xl);font-weight:800;color:${s.color}">${s.v}</div>
-        </div>
-      `).join('')}
-    </div>
-
-    <div class="panel-card" style="overflow-x:auto">
-      <table class="data-table">
-        <thead><tr><th>PO Number</th><th>Vendor</th><th>Date</th><th>Branch</th><th>Total Amount</th><th>Fulfillment</th><th>Approval Status</th><th>Actions</th></tr></thead>
+    `},
+    { id: 'po-items', label: 'Item Overview', content: `
+      <table class="sap-dense-table">
+        <thead>
+          <tr><th>Line</th><th>Material</th><th>Short Text</th><th>PO Quantity</th><th>Net Price</th><th>Total</th></tr>
+        </thead>
         <tbody>
-          ${filtered.map(p => `
-            <tr>
-              <td style="font-family:monospace;font-weight:700">${p.id}</td>
-              <td style="font-weight:600">${p.vendor}</td>
-              <td style="font-size:var(--text-xs)">${Format.date(p.date)}</td>
-              <td><span class="chip">${p.branch.toUpperCase()}</span></td>
-              <td style="font-weight:700">${Format.currency(p.total)}</td>
-              <td><span class="badge badge-${p.status==='Confirmed'?'success':p.status==='Draft'?'secondary':'primary'}">${p.status}</span></td>
-              <td>
-                <span class="badge badge-${p.approval==='Approved'?'success':p.approval==='Rejected'?'danger':'warning'}">
-                  ${p.approval}
-                </span>
-              </td>
-              <td>
-                <div style="display:flex;gap:var(--space-2)">
-                  ${p.approval === 'Pending' ? `
-                    <button class="btn btn-sm btn-primary" onclick="handlePOApproval('${p.id}', 'Approved')">Approve</button>
-                    <button class="btn btn-sm btn-danger" onclick="handlePOApproval('${p.id}', 'Rejected')">Reject</button>
-                  ` : `
-                    <button class="btn btn-sm btn-secondary" onclick="Toast.info('Viewing details of ${p.id}...')">View</button>
-                  `}
-                </div>
-              </td>
-            </tr>
-          `).join('')}
+          <tr>
+            <td>10</td>
+            <td><input type="text" class="form-input" style="padding:2px" value="WH-102" /></td>
+            <td>Warehouse Staples Package</td>
+            <td><input type="number" class="form-input" style="padding:2px" value="50" /></td>
+            <td>280.00</td>
+            <td>14,000.00</td>
+          </tr>
+          <tr><td>20</td><td><input type="text" class="form-input" style="padding:2px" /></td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>30</td><td><input type="text" class="form-input" style="padding:2px" /></td><td></td><td></td><td></td><td></td></tr>
         </tbody>
       </table>
-    </div>
-  `;
-}
-
-function handlePOApproval(id, status) {
-  Toast.success(`✅ ${id} has been ${status.toLowerCase()}!`);
-  renderPurchaseOrders();
-}
-
-function openPOModal() {
-  Modal.create({
-    title: 'Create Purchase Order',
-    body: `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)">
-        <div class="form-group"><label class="form-label">Vendor</label><select class="form-select">${DemoData.suppliers.map(s=>`<option>${s.name}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Branch</label><select id="po-branch" class="form-select"><option value="main">Main Store</option><option value="branch1">Warehouse A</option><option value="branch2">Retail B</option></select></div>
-        <div class="form-group" style="grid-column:1/-1"><label class="form-label">Items (Product Selection)</label><textarea class="form-input" placeholder="List items or search here..." rows="3"></textarea></div>
-        <div class="form-group"><label class="form-label">Total Estimated Value (₹)</label><input type="number" class="form-input" /></div>
-        <div class="form-group"><label class="form-label">Request Type</label><select class="form-select"><option>Standard Stock</option><option>Direct Purchase</option><option>Consignment</option></select></div>
+      <button class="btn btn-sm btn-ghost mt-2" onclick="Toast.info('Adding line...')">+ Append Item</button>
+    `},
+    { id: 'po-org', label: 'Org. Data', content: `
+      <div class="sap-form-grid">
+        <div><label class="sap-field-label">Plant</label><input type="text" class="form-input" value="3001" /></div>
+        <div><label class="sap-field-label">Storage Loc.</label><input type="text" class="form-input" value="SL01" /></div>
       </div>
-    `,
-    footer: `
-      <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="Toast.success('PO Created & Sent for Approval!');document.querySelector('.modal-backdrop').remove();renderPurchaseOrders();">Submit for Approval</button>
-    `
-  });
+      <div style="margin-top:20px; font-size:12px; border-top:1px solid var(--color-border-subtle); padding-top:10px;">
+        <span style="color:var(--color-text-secondary)">Tax Jurisdiction:</span> 2700-120 (GST Reg)
+      </div>
+    `}
+  ];
+
+  SAP_UI.renderTabs(tabs, 'po-sap-container');
 }
 
 // ─── PERSONNEL & ROLES ────────────────────────────────────────
@@ -1254,3 +1145,166 @@ function renderPersonnel() {
   `;
 }
 
+// ─── APPROVAL WORKFLOW (SAP RELEASE STRATEGY) ────────────────
+function renderApprovals() {
+  const requests = [
+    { id: 'REL-001', type: 'Purchase Order', document: '4500017778', requester: 'Sita Devi', amount: 15400, priority: 'High', date: '2026-04-24' },
+    { id: 'REL-002', type: 'Petty Cash', document: 'EXP-9921', requester: 'Ravi Kumar', amount: 2500, priority: 'Medium', date: '2026-04-25' },
+    { id: 'REL-003', type: 'New Asset', document: 'AST-102', requester: 'Store Manager', amount: 45000, priority: 'Critical', date: '2026-04-25' },
+  ];
+
+  document.getElementById('page-body').innerHTML = `
+    <div class="page-header">
+      <div><div class="page-heading">Global Release Strategy</div><div class="page-meta">Approval Inbox · Release Codes: L1, L2, L3</div></div>
+    </div>
+
+    <div style="display:grid; grid-template-columns: 1fr 340px; gap: var(--space-6);">
+      <div class="panel-card" style="padding:0">
+        <div style="background:var(--color-bg-tertiary); padding: 8px 16px; border-bottom: 1px solid var(--color-border-default); font-weight:700; font-size:11px; text-transform:uppercase;">Pending Releases</div>
+        <div style="overflow-x:auto">
+          <table class="sap-dense-table">
+            <thead>
+              <tr>
+                <th>Request ID</th>
+                <th>Type</th>
+                <th>Requisitioner</th>
+                <th>Net Value</th>
+                <th>Priority</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${requests.map(r => `
+                <tr>
+                  <td>${r.id}</td>
+                  <td style="font-weight:600">${r.type} <span style="font-size:10px; color:var(--color-brand-400)">(${r.document})</span></td>
+                  <td>${r.requester}</td>
+                  <td style="font-weight:800">${Format.currency(r.amount)}</td>
+                  <td><span class="chip" style="background:${r.priority==='Critical'?'var(--color-danger-900)':'transparent'}; color:${r.priority==='Critical'?'white':'inherit'}">${r.priority}</span></td>
+                  <td>${Format.date(r.date)}</td>
+                  <td>
+                    <div style="display:flex; gap:4px">
+                      <button class="btn btn-sm btn-success" onclick="Toast.success('Released document ${r.document}')">✅</button>
+                      <button class="btn btn-sm btn-danger" onclick="Toast.error('Rejected request ${r.id}')">❌</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel-card">
+        <div style="font-weight:700; margin-bottom:15px;">📥 Release Inbox Stats</div>
+        <div style="display:flex; flex-direction:column; gap:12px">
+          ${[
+            { label: 'Awaiting Action', val: '3', color: 'var(--color-warning-400)' },
+            { label: 'Released (MTD)', val: '24', color: 'var(--color-success-400)' },
+            { label: 'Total Volume', val: '₹4.2L', color: 'var(--color-brand-400)' },
+          ].map(s => `
+            <div style="padding:15px; background:var(--color-bg-secondary); border-radius:12px; text-align:center;">
+              <div style="font-size:10px; color:var(--color-text-secondary); text-transform:uppercase;">${s.label}</div>
+              <div style="font-size:24px; font-weight:800; color:${s.color}">${s.val}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── EXPORT CONTROL CENTER ──────────────────────────────────
+function renderExport() {
+  document.getElementById('page-body').innerHTML = `
+    <div class="page-header">
+      <div><div class="page-heading">Export & Data Exchange</div><div class="page-meta">Unified Governance · SAP S/4HANA Compatibility</div></div>
+    </div>
+
+    <div class="grid grid-3col">
+      <div class="panel-card">
+        <div style="font-weight:700; margin-bottom:15px;">📦 Export Formats</div>
+        <div style="display:flex; flex-direction:column; gap:8px">
+          <button class="btn btn-outline btn-full" style="justify-content:flex-start" onclick="simulateExport('Excel')">📊 Microsoft Excel (.xlsx)</button>
+          <button class="btn btn-outline btn-full" style="justify-content:flex-start" onclick="simulateExport('PDF')">📋 Adobe PDF (.pdf)</button>
+          <button class="btn btn-outline btn-full" style="justify-content:flex-start" onclick="simulateExport('CSV')">📑 Flat File / CSV (.csv)</button>
+          <button class="btn btn-outline btn-full" style="justify-content:flex-start" onclick="simulateExport('JSON')">💻 Developer JSON (.json)</button>
+        </div>
+      </div>
+
+      <div class="panel-card grid-col-span-2">
+        <div style="font-weight:700; margin-bottom:15px;">🛠️ Custom Data Requisition</div>
+        <div class="form-grid" style="grid-template-columns: 1fr 1fr">
+          <div class="form-group">
+            <label class="form-label">Data Range</label>
+            <input type="date" class="form-input" id="export-from" value="2026-04-01">
+          </div>
+          <div class="form-group">
+            <label class="form-label">To</label>
+            <input type="date" class="form-input" id="export-to" value="2026-04-25">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Module Filter</label>
+            <select class="form-select" id="export-module">
+              <option>All Transactions</option>
+              <option>Payroll Only</option>
+              <option>Procurement (MM)</option>
+              <option>Sales (SD)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Entity Restriction</label>
+            <select class="form-select" id="export-entity">
+              <option>Global Business Area</option>
+              <option>Main Branch</option>
+              <option>Retail B</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:20px; display:flex; gap:10px">
+          <button class="btn btn-primary" onclick="simulateExport('Custom Job')">Execute Export Job</button>
+          <button class="btn btn-ghost" onclick="Toast.info('Previewing first 100 rows...')">Live Preview</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="export-progress-container" style="margin-top:20px; display:none">
+      <div class="panel-card" style="border:1px solid var(--color-brand-500)">
+        <div style="display:flex; justify-content:space-between; margin-bottom:10px">
+          <span style="font-weight:700" id="export-msg">Processing Export...</span>
+          <span style="font-weight:800; color:var(--color-brand-400)" id="export-pct">0%</span>
+        </div>
+        <div class="progress-bar" style="height:8px">
+          <div class="progress-fill" id="export-bar" style="width:0%; background:var(--gradient-brand)"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function simulateExport(format) {
+  const container = document.getElementById('export-progress-container');
+  const bar = document.getElementById('export-bar');
+  const pct = document.getElementById('export-pct');
+  const msg = document.getElementById('export-msg');
+  
+  container.style.display = 'block';
+  msg.textContent = `Gathering data for ${format} export...`;
+  
+  let p = 0;
+  const interval = setInterval(() => {
+    p += Math.random() * 15;
+    if (p >= 100) {
+      p = 100;
+      clearInterval(interval);
+      Toast.success(`${format} export completed successfully!`);
+      setTimeout(() => { container.style.display = 'none'; }, 2000);
+    }
+    bar.style.width = p + '%';
+    pct.textContent = Math.round(p) + '%';
+    
+    if (p > 30) msg.textContent = 'Formatting records...';
+    if (p > 70) msg.textContent = 'Generating final file...';
+  }, 400);
+}
