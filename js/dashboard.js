@@ -113,37 +113,79 @@ function toggleNotifications() {
   notifOpen = !notifOpen;
   const panel = document.getElementById('notif-panel');
   panel.style.display = notifOpen ? 'block' : 'none';
-
-  if (notifOpen) renderNotifPanel();
+  if (notifOpen) loadNotifPanel();
 }
 
-function renderNotifPanel() {
+async function loadNotifPanel() {
   const list = document.getElementById('notif-list');
   if (!list) return;
 
-  const notifs = DemoData.notifications;
-  list.innerHTML = notifs.map(n => `
-    <div class="notif-item ${n.read ? '' : 'unread'}" onclick="markNotifRead('${n.id}')">
-      <div class="notif-icon" style="background:${n.type==='warning'?'rgba(234,179,8,0.15)':n.type==='success'?'rgba(34,197,94,0.15)':'rgba(99,102,241,0.15)'}">${n.icon}</div>
-      <div class="notif-content">
-        <div class="notif-title">${n.title}</div>
-        <div style="font-size:var(--text-xs);color:var(--color-text-secondary);margin-bottom:2px">${n.message}</div>
-        <div class="notif-time">${Format.relativeTime(n.time)}</div>
+  // Try real API first, fallback to demo data
+  let notifications = [];
+  try {
+    const res = await Http.get('/notifications?limit=20');
+    if (res?.success) {
+      notifications = res.data;
+      if (res.meta?.unreadCount !== undefined) {
+        NotificationManager._count = res.meta.unreadCount;
+        NotificationManager.updateBadge();
+      }
+    }
+  } catch {}
+
+  // Fallback to demo if empty
+  if (!notifications.length) notifications = DemoData.notifications.map(n => ({
+    _id: n.id, type: n.type || 'system', priority: n.type === 'warning' ? 'high' : 'medium',
+    title: n.title, message: n.message, icon: n.icon, isRead: n.read, createdAt: n.time,
+    actionLabel: n.type === 'warning' ? 'Order Stock' : null, relatedProduct: n.productId
+  }));
+
+  if (!notifications.length) {
+    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--color-text-secondary);font-size:13px">🎉 No new notifications</div>';
+    return;
+  }
+
+  const prioColors = { critical:'var(--color-danger-400)', high:'var(--color-warning-400)', medium:'var(--color-brand-400)', low:'var(--color-text-secondary)' };
+
+  list.innerHTML = notifications.map(n => `
+    <div class="notif-item ${n.isRead ? '' : 'unread'}" style="padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--color-border-subtle);cursor:pointer" onclick="markNotifRead('${n._id}')">
+      <div style="display:flex;gap:var(--space-3);align-items:flex-start">
+        <div style="width:36px;height:36px;border-radius:var(--radius-lg);background:rgba(99,102,241,0.12);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${n.icon || '🔔'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:var(--text-xs);font-weight:${n.isRead ? '500' : '700'};margin-bottom:2px;${n.priority === 'critical' ? 'color:var(--color-danger-400)' : ''};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.title}</div>
+          <div style="font-size:11px;color:var(--color-text-secondary);line-height:1.4;margin-bottom:4px">${n.message}</div>
+          <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
+            <span style="font-size:10px;color:var(--color-text-tertiary)">${Format.relativeTime(n.createdAt)}</span>
+            ${n.priority === 'critical' ? '<span style="font-size:10px;font-weight:700;color:var(--color-danger-400);background:rgba(239,68,68,0.1);padding:1px 6px;border-radius:99px">CRITICAL</span>' : ''}
+            ${!n.isRead ? '<span style="width:6px;height:6px;border-radius:50%;background:var(--color-brand-500);display:inline-block;flex-shrink:0"></span>' : ''}
+          </div>
+          ${n.actionLabel && !n.poCreated ? `<button class="btn btn-sm btn-primary" style="margin-top:var(--space-2);font-size:11px" onclick="event.stopPropagation();createPOFromNotif('${n._id}','${n.relatedProduct}')">📋 ${n.actionLabel}</button>` : ''}
+        </div>
       </div>
-      ${!n.read ? '<div class="status-dot status-online" style="flex-shrink:0"></div>' : ''}
     </div>
   `).join('');
 }
 
-function markAllRead() {
-  DemoData.notifications.forEach(n => n.read = true);
-  document.querySelector('.notif-badge').style.display = 'none';
-  renderNotifPanel();
+async function markNotifRead(id) {
+  try {
+    await Http.patch(`/notifications/${id}/read`);
+    NotificationManager._count = Math.max(0, NotificationManager._count - 1);
+    NotificationManager.updateBadge();
+  } catch {}
+  // Update UI
+  loadNotifPanel();
 }
 
-function markNotifRead(id) {
-  const n = DemoData.notifications.find(n => n.id === id);
-  if (n) n.read = true;
+async function createPOFromNotif(notifId, productId) {
+  try {
+    const res = await Http.post(`/notifications/${notifId}/create-po`);
+    if (res?.success) {
+      Toast.success(`✅ ${res.message || 'Purchase Order created!'} `);
+      await loadNotifPanel();
+    }
+  } catch(e) {
+    Toast.error('Could not create PO: ' + e.message);
+  }
 }
 
 // Close notifications when clicking outside
@@ -154,6 +196,43 @@ document.addEventListener('click', (e) => {
     if (panel) panel.style.display = 'none';
   }
 });
+
+// ─── THEME PICKER ──────────────────────────────────────────
+const THEME_META = {
+  dark:   { label: 'Dark',    emoji: '🌑', preview: '#0a0a0f' },
+  light:  { label: 'Light',   emoji: '☀️', preview: '#f8fafc' },
+  ocean:  { label: 'Ocean',   emoji: '🌊', preview: '#040d14' },
+  forest: { label: 'Forest',  emoji: '🌿', preview: '#050e06' },
+  sunset: { label: 'Sunset',  emoji: '🌅', preview: '#140808' },
+};
+
+function openThemePicker() {
+  const modal = document.getElementById('theme-picker-modal');
+  const grid  = document.getElementById('theme-grid');
+  if (!grid) return;
+
+  grid.innerHTML = Object.entries(THEME_META).map(([key, meta]) => `
+    <button onclick="applyTheme('${key}')" class="theme-btn" data-theme="${key}"
+      style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:var(--space-4);border-radius:var(--radius-xl);border:2px solid ${ThemeManager.current===key?'var(--color-brand-500)':'var(--color-border-default)'};background:${meta.preview};cursor:pointer;transition:all 0.2s">
+      <span style="font-size:28px">${meta.emoji}</span>
+      <span style="font-size:var(--text-xs);font-weight:600;color:${key==='light'?'#0f172a':'#f8fafc'}">${meta.label}</span>
+    </button>
+  `).join('');
+
+  modal.style.display = 'flex';
+}
+
+function applyTheme(name) {
+  ThemeManager.apply(name);
+  // Save to backend if logged in
+  Http.patch('/auth/theme', { theme: name }).catch(() => {});
+  // Update grid
+  document.querySelectorAll('.theme-btn').forEach(b => {
+    b.style.borderColor = b.dataset.theme === name ? 'var(--color-brand-500)' : 'rgba(255,255,255,0.1)';
+  });
+  Toast.success(`Theme changed to ${THEME_META[name]?.label || name}!`);
+}
+
 
 // ─── AI Assistant ──────────────────────────────────────────
 function openAIAssistant() {
@@ -583,7 +662,15 @@ function generatePO() {
 
 function quickReorder(productId) {
   const p = DemoData.products.find(pr => pr.id === productId);
-  if (p) Toast.success(`Reorder initiated for ${p.name}!`);
+  if (p) {
+    // Try real backend
+    Http.post('/notifications', {
+      type: 'vendor_po',
+      title: `Manual Reorder: ${p.name}`,
+      message: `Reorder initiated for ${p.name} from ${p.supplierName || 'supplier'}`
+    }).catch(() => {});
+    Toast.success(`🚀 Reorder initiated for ${p.name}!`);
+  }
 }
 
 function getTimeOfDay() {
@@ -593,16 +680,65 @@ function getTimeOfDay() {
   return 'evening';
 }
 
+// ─── Refresh inventory stock cell live ─────────────────────
+function refreshInventoryStock(data) {
+  const cells = document.querySelectorAll(`[data-product-id="${data.productId}"]`);
+  cells.forEach(cell => {
+    cell.textContent = data.newStock;
+    cell.style.color = data.newStock === 0 ? 'var(--color-danger-400)' : 'var(--color-success-400)';
+  });
+}
+
 // ─── Init ──────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   if (!Auth.requireAuth()) return;
+
+  // Init theme from saved preference
+  ThemeManager.init();
+
+  // Load user info into sidebar
   loadUserInfo();
+
+  // Try to refresh user data from backend
+  try {
+    const me = await Http.get('/auth/me');
+    if (me?.success && me.user) {
+      Auth.setSession(Auth.getToken(), me.user);
+      loadUserInfo();
+      // Apply backend theme preference
+      if (me.user.preferences?.theme) ThemeManager.apply(me.user.preferences.theme);
+    }
+  } catch {}
+
+  // Init socket for real-time updates
+  SocketManager.connect();
+
+  // Render dashboard first
   renderDashboard();
-  renderNotifPanel();
+
+  // Load notifications badge
+  NotificationManager.init();
 
   // Global search
   document.getElementById('global-search')?.addEventListener('input', debounce((e) => {
     const q = e.target.value.trim();
-    if (q.length > 2) Toast.info(`Searching for "${q}"...`, 1500);
+    if (q.length > 2) {
+      // Search in current module
+      const searchInputs = document.querySelectorAll('#inventory-search, #pos-search, #order-search');
+      searchInputs.forEach(inp => {
+        if (document.contains(inp)) {
+          inp.value = q;
+          inp.dispatchEvent(new Event('input'));
+        }
+      });
+    }
   }, 400));
+
+  // Check for deep link via hash
+  const hash = window.location.hash.replace('#', '');
+  if (hash && ['dashboard','pos','inventory','orders','customers','staff','accounting','payroll','suppliers','reports','notifications','settings','analytics'].includes(hash)) {
+    navigateTo(hash);
+  }
+
+  window.currentModule = 'dashboard';
 });

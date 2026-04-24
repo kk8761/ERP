@@ -10,6 +10,11 @@
   <link rel="stylesheet" href="css/design-system.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
   <link rel="stylesheet" href="css/modules.css" />
+  <!-- Backend config — change NEXAERP_API to your Render.com URL -->
+  <script>
+    window.NEXAERP_API    = 'https://nexaerp-api.onrender.com/api';
+    window.NEXAERP_SOCKET = 'https://nexaerp-api.onrender.com';
+  </script>
 </head>
 <body>
 
@@ -193,19 +198,24 @@
           <option>🏪 Branch 2</option>
         </select>
 
+        <!-- Theme Switcher -->
+        <button class="header-btn" onclick="openThemePicker()" title="Switch Theme" id="theme-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+
         <!-- Notifications -->
         <div style="position:relative">
           <button class="header-btn" id="notif-btn" onclick="toggleNotifications()" aria-label="Notifications">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-            <span class="notif-badge">5</span>
+            <span id="notif-badge" style="position:absolute;top:-4px;right:-4px;background:var(--color-danger-400);color:white;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center">0</span>
           </button>
-          <!-- Notifications Panel -->
-          <div id="notif-panel" class="notif-panel" style="display:none">
-            <div class="panel-header">
-              <span class="panel-title">Notifications</span>
-              <button class="btn btn-sm btn-ghost" onclick="markAllRead()">Mark all read</button>
+          <!-- Notifications Dropdown Panel -->
+          <div id="notif-panel" class="notif-panel" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:360px;max-height:480px;overflow-y:auto;background:var(--color-bg-elevated);border:1px solid var(--color-border-default);border-radius:var(--radius-xl);box-shadow:var(--shadow-xl);z-index:500">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-4);border-bottom:1px solid var(--color-border-subtle)">
+              <span style="font-weight:700">Notifications</span>
+              <button class="btn btn-sm btn-ghost" onclick="NotificationManager.markAllRead().then(()=>loadNotifPanel())">Mark all read</button>
             </div>
-            <div id="notif-list"></div>
+            <div id="notif-list"><div style="text-align:center;padding:32px;color:var(--color-text-secondary);font-size:var(--text-sm)">Loading...</div></div>
           </div>
         </div>
 
@@ -252,8 +262,19 @@
   </div>
 </div>
 
-<!-- Toast -->
-<div id="toast-container" class="toast-container"></div>
+<!-- Theme Picker Modal -->
+<div id="theme-picker-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--color-bg-elevated);border:1px solid var(--color-border-default);border-radius:var(--radius-2xl);padding:var(--space-8);width:480px;max-width:95vw">
+    <div style="font-family:var(--font-display);font-size:var(--text-xl);font-weight:700;margin-bottom:var(--space-6)">🎨 Choose Theme</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:var(--space-3)" id="theme-grid">
+      <!-- Rendered by JS -->
+    </div>
+    <button class="btn btn-ghost btn-full" style="margin-top:var(--space-4)" onclick="document.getElementById('theme-picker-modal').style.display='none'">Close</button>
+  </div>
+</div>
+
+<!-- Socket.io CDN -->
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 
 <script src="js/utils.js"></script>
 <script src="js/demo-data.js"></script>

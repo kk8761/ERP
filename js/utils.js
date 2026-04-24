@@ -1,165 +1,508 @@
 /**
- * NexaERP — Utility Functions
- * Shared helpers used across all modules
+ * NexaERP — Frontend Utilities
+ * API Client (real backend + demo fallback), Auth, Format, Toast, Modal, DOM, Theme
+ * v2.0 — with MongoDB backend support + Socket.io + Themes
  */
 
-// ─── API Base ────────────────────────────────────────────────────
-const API_BASE = '/api'; // Update to your backend URL in production
-
-// ─── Local Storage Helpers ───────────────────────────────────────
-const Storage = {
-  get(key, fallback = null) {
-    try {
-      const val = localStorage.getItem(key);
-      return val !== null ? JSON.parse(val) : fallback;
-    } catch { return fallback; }
-  },
-  set(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-  },
-  remove(key) { localStorage.removeItem(key); },
-  clear() { localStorage.clear(); }
+// ─── CONFIG ───────────────────────────────────────────────
+const CONFIG = {
+  // Change this to your Render.com backend URL after deployment
+  API_BASE: window.NEXAERP_API || 'https://nexaerp-api.onrender.com/api',
+  DEMO_MODE: false, // Set to true to bypass backend
+  SOCKET_URL: window.NEXAERP_SOCKET || 'https://nexaerp-api.onrender.com',
 };
 
-// ─── Auth Token Management ────────────────────────────────────────
+// ─── THEMES ───────────────────────────────────────────────
+const THEMES = {
+  dark: {
+    '--color-bg-primary':    '#0a0a0f',
+    '--color-bg-secondary':  '#111118',
+    '--color-bg-card':       '#161622',
+    '--color-bg-elevated':   '#1e1e2e',
+    '--color-brand-400':     '#818cf8',
+    '--color-brand-500':     '#6366f1',
+    '--gradient-brand':      'linear-gradient(135deg, #6366f1, #8b5cf6)',
+    '--color-text-primary':  '#f8fafc',
+    '--color-text-secondary':'#94a3b8',
+    '--color-border-default':'rgba(255,255,255,0.08)',
+    '--sidebar-bg':          '#0d0d15',
+  },
+  light: {
+    '--color-bg-primary':    '#f8fafc',
+    '--color-bg-secondary':  '#f1f5f9',
+    '--color-bg-card':       '#ffffff',
+    '--color-bg-elevated':   '#e2e8f0',
+    '--color-brand-400':     '#4f46e5',
+    '--color-brand-500':     '#4338ca',
+    '--gradient-brand':      'linear-gradient(135deg, #4338ca, #7c3aed)',
+    '--color-text-primary':  '#0f172a',
+    '--color-text-secondary':'#475569',
+    '--color-border-default':'rgba(0,0,0,0.1)',
+    '--sidebar-bg':          '#1e1b4b',
+  },
+  ocean: {
+    '--color-bg-primary':    '#040d14',
+    '--color-bg-secondary':  '#071522',
+    '--color-bg-card':       '#0a1f30',
+    '--color-bg-elevated':   '#102a40',
+    '--color-brand-400':     '#38bdf8',
+    '--color-brand-500':     '#0ea5e9',
+    '--gradient-brand':      'linear-gradient(135deg, #0ea5e9, #06b6d4)',
+    '--color-text-primary':  '#e0f2fe',
+    '--color-text-secondary':'#7dd3fc',
+    '--color-border-default':'rgba(56,189,248,0.12)',
+    '--sidebar-bg':          '#040d14',
+  },
+  forest: {
+    '--color-bg-primary':    '#050e06',
+    '--color-bg-secondary':  '#0a1a0b',
+    '--color-bg-card':       '#0f2210',
+    '--color-bg-elevated':   '#162c17',
+    '--color-brand-400':     '#4ade80',
+    '--color-brand-500':     '#22c55e',
+    '--gradient-brand':      'linear-gradient(135deg, #16a34a, #15803d)',
+    '--color-text-primary':  '#dcfce7',
+    '--color-text-secondary':'#86efac',
+    '--color-border-default':'rgba(74,222,128,0.12)',
+    '--sidebar-bg':          '#050e06',
+  },
+  sunset: {
+    '--color-bg-primary':    '#140808',
+    '--color-bg-secondary':  '#1f0f0a',
+    '--color-bg-card':       '#271210',
+    '--color-bg-elevated':   '#341a16',
+    '--color-brand-400':     '#fb923c',
+    '--color-brand-500':     '#f97316',
+    '--gradient-brand':      'linear-gradient(135deg, #f97316, #dc2626)',
+    '--color-text-primary':  '#fff7ed',
+    '--color-text-secondary':'#fed7aa',
+    '--color-border-default':'rgba(249,115,22,0.12)',
+    '--sidebar-bg':          '#140808',
+  }
+};
+
+// ─── THEME MANAGER ────────────────────────────────────────
+const ThemeManager = {
+  current: 'dark',
+
+  apply(themeName) {
+    const theme = THEMES[themeName];
+    if (!theme) return;
+    this.current = themeName;
+    const root = document.documentElement;
+    Object.entries(theme).forEach(([key, val]) => root.style.setProperty(key, val));
+    localStorage.setItem('nexaerp_theme', themeName);
+    document.body.dataset.theme = themeName;
+
+    // Update theme buttons if present
+    document.querySelectorAll('.theme-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.theme === themeName);
+    });
+  },
+
+  init() {
+    const saved = localStorage.getItem('nexaerp_theme') || Auth.getUser()?.preferences?.theme || 'dark';
+    this.apply(saved);
+  },
+
+  toggle() {
+    const themes = Object.keys(THEMES);
+    const idx = themes.indexOf(this.current);
+    this.apply(themes[(idx + 1) % themes.length]);
+  }
+};
+
+// ─── AUTH ─────────────────────────────────────────────────
 const Auth = {
-  getToken: () => Storage.get('nexaerp_token'),
-  getUser:  () => Storage.get('nexaerp_user'),
+  TOKEN_KEY: 'nexaerp_token',
+  USER_KEY:  'nexaerp_user',
+
+  getToken() { return localStorage.getItem(this.TOKEN_KEY); },
+  getUser()  {
+    try { return JSON.parse(localStorage.getItem(this.USER_KEY)); }
+    catch { return null; }
+  },
   setSession(token, user) {
-    Storage.set('nexaerp_token', token);
-    Storage.set('nexaerp_user', user);
+    localStorage.setItem(this.TOKEN_KEY, token);
+    localStorage.setItem(this.USER_KEY, JSON.stringify(user));
   },
   clearSession() {
-    Storage.remove('nexaerp_token');
-    Storage.remove('nexaerp_user');
+    localStorage.removeItem(this.TOKEN_KEY);
+    localStorage.removeItem(this.USER_KEY);
   },
-  isAuthenticated() {
+  isLoggedIn() {
     const token = this.getToken();
     if (!token) return false;
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
       return payload.exp * 1000 > Date.now();
-    } catch {
-      return !!token; // For demo tokens
-    }
+    } catch { return false; }
   },
   requireAuth() {
-    if (!this.isAuthenticated()) {
-      window.location.href = '/index.html';
-      return false;
-    }
+    if (!this.isLoggedIn()) { window.location.href = 'index.html'; return false; }
     return true;
+  },
+  can(roles) {
+    const user = this.getUser();
+    if (!user) return false;
+    return roles.includes(user.role);
   }
 };
 
-// ─── HTTP Client ─────────────────────────────────────────────────
+// ─── HTTP CLIENT ──────────────────────────────────────────
 const Http = {
-  async request(method, url, body = null, options = {}) {
+  _isOnline: true,
+  _requestQueue: [],
+
+  async request(method, path, data = null, opts = {}) {
     const token = Auth.getToken();
     const headers = {
       'Content-Type': 'application/json',
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      ...options.headers
     };
 
     try {
-      const config = { method, headers };
-      if (body) config.body = JSON.stringify(body);
+      const url = path.startsWith('http') ? path : `${CONFIG.API_BASE}${path}`;
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: data ? JSON.stringify(data) : undefined,
+        signal: AbortSignal.timeout(opts.timeout || 15000),
+      });
 
-      const res = await fetch(`${API_BASE}${url}`, config);
-      const data = await res.json().catch(() => ({}));
+      const json = await res.json().catch(() => ({ success: false, message: res.statusText }));
 
-      if (!res.ok) {
-        if (res.status === 401) {
-          Auth.clearSession();
-          window.location.href = '/index.html';
+      if (res.status === 401) {
+        Auth.clearSession();
+        if (!window.location.pathname.includes('index')) {
+          window.location.href = 'index.html';
+          return;
         }
-        throw new Error(data.message || `HTTP ${res.status}`);
       }
-      return data;
+
+      if (!res.ok && !opts.raw) {
+        throw new Error(json.message || `HTTP ${res.status}`);
+      }
+
+      this._isOnline = true;
+      return json;
+
     } catch (err) {
-      // In demo mode, simulate responses
-      return Http._demoResponse(method, url, body);
+      if (err.name === 'TimeoutError' || err.name === 'TypeError' || err.message.includes('fetch')) {
+        this._isOnline = false;
+        // Fallback to demo mode if backend is unreachable
+        if (CONFIG.DEMO_MODE) {
+          return this._demoResponse(method, path, data);
+        }
+        Toast.error('Cannot reach server. Check your connection or the backend is starting up (Render free tier may take ~30s).');
+        return null;
+      }
+      throw err;
     }
   },
-  get(url, opts)       { return this.request('GET', url, null, opts); },
-  post(url, body, opts) { return this.request('POST', url, body, opts); },
-  put(url, body, opts)  { return this.request('PUT', url, body, opts); },
-  delete(url, opts)    { return this.request('DELETE', url, null, opts); },
 
-  _demoResponse(method, url, body) {
-    // Simulate backend in demo mode
-    console.log(`[Demo API] ${method} ${url}`, body);
-    return { success: true, demo: true };
+  get(path, opts)         { return this.request('GET', path, null, opts); },
+  post(path, data, opts)  { return this.request('POST', path, data, opts); },
+  put(path, data, opts)   { return this.request('PUT', path, data, opts); },
+  patch(path, data, opts) { return this.request('PATCH', path, data, opts); },
+  delete(path, opts)      { return this.request('DELETE', path, null, opts); },
+
+  // Demo responses (fallback when no backend)
+  _demoResponse(method, path, data) {
+    const segments = path.replace('/api/', '').split('/');
+    const resource = segments[0];
+    console.warn(`[DEMO] ${method} ${path}`);
+
+    const resourceMap = {
+      products:      DemoData?.products || [],
+      orders:        DemoData?.orders || [],
+      customers:     DemoData?.customers || [],
+      staff:         DemoData?.staff || [],
+      notifications: DemoData?.notifications || [],
+      suppliers:     DemoData?.suppliers || [],
+      transactions:  DemoData?.transactions || [],
+    };
+
+    if (method === 'GET') {
+      if (resource === 'analytics' && segments[1] === 'dashboard') {
+        return { success: true, data: {
+          todaySales: 12480, todayOrders: 34,
+          totalCustomers: DemoData?.customers?.length || 0,
+          totalProducts: DemoData?.products?.length || 0,
+          lowStockCount: DemoData?.products?.filter(p => p.stock <= p.minStock)?.length || 0,
+          weekRevenue: 84320,
+        }};
+      }
+      const items = resourceMap[resource] || [];
+      return { success: true, data: items, meta: { total: items.length } };
+    }
+
+    if (method === 'POST' && resource === 'auth') {
+      if (segments[1] === 'login') {
+        return {
+          success: true, token: 'demo.jwt.token',
+          user: { name: 'Demo User', role: 'owner', email: data?.email, storeId: 'store-001' }
+        };
+      }
+    }
+
+    return { success: true, message: 'Demo mode — changes not persisted', data };
   }
 };
 
-// ─── Toast Notifications ──────────────────────────────────────────
+// ─── SOCKET MANAGER ───────────────────────────────────────
+const SocketManager = {
+  socket: null,
+  connected: false,
+
+  connect() {
+    if (typeof io === 'undefined') return; // Socket.io not loaded
+
+    const token = Auth.getToken();
+    this.socket = io(CONFIG.SOCKET_URL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+    });
+
+    this.socket.on('connect', () => {
+      this.connected = true;
+      console.log('🔌 Socket connected');
+    });
+
+    this.socket.on('disconnect', () => {
+      this.connected = false;
+    });
+
+    // ── Real-time notifications ─────────────────────────
+    this.socket.on('notification', (data) => {
+      NotificationManager.showBanner(data);
+      NotificationManager.incrementBadge();
+    });
+
+    this.socket.on('critical_stock', (data) => {
+      Toast.error(`🚨 CRITICAL: ${data.count} item(s) are OUT OF STOCK: ${data.items.join(', ')}`);
+    });
+
+    this.socket.on('new_sale', (data) => {
+      // Refresh dashboard if visible
+      if (window.currentModule === 'dashboard') {
+        Toast.info(`💰 New sale: ${Format.currency(data.total)} by ${data.cashier}`);
+      }
+    });
+
+    this.socket.on('stock_changed', (data) => {
+      // If on inventory page, refresh
+      if (window.currentModule === 'inventory') {
+        refreshInventoryStock(data);
+      }
+    });
+
+    this.socket.on('order_updated', (data) => {
+      if (window.currentModule === 'orders') {
+        Toast.info(`📦 Order ${data.orderNo}: ${data.stage} → ${data.status}`);
+      }
+    });
+
+    this.socket.on('user_online', (data) => {
+      console.log(`👤 ${data.name} (${data.role}) came online`);
+    });
+  },
+
+  emit(event, data) {
+    if (this.socket?.connected) this.socket.emit(event, data);
+  },
+
+  disconnect() {
+    this.socket?.disconnect();
+  }
+};
+
+// ─── NOTIFICATION MANAGER ─────────────────────────────────
+const NotificationManager = {
+  _count: 0,
+
+  async init() {
+    const res = await Http.get('/notifications?limit=1');
+    if (res?.meta?.unreadCount !== undefined) {
+      this._count = res.meta.unreadCount;
+      this.updateBadge();
+    }
+  },
+
+  incrementBadge() {
+    this._count++;
+    this.updateBadge();
+  },
+
+  updateBadge() {
+    const badge = document.getElementById('notif-badge');
+    if (!badge) return;
+    badge.textContent = this._count > 99 ? '99+' : this._count;
+    badge.style.display = this._count > 0 ? 'flex' : 'none';
+  },
+
+  showBanner(data) {
+    const bannerEl = document.createElement('div');
+    bannerEl.className = 'notif-banner';
+    bannerEl.innerHTML = `
+      <div class="notif-banner-icon">${data.type === 'out_of_stock' ? '🚨' : data.type === 'low_stock' ? '⚠️' : '🔔'}</div>
+      <div>
+        <div class="notif-banner-title">${data.title}</div>
+        <div class="notif-banner-msg">${data.message}</div>
+      </div>
+      <button class="notif-banner-close" onclick="this.closest('.notif-banner').remove()">×</button>
+    `;
+    bannerEl.dataset.priority = data.priority || 'medium';
+    document.body.appendChild(bannerEl);
+    setTimeout(() => bannerEl.remove(), 8000);
+  },
+
+  async markAllRead() {
+    await Http.patch('/notifications/read-all');
+    this._count = 0;
+    this.updateBadge();
+  }
+};
+
+// ─── FORMAT HELPERS ───────────────────────────────────────
+const Format = {
+  currency(val, currency = '₹') {
+    if (val === null || val === undefined) return `${currency}0.00`;
+    return `${currency}${Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  },
+  number(val) {
+    if (!val && val !== 0) return '—';
+    return Number(val).toLocaleString('en-IN');
+  },
+  percent(val, decimals = 1) {
+    return `${Number(val || 0).toFixed(decimals)}%`;
+  },
+  date(val) {
+    if (!val) return '—';
+    const d = new Date(val);
+    if (isNaN(d)) return val;
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  },
+  datetime(val) {
+    if (!val) return '—';
+    const d = new Date(val);
+    return `${d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+  },
+  relativeTime(val) {
+    if (!val) return '';
+    const diff = Date.now() - new Date(val).getTime();
+    const mins  = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days  = Math.floor(diff / 86400000);
+    if (mins < 1)   return 'Just now';
+    if (mins < 60)  return `${mins}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7)   return `${days}d ago`;
+    return Format.date(val);
+  },
+  initials(name = '') {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  },
+  stockStatus(stock, minStock) {
+    if (stock === 0)         return { label: 'Out of Stock', class: 'badge-danger',  icon: '🔴' };
+    if (stock <= minStock)   return { label: 'Low Stock',    class: 'badge-warning', icon: '🟡' };
+    return                          { label: 'In Stock',     class: 'badge-success', icon: '🟢' };
+  }
+};
+
+// ─── DOM HELPERS ──────────────────────────────────────────
+const DOM = {
+  $(sel)          { return document.querySelector(sel); },
+  $$(sel)         { return document.querySelectorAll(sel); },
+  setText(sel, txt) {
+    const el = typeof sel === 'string' ? this.$(sel) : sel;
+    if (el) el.textContent = txt;
+  },
+  setHTML(sel, html) {
+    const el = typeof sel === 'string' ? this.$(sel) : sel;
+    if (el) el.innerHTML = html;
+  },
+  show(sel) { const el = this.$(sel); if (el) el.style.display = ''; },
+  hide(sel) { const el = this.$(sel); if (el) el.style.display = 'none'; },
+  addClass(sel, cls)    { const el = this.$(sel); if (el) el.classList.add(cls); },
+  removeClass(sel, cls) { const el = this.$(sel); if (el) el.classList.remove(cls); },
+  toggle(sel, cls)      { const el = this.$(sel); if (el) el.classList.toggle(cls); },
+  on(sel, event, fn) {
+    const el = typeof sel === 'string' ? this.$(sel) : sel;
+    if (el) el.addEventListener(event, fn);
+  }
+};
+
+// ─── TOAST NOTIFICATIONS ──────────────────────────────────
 const Toast = {
   _container: null,
 
   _getContainer() {
     if (!this._container) {
-      this._container = document.getElementById('toast-container');
-      if (!this._container) {
-        this._container = document.createElement('div');
-        this._container.id = 'toast-container';
-        this._container.className = 'toast-container';
-        document.body.appendChild(this._container);
-      }
+      this._container = document.createElement('div');
+      this._container.id = 'toast-container';
+      this._container.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:380px';
+      document.body.appendChild(this._container);
     }
     return this._container;
   },
 
-  show(message, type = 'info', duration = 4000) {
-    const container = this._getContainer();
-    const icons = {
-      success: '✅',
-      error:   '❌',
-      warning: '⚠️',
-      info:    'ℹ️'
+  show(msg, type = 'info', duration = 4000) {
+    const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+    const colors = {
+      success: 'var(--color-success-400)',
+      error:   'var(--color-danger-400)',
+      warning: 'var(--color-warning-400)',
+      info:    'var(--color-brand-400)',
     };
 
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.innerHTML = `
-      <span style="font-size:18px;flex-shrink:0">${icons[type] || icons.info}</span>
-      <div style="flex:1">
-        <div style="font-size:0.875rem;font-weight:500;color:var(--color-text-primary)">${message}</div>
-      </div>
-      <button onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--color-text-tertiary);cursor:pointer;font-size:16px;padding:0 4px" aria-label="Close">×</button>
+    const el = document.createElement('div');
+    el.className = 'toast-item';
+    el.style.cssText = `
+      display:flex;align-items:flex-start;gap:12px;
+      background:var(--color-bg-elevated);
+      border:1px solid var(--color-border-default);
+      border-left:3px solid ${colors[type]};
+      border-radius:12px;padding:12px 16px;
+      animation:slideInRight 0.3s ease;
+      box-shadow:var(--shadow-xl);
+      backdrop-filter:blur(8px);
+      max-width:380px;
+      cursor:pointer;
     `;
+    el.innerHTML = `
+      <span style="font-size:18px;flex-shrink:0;margin-top:1px">${icons[type]}</span>
+      <span style="font-size:13px;color:var(--color-text-primary);flex:1;line-height:1.4">${msg}</span>
+      <button onclick="this.closest('.toast-item').remove()" style="background:none;border:none;color:var(--color-text-tertiary);cursor:pointer;font-size:16px;line-height:1;flex-shrink:0">×</button>
+    `;
+    el.onclick = (e) => { if (e.target.tagName !== 'BUTTON') el.remove(); };
 
-    container.appendChild(toast);
-
-    if (duration > 0) {
-      setTimeout(() => {
-        toast.classList.add('toast-out');
-        setTimeout(() => toast.remove(), 200);
-      }, duration);
-    }
-
-    return toast;
+    this._getContainer().appendChild(el);
+    if (duration > 0) setTimeout(() => el.remove(), duration);
+    return el;
   },
 
-  success: (msg, dur) => Toast.show(msg, 'success', dur),
-  error:   (msg, dur) => Toast.show(msg, 'error', dur),
-  warning: (msg, dur) => Toast.show(msg, 'warning', dur),
-  info:    (msg, dur) => Toast.show(msg, 'info', dur),
+  success(msg, dur) { return this.show(msg, 'success', dur); },
+  error(msg, dur)   { return this.show(msg, 'error', dur ||6000); },
+  warning(msg, dur) { return this.show(msg, 'warning', dur); },
+  info(msg, dur)    { return this.show(msg, 'info', dur); },
 };
 
-// ─── Modal Helpers ───────────────────────────────────────────────
+// ─── MODAL ────────────────────────────────────────────────
 const Modal = {
-  create(options = {}) {
-    const { title = '', body = '', footer = '', size = '' } = options;
+  create({ title = '', body = '', footer = '', size = '' } = {}) {
+    document.querySelector('.modal-backdrop')?.remove();
+
     const backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
     backdrop.innerHTML = `
-      <div class="modal ${size}" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal ${size === 'lg' ? 'modal-large' : ''}" role="dialog" aria-modal="true">
         <div class="modal-header">
-          <h3 class="heading-4" id="modal-title">${title}</h3>
-          <button class="btn btn-icon btn-ghost" onclick="this.closest('.modal-backdrop').remove()" aria-label="Close">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <h3 class="modal-title">${title}</h3>
+          <button class="modal-close" onclick="document.querySelector('.modal-backdrop').remove()" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
         <div class="modal-body">${body}</div>
@@ -171,361 +514,73 @@ const Modal = {
       if (e.target === backdrop) backdrop.remove();
     });
 
+    document.addEventListener('keydown', function esc(e) {
+      if (e.key === 'Escape') { backdrop.remove(); document.removeEventListener('keydown', esc); }
+    });
+
     document.body.appendChild(backdrop);
     return backdrop;
   },
-
-  close(el) {
-    const backdrop = el.closest ? el.closest('.modal-backdrop') : el;
-    if (backdrop) backdrop.remove();
-  }
+  close() { document.querySelector('.modal-backdrop')?.remove(); }
 };
 
-// ─── Format Helpers ──────────────────────────────────────────────
-const Format = {
-  currency(amount, currency = 'INR') {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2
-    }).format(amount || 0);
-  },
-
-  number(n, decimals = 0) {
-    return new Intl.NumberFormat('en-IN', {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals
-    }).format(n || 0);
-  },
-
-  date(dateStr, opts = {}) {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString('en-IN', {
-      year: 'numeric', month: 'short', day: 'numeric',
-      ...opts
-    });
-  },
-
-  dateTime(dateStr) {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return '—';
-    return d.toLocaleString('en-IN', {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
-  },
-
-  relativeTime(dateStr) {
-    const d = new Date(dateStr);
-    const diff = Date.now() - d.getTime();
-    const secs = Math.floor(diff / 1000);
-    if (secs < 60)   return 'just now';
-    if (secs < 3600) return `${Math.floor(secs/60)}m ago`;
-    if (secs < 86400) return `${Math.floor(secs/3600)}h ago`;
-    return `${Math.floor(secs/86400)}d ago`;
-  },
-
-  percent(value, total) {
-    if (!total) return '0%';
-    return `${Math.round((value / total) * 100)}%`;
-  },
-
-  fileSize(bytes) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1048576).toFixed(1)} MB`;
-  }
-};
-
-// ─── Validation ───────────────────────────────────────────────────
-const Validate = {
-  email: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
-  phone: (v) => /^[+]?[\d\s\-]{10,15}$/.test(v),
-  required: (v) => v !== null && v !== undefined && String(v).trim() !== '',
-  minLength: (v, min) => String(v).length >= min,
-  maxLength: (v, max) => String(v).length <= max,
-  number: (v) => !isNaN(parseFloat(v)) && isFinite(v),
-  positiveNumber: (v) => Validate.number(v) && parseFloat(v) > 0,
-  gst: (v) => /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(v),
-  pincode: (v) => /^[0-9]{6}$/.test(v),
-
-  passwordStrength(password) {
-    let score = 0;
-    if (password.length >= 8) score++;
-    if (/[A-Z]/.test(password)) score++;
-    if (/[0-9]/.test(password)) score++;
-    if (/[^A-Za-z0-9]/.test(password)) score++;
-    if (password.length >= 12) score++;
-    return score; // 0-5
-  },
-
-  showError(fieldId, message) {
-    const el = document.getElementById(fieldId);
-    if (el) {
-      el.classList.add('error');
-      const errEl = document.getElementById(`${fieldId}-err`);
-      if (errEl) errEl.textContent = message;
+// ─── LOADING OVERLAY ──────────────────────────────────────
+const Loading = {
+  show(msg = 'Loading...') {
+    let el = document.getElementById('global-loader');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'global-loader';
+      el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;backdrop-filter:blur(4px)';
+      el.innerHTML = `<div style="text-align:center;color:white"><div class="spinner" style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.2);border-top-color:var(--color-brand-500);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px"></div><div style="font-size:14px;opacity:0.8">${msg}</div></div>`;
+      document.body.appendChild(el);
     }
   },
-
-  clearError(fieldId) {
-    const el = document.getElementById(fieldId);
-    if (el) {
-      el.classList.remove('error');
-      const errEl = document.getElementById(`${fieldId}-err`);
-      if (errEl) errEl.textContent = '';
-    }
-  }
+  hide() { document.getElementById('global-loader')?.remove(); }
 };
 
-// ─── DOM Helpers ─────────────────────────────────────────────────
-const DOM = {
-  $: (selector, ctx = document) => ctx.querySelector(selector),
-  $$: (selector, ctx = document) => [...ctx.querySelectorAll(selector)],
-
-  on(el, event, handler, opts) {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.addEventListener(event, handler, opts);
-  },
-
-  off(el, event, handler) {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.removeEventListener(event, handler);
-  },
-
-  show(el, display = 'flex') {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.style.display = display;
-  },
-
-  hide(el) {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.style.display = 'none';
-  },
-
-  toggle(el, condition, display = 'flex') {
-    condition ? DOM.show(el, display) : DOM.hide(el);
-  },
-
-  setText(el, text) {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.textContent = text;
-  },
-
-  setHTML(el, html) {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.innerHTML = html;
-  },
-
-  addClass(el, ...classes) {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.classList.add(...classes);
-  },
-
-  removeClass(el, ...classes) {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.classList.remove(...classes);
-  },
-
-  toggleClass(el, cls, force) {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.classList.toggle(cls, force);
-  },
-
-  create(tag, attrs = {}, text = '') {
-    const el = document.createElement(tag);
-    Object.entries(attrs).forEach(([k, v]) => {
-      if (k === 'class') el.className = v;
-      else if (k === 'style') Object.assign(el.style, v);
-      else if (k.startsWith('data-')) el.setAttribute(k, v);
-      else el[k] = v;
-    });
-    if (text) el.textContent = text;
-    return el;
-  },
-
-  emptyEl(el) {
-    if (typeof el === 'string') el = DOM.$(el);
-    if (el) el.innerHTML = '';
-  }
-};
-
-// ─── Chart Micro Renderer ────────────────────────────────────────
-const MicroChart = {
-  // Simple SVG sparkline
-  sparkline(data, options = {}) {
-    const {
-      width = 200, height = 60,
-      color = '#6366f1', fill = true,
-      strokeWidth = 2
-    } = options;
-
-    if (!data || !data.length) return '';
-
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const range = max - min || 1;
-
-    const points = data.map((v, i) => {
-      const x = (i / (data.length - 1)) * width;
-      const y = height - ((v - min) / range) * (height - 4) - 2;
-      return `${x},${y}`;
-    }).join(' ');
-
-    const fillPath = fill
-      ? `<polygon fill="${color}" fill-opacity="0.15"
-           points="0,${height} ${points} ${width},${height}"/>`
-      : '';
-
-    return `
-      <svg width="${width}" height="${height}" fill="none" xmlns="http://www.w3.org/2000/svg">
-        ${fillPath}
-        <polyline points="${points}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    `;
-  },
-
-  // Donut chart
-  donut(segments, options = {}) {
-    const {
-      size = 120, strokeWidth = 18,
-      colors = ['#6366f1','#10b981','#f59e0b','#ef4444']
-    } = options;
-
-    const r = (size - strokeWidth) / 2;
-    const cx = size / 2;
-    const cy = size / 2;
-    const circumference = 2 * Math.PI * r;
-    const total = segments.reduce((s, seg) => s + seg.value, 0);
-
-    let offset = 0;
-    const arcs = segments.map((seg, i) => {
-      const dashLen = (seg.value / total) * circumference;
-      const dashOffset = circumference - offset;
-      offset += dashLen;
-      return `
-        <circle
-          cx="${cx}" cy="${cy}" r="${r}"
-          fill="none"
-          stroke="${colors[i % colors.length]}"
-          stroke-width="${strokeWidth}"
-          stroke-dasharray="${dashLen} ${circumference - dashLen}"
-          stroke-dashoffset="${dashOffset}"
-          stroke-linecap="round"
-          style="transform: rotate(-90deg); transform-origin: center"
-        />
-      `;
-    }).join('');
-
-    return `
-      <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
-          stroke="rgba(255,255,255,0.05)" stroke-width="${strokeWidth}"/>
-        ${arcs}
-      </svg>
-    `;
-  },
-
-  // Bar chart
-  bars(data, options = {}) {
-    const {
-      width = 300, height = 120,
-      color = '#6366f1', gap = 4,
-      labels = []
-    } = options;
-
-    const max = Math.max(...data) || 1;
-    const barWidth = (width - (data.length - 1) * gap) / data.length;
-
-    const bars = data.map((v, i) => {
-      const barH = (v / max) * (height - 20);
-      const x = i * (barWidth + gap);
-      const y = height - 20 - barH;
-      return `
-        <rect x="${x}" y="${y}" width="${barWidth}" height="${barH}"
-          rx="3" fill="${color}" fill-opacity="${0.6 + (v/max)*0.4}"/>
-        ${labels[i] ? `<text x="${x + barWidth/2}" y="${height}" text-anchor="middle"
-          fill="rgba(255,255,255,0.4)" font-size="10">${labels[i]}</text>` : ''}
-      `;
-    }).join('');
-
-    return `
-      <svg width="${width}" height="${height}" fill="none" xmlns="http://www.w3.org/2000/svg">
-        ${bars}
-      </svg>
-    `;
-  }
-};
-
-// ─── Debounce / Throttle ─────────────────────────────────────────
-function debounce(fn, delay = 300) {
-  let timer;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  };
-}
-
-function throttle(fn, interval = 100) {
-  let last = 0;
-  return (...args) => {
-    const now = Date.now();
-    if (now - last >= interval) {
-      last = now;
-      fn(...args);
-    }
-  };
-}
-
-// ─── UUID Generator ──────────────────────────────────────────────
-function generateId() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = Math.random() * 16 | 0;
-    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-  });
-}
-
-// ─── CSV Export ──────────────────────────────────────────────────
+// ─── CSV EXPORT ───────────────────────────────────────────
 function exportCSV(data, filename = 'export.csv') {
-  if (!data || !data.length) return;
-  const cols = Object.keys(data[0]);
-  const rows = [
-    cols.join(','),
-    ...data.map(row => cols.map(c => `"${String(row[c] ?? '').replace(/"/g, '""')}"`).join(','))
-  ];
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
+  if (!data?.length) { Toast.warning('No data to export'); return; }
+  const keys = Object.keys(data[0]).filter(k => typeof data[0][k] !== 'object');
+  const csv = [
+    keys.join(','),
+    ...data.map(row => keys.map(k => `"${(row[k] ?? '').toString().replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
   URL.revokeObjectURL(url);
 }
 
-// ─── Print Helper ───────────────────────────────────────────────
-function printElement(el, title = 'NexaERP') {
-  const win = window.open('', '_blank');
-  win.document.write(`
-    <!DOCTYPE html><html><head><title>${title}</title>
-    <style>body{font-family:sans-serif;color:#000;background:#fff}table{width:100%;border-collapse:collapse}
-    th,td{border:1px solid #ddd;padding:8px;font-size:12px}th{background:#f5f5f5}
-    </style></head><body>${el.outerHTML}</body></html>
-  `);
+// ─── PRINT ────────────────────────────────────────────────
+function printElement(el) {
+  const win = window.open('', '_blank', 'width=800,height=600');
+  win.document.write(`<html><head><title>NexaERP Invoice</title><style>body{font-family:Arial,sans-serif;margin:0}</style></head><body>${el.outerHTML}</body></html>`);
   win.document.close();
   win.print();
+  win.close();
 }
 
-// Expose utils globally
-window.Storage   = Storage;
-window.Auth      = Auth;
-window.Http      = Http;
-window.Toast     = Toast;
-window.Modal     = Modal;
-window.Format    = Format;
-window.Validate  = Validate;
-window.DOM       = DOM;
-window.MicroChart = MicroChart;
-window.debounce  = debounce;
-window.throttle  = throttle;
-window.generateId = generateId;
-window.exportCSV = exportCSV;
-window.printElement = printElement;
+// ─── ID GENERATOR ─────────────────────────────────────────
+function generateId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// ─── DEBOUNCE ─────────────────────────────────────────────
+function debounce(fn, ms = 300) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), ms);
+  };
+}
+
+// ─── INIT (runs on page load) ─────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  ThemeManager.init();
+});
