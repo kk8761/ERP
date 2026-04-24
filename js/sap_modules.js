@@ -989,8 +989,268 @@ function processBulkPayroll() {
       </div>
     `,
     footer: `
+  });
+}
+
+// ─── BRANCH MANAGEMENT & PERMISSIONS ─────────────────────────
+window.currentBranch = 'all';
+
+function handleBranchChange() {
+  const selector = document.getElementById('store-selector');
+  if(!selector) return;
+  window.currentBranch = selector.value;
+  const branchName = selector.options[selector.selectedIndex].text;
+  
+  Toast.info(`🔄 Switching to ${branchName}...`);
+  
+  // Refresh current view
+  const currentView = window.location.hash.slice(1) || 'dashboard';
+  setTimeout(() => {
+    navigateTo(currentView);
+    Toast.success(`✅ Active Workspace: ${branchName}`);
+  }, 400);
+}
+
+// Global data filter helper
+function getFilteredData(dataArray, branchKey = 'branch') {
+  if (window.currentBranch === 'all') return dataArray;
+  return dataArray.filter(item => item[branchKey] === window.currentBranch || !item[branchKey]);
+}
+
+// ─── UNIFIED MESSENGER (ENTERPRISE WORK ZONE) ─────────────────
+function renderChat() {
+  const contacts = [
+    { name: 'HUL Suppliers', role: 'Vendor', avatar: '🚛', online: true, lastMsg: 'Your PO #4421 is confirmed.' },
+    { name: 'Store Manager - North', role: 'Employee', avatar: '👨', online: true, lastMsg: 'Closing stock updated.' },
+    { name: 'Arun (Accountant)', role: 'Employee', avatar: '👨', online: false, lastMsg: 'GST challan is ready.' },
+    { name: 'NexaSupport AI', role: 'Assistant', avatar: '🤖', online: true, lastMsg: 'How can I help you today?' },
+    { name: 'Parle Distribution', role: 'Vendor', avatar: '🚛', online: false, lastMsg: 'Prices updated for biscuits.' },
+  ];
+
+  document.getElementById('page-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:300px 1fr;height:calc(100vh - 180px);background:var(--color-bg-elevated);border-radius:var(--radius-xl);overflow:hidden;border:1px solid var(--color-border-default)">
+      <!-- Sidebar -->
+      <div style="border-right:1px solid var(--color-border-subtle);display:flex;flex-direction:column">
+        <div style="padding:var(--space-4);border-bottom:1px solid var(--color-border-subtle)">
+          <div style="font-weight:800;font-size:var(--text-lg);margin-bottom:var(--space-1)">NexaMessenger</div>
+          <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">Secure Business Communication</div>
+        </div>
+        <div style="padding:var(--space-3)">
+          <input type="search" class="form-input" placeholder="Search contacts..." style="font-size:var(--text-xs);border-radius:var(--radius-full)" />
+        </div>
+        <div style="flex:1;overflow-y:auto">
+          ${contacts.map((c, i) => `
+            <div style="padding:var(--space-4);border-bottom:1px solid var(--color-border-subtle);cursor:pointer;display:flex;gap:var(--space-3);${i===0?'background:rgba(99,102,241,0.08)':''}" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='${i===0?'rgba(99,102,241,0.08)':'transparent'}'">
+              <div style="width:40px;height:40px;border-radius:50%;background:var(--color-bg-secondary);display:flex;align-items:center;justify-content:center;font-size:20px;position:relative">
+                ${c.avatar}
+                ${c.online?`<div style="position:absolute;bottom:0;right:0;width:12px;height:12px;background:var(--color-success-400);border:2px solid var(--color-bg-elevated);border-radius:50%"></div>`:''}
+              </div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+                  <span style="font-weight:700;font-size:var(--text-sm)">${c.name}</span>
+                  <span style="font-size:10px;color:var(--color-text-secondary)">12:45</span>
+                </div>
+                <div style="font-size:var(--text-xs);color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.lastMsg}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Chat Window -->
+      <div style="display:flex;flex-direction:column">
+        <!-- Header -->
+        <div style="padding:var(--space-4);border-bottom:1px solid var(--color-border-subtle);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.01)">
+          <div style="display:flex;align-items:center;gap:var(--space-3)">
+            <div style="width:36px;height:36px;border-radius:50%;background:var(--gradient-brand);display:flex;align-items:center;justify-content:center;font-size:18px">🚛</div>
+            <div>
+              <div style="font-weight:700;font-size:var(--text-sm)">HUL Suppliers</div>
+              <div style="font-size:10px;color:var(--color-success-400)">● Active Now · Vendor ID #9921</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:var(--space-2)">
+            <button class="btn btn-icon btn-ghost">📞</button>
+            <button class="btn btn-icon btn-ghost">📂</button>
+            <button class="btn btn-icon btn-ghost">⚙️</button>
+          </div>
+        </div>
+
+        <!-- Messages -->
+        <div style="flex:1;padding:var(--space-6);overflow-y:auto;display:flex;flex-direction:column;gap:var(--space-4);background:rgba(0,0,0,0.1)">
+          <div style="align-self:flex-start;max-width:70%;padding:var(--space-3) var(--space-4);background:var(--color-bg-secondary);border-radius:0 16px 16px 16px;font-size:var(--text-sm)">
+            Hi Arjun, your PO #4421 for "Dairy & Staples" has been confirmed. Shipping today.
+            <div style="font-size:10px;text-align:right;margin-top:4px;color:var(--color-text-secondary)">10:15 AM</div>
+          </div>
+          <div style="align-self:flex-end;max-width:70%;padding:var(--space-3) var(--space-4);background:var(--color-brand-600);color:white;border-radius:16px 16px 0 16px;font-size:var(--text-sm)">
+            Great, thanks. Please ensure the invoice has the correct GSTIN: 27AABCN1234Z1ZI.
+            <div style="font-size:10px;text-align:right;margin-top:4px;opacity:0.8">10:20 AM</div>
+          </div>
+          <div style="align-self:flex-start;max-width:70%;padding:var(--space-3) var(--space-4);background:var(--color-bg-secondary);border-radius:0 16px 16px 16px;font-size:var(--text-sm)">
+            Noted. You will receive it in the shipment box.
+            <div style="font-size:10px;text-align:right;margin-top:4px;color:var(--color-text-secondary)">10:22 AM</div>
+          </div>
+          <div style="text-align:center;font-size:10px;color:var(--color-text-tertiary);margin:var(--space-4) 0;text-transform:uppercase;letter-spacing:1px">Today</div>
+          <div style="align-self:flex-start;max-width:70%;padding:var(--space-3) var(--space-4);background:var(--color-bg-secondary);border-radius:0 16px 16px 16px;font-size:var(--text-sm)">
+            Tracking: #BLUEDART-542100 - ETA 5 PM Tomorrow.
+            <div style="font-size:10px;text-align:right;margin-top:4px;color:var(--color-text-secondary)">12:30 PM</div>
+          </div>
+        </div>
+
+        <!-- Input -->
+        <div style="padding:var(--space-4);border-top:1px solid var(--color-border-subtle);display:flex;gap:var(--space-3);align-items:center">
+          <button class="btn btn-icon btn-ghost">➕</button>
+          <input type="text" class="form-input" style="border-radius:var(--radius-full);background:var(--color-bg-secondary)" placeholder="Type a message or share a document..." onkeydown="if(event.key==='Enter'){Toast.success('Message sent!');this.value=''}" />
+          <button class="btn btn-primary" style="padding:var(--space-2) var(--space-6);border-radius:var(--radius-full)" onclick="Toast.success('Message sent!')">Send</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── PURCHASE ORDERS & APPROVAL WORKFLOW ──────────────────────
+function renderPurchaseOrders() {
+  const pos = [
+    { id: 'PO-4421', vendor: 'HUL Suppliers', date: '2026-04-20', total: 42800, status: 'Confirmed', approval: 'Approved', branch: 'main' },
+    { id: 'PO-4422', vendor: 'Heritage Dairy', date: '2026-04-22', total: 15400, status: 'Draft', approval: 'Pending', branch: 'branch1' },
+    { id: 'PO-4423', vendor: 'Reliance Market', date: '2026-04-24', total: 82000, status: 'Awaiting Ship', approval: 'Approved', branch: 'branch2' },
+    { id: 'PO-4424', vendor: 'Nestle India', date: '2026-04-25', total: 29300, status: 'Draft', approval: 'Rejected', branch: 'main' },
+    { id: 'PO-4425', vendor: 'ITC Ltd.', date: '2026-04-25', total: 54000, status: 'Draft', approval: 'Pending', branch: 'branch1' },
+  ];
+
+  const filtered = getFilteredData(pos);
+
+  document.getElementById('page-body').innerHTML = `
+    <div class="page-header">
+      <div><div class="page-heading">Purchase Orders</div><div class="page-meta">Procurement & Approval Workflows</div></div>
+      <div style="display:flex;gap:var(--space-3)">
+        <button class="btn btn-secondary" onclick="downloadReport('suppliers')">Supplier Base</button>
+        <button class="btn btn-primary" onclick="openPOModal()">+ Create Purchase Order</button>
+      </div>
+    </div>
+
+    <!-- PO Summary -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-4);margin-bottom:var(--space-6)">
+      ${[
+        { l: 'Total POs', v: filtered.length, icon: '📋', color: 'var(--color-brand-400)' },
+        { l: 'Pending Approval', v: filtered.filter(p=>p.approval==='Pending').length, icon: '⏳', color: 'var(--color-warning-400)' },
+        { l: 'Total Committed', v: Format.currency(filtered.reduce((s,p)=>s+p.total,0)), icon: '💰', color: 'var(--color-success-400)' },
+        { l: 'Rejected/Canceled', v: filtered.filter(p=>p.approval==='Rejected').length, icon: '❌', color: 'var(--color-danger-400)' },
+      ].map(s => `
+        <div class="stat-card" style="padding:var(--space-5)">
+          <div style="font-size:24px;margin-bottom:var(--space-2)">${s.icon}</div>
+          <div style="font-size:var(--text-xs);color:var(--color-text-secondary);font-weight:600">${s.l}</div>
+          <div style="font-size:var(--text-xl);font-weight:800;color:${s.color}">${s.v}</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="panel-card" style="overflow-x:auto">
+      <table class="data-table">
+        <thead><tr><th>PO Number</th><th>Vendor</th><th>Date</th><th>Branch</th><th>Total Amount</th><th>Fulfillment</th><th>Approval Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${filtered.map(p => `
+            <tr>
+              <td style="font-family:monospace;font-weight:700">${p.id}</td>
+              <td style="font-weight:600">${p.vendor}</td>
+              <td style="font-size:var(--text-xs)">${Format.date(p.date)}</td>
+              <td><span class="chip">${p.branch.toUpperCase()}</span></td>
+              <td style="font-weight:700">${Format.currency(p.total)}</td>
+              <td><span class="badge badge-${p.status==='Confirmed'?'success':p.status==='Draft'?'secondary':'primary'}">${p.status}</span></td>
+              <td>
+                <span class="badge badge-${p.approval==='Approved'?'success':p.approval==='Rejected'?'danger':'warning'}">
+                  ${p.approval}
+                </span>
+              </td>
+              <td>
+                <div style="display:flex;gap:var(--space-2)">
+                  ${p.approval === 'Pending' ? `
+                    <button class="btn btn-sm btn-primary" onclick="handlePOApproval('${p.id}', 'Approved')">Approve</button>
+                    <button class="btn btn-sm btn-danger" onclick="handlePOApproval('${p.id}', 'Rejected')">Reject</button>
+                  ` : `
+                    <button class="btn btn-sm btn-secondary" onclick="Toast.info('Viewing details of ${p.id}...')">View</button>
+                  `}
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function handlePOApproval(id, status) {
+  Toast.success(`✅ ${id} has been ${status.toLowerCase()}!`);
+  renderPurchaseOrders();
+}
+
+function openPOModal() {
+  Modal.create({
+    title: 'Create Purchase Order',
+    body: `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)">
+        <div class="form-group"><label class="form-label">Vendor</label><select class="form-select">${DemoData.suppliers.map(s=>`<option>${s.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Branch</label><select id="po-branch" class="form-select"><option value="main">Main Store</option><option value="branch1">Warehouse A</option><option value="branch2">Retail B</option></select></div>
+        <div class="form-group" style="grid-column:1/-1"><label class="form-label">Items (Product Selection)</label><textarea class="form-input" placeholder="List items or search here..." rows="3"></textarea></div>
+        <div class="form-group"><label class="form-label">Total Estimated Value (₹)</label><input type="number" class="form-input" /></div>
+        <div class="form-group"><label class="form-label">Request Type</label><select class="form-select"><option>Standard Stock</option><option>Direct Purchase</option><option>Consignment</option></select></div>
+      </div>
+    `,
+    footer: `
       <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="Toast.success('✅ Payroll processed! Payslips sent via email/WhatsApp');document.querySelector('.modal-backdrop').remove()">✅ Confirm & Process</button>
+      <button class="btn btn-primary" onclick="Toast.success('PO Created & Sent for Approval!');document.querySelector('.modal-backdrop').remove();renderPurchaseOrders();">Submit for Approval</button>
     `
   });
 }
+
+// ─── PERSONNEL & ROLES ────────────────────────────────────────
+function renderPersonnel() {
+  const roles = [
+    { name: 'Admin/Owner', desc: 'Full access to all branches and finances', count: 1 },
+    { name: 'Manager', desc: 'Branch-specific management and approvals', count: 2 },
+    { name: 'Cashier', desc: 'POS and initial sales reporting only', count: 4 },
+    { name: 'Accountant', desc: 'GST, Accounting and Tax exports', count: 1 },
+  ];
+
+  document.getElementById('page-body').innerHTML = `
+    <div class="page-header">
+      <div><div class="page-heading">Personnel & Roles</div><div class="page-meta">Manage multi-branch access and permissions</div></div>
+      <button class="btn btn-primary" onclick="Toast.info('Opening user registration...')">+ Add Employee</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:var(--space-6)">
+      <div class="panel-card">
+        <div style="font-weight:700;margin-bottom:var(--space-4)">👥 Active Personnel</div>
+        <table class="data-table">
+          <thead><tr><th>Name</th><th>Role</th><th>Primary Branch</th><th>Last Active</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            ${DemoData.staff.map((s,i) => `
+              <tr>
+                <td><div style="font-weight:600">${s.name}</div><div style="font-size:10px;color:var(--color-text-secondary)">emp_${100+i}@nexaerp.app</div></td>
+                <td><span class="chip">${s.role}</span></td>
+                <td><span style="font-size:var(--text-xs)">${['Main Store','Warehouse A','Retail B'][i%3]}</span></td>
+                <td style="font-size:var(--text-xs)">Today, 2:45 PM</td>
+                <td><span class="badge badge-success">Active</span></td>
+                <td><button class="btn btn-sm btn-ghost" onclick="Toast.info('Editing ${s.name} permissions...')">Edit</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel-card">
+        <div style="font-weight:700;margin-bottom:var(--space-4)">🛡️ Role Definitions</div>
+        ${roles.map(r => `
+          <div style="padding:var(--space-3);background:var(--color-bg-secondary);border-radius:var(--radius-lg);margin-bottom:var(--space-3);border:1px solid var(--color-border-subtle)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span style="font-weight:700;font-size:var(--text-sm)">${r.name}</span>
+              <span class="badge badge-primary">${r.count}</span>
+            </div>
+            <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">${r.desc}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
