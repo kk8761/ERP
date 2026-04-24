@@ -23,11 +23,12 @@ function navigateTo(module) {
     inventory:  { title: 'Inventory', sub: 'Manage products and stock' },
     orders:     { title: 'Orders', sub: 'Purchase and sales orders' },
     suppliers:  { title: 'Suppliers', sub: 'Manage supplier relationships' },
-    accounting: { title: 'Accounting', sub: 'Financial transactions' },
+    accounting: { title: 'Accounting & Ledger', sub: 'SAP-style AR/AP · Accounts Receivable & Payable' },
     payroll:    { title: 'Payroll', sub: 'Staff salaries and attendance' },
     reports:    { title: 'Reports', sub: 'Business intelligence reports' },
     customers:  { title: 'Customers', sub: 'Customer relationship management' },
     staff:      { title: 'Staff', sub: 'Employee management' },
+    chat:       { title: 'Messenger', sub: 'Chat with employees, managers & vendors' },
     notifications: { title: 'Notifications', sub: 'Alerts and updates' },
     settings:   { title: 'Settings', sub: 'Business and system settings' },
   };
@@ -53,6 +54,7 @@ function navigateTo(module) {
       case 'reports':     renderReports(); break;
       case 'customers':   renderCustomers(); break;
       case 'staff':       renderStaff(); break;
+      case 'chat':        renderChat(); break;
       case 'notifications': renderNotifications(); break;
       case 'settings':    renderSettings(); break;
       default:            renderDashboard();
