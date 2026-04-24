@@ -29,6 +29,9 @@ function navigateTo(module) {
     customers:  { title: 'Customers', sub: 'Customer relationship management' },
     staff:      { title: 'Staff', sub: 'Employee management' },
     chat:       { title: 'Messenger', sub: 'Chat with employees, managers & vendors' },
+    gst:        { title: 'GST Management', sub: 'GSTR-1 · GSTR-3B · Input Tax Credit' },
+    costcenter: { title: 'Cost Centers & Budget', sub: 'SAP CO — Budget vs Actual by Department' },
+    assets:     { title: 'Asset Management', sub: 'SAP FI-AA — Fixed Asset Register & Depreciation' },
     notifications: { title: 'Notifications', sub: 'Alerts and updates' },
     settings:   { title: 'Settings', sub: 'Business and system settings' },
   };
@@ -55,6 +58,9 @@ function navigateTo(module) {
       case 'customers':   renderCustomers(); break;
       case 'staff':       renderStaff(); break;
       case 'chat':        renderChat(); break;
+      case 'gst':         renderGST(); break;
+      case 'costcenter':  renderCostCenter(); break;
+      case 'assets':      renderAssets(); break;
       case 'notifications': renderNotifications(); break;
       case 'settings':    renderSettings(); break;
       default:            renderDashboard();

@@ -1,16 +1,16 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard — NexaERP</title>
+  <title>Dashboard â€” NexaERP</title>
   <meta name="description" content="NexaERP business management dashboard with real-time analytics, inventory, billing, and more." />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/design-system.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
   <link rel="stylesheet" href="css/modules.css" />
-  <!-- Backend config — change NEXAERP_API to your Render.com URL -->
+  <!-- Backend config â€” change NEXAERP_API to your Render.com URL -->
   <script>
     window.NEXAERP_API    = 'https://nexaerp-api.onrender.com/api';
     window.NEXAERP_SOCKET = 'https://nexaerp-api.onrender.com';
@@ -20,7 +20,7 @@
 
 <div class="app-layout">
 
-  <!-- ── Sidebar ───────────────────────────────────────────── -->
+  <!-- â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <aside class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
     <!-- Logo -->
     <div class="sidebar-logo">
@@ -100,19 +100,38 @@
           </span>
           <span class="nav-item-label">Accounting</span>
         </button>
+        <button class="nav-item" onclick="navigateTo('gst')" id="nav-gst">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          </span>
+          <span class="nav-item-label">GST / Tax</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('costcenter')" id="nav-costcenter">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </span>
+          <span class="nav-item-label">Cost Centers</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('assets')" id="nav-assets">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+          </span>
+          <span class="nav-item-label">Assets</span>
+        </button>
         <button class="nav-item" onclick="navigateTo('payroll')" id="nav-payroll">
           <span class="nav-item-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
           </span>
-          <span class="nav-item-label">Payroll</span>
+          <span class="nav-item-label">Payroll & HR</span>
         </button>
         <button class="nav-item" onclick="navigateTo('reports')" id="nav-reports">
           <span class="nav-item-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           </span>
           <span class="nav-item-label">Reports</span>
         </button>
       </div>
+
 
       <!-- People -->
       <div class="nav-section">
@@ -175,7 +194,7 @@
   <!-- Sidebar backdrop (mobile) -->
   <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="closeMobileSidebar()"></div>
 
-  <!-- ── Main Content ───────────────────────────────────────── -->
+  <!-- â”€â”€ Main Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <main class="main-content" id="main-content">
 
     <!-- Top Header -->
@@ -201,8 +220,8 @@
 
         <!-- Store selector -->
         <select class="form-select" style="width:auto;border-radius:var(--radius-full);font-size:var(--text-xs);padding:6px 28px 6px 12px" id="store-selector">
-          <option>🏪 Main Store</option>
-          <option>🏪 Branch 2</option>
+          <option>ðŸª Main Store</option>
+          <option>ðŸª Branch 2</option>
         </select>
 
         <!-- Theme Switcher -->
@@ -233,7 +252,7 @@
       </div>
     </header>
 
-    <!-- ── Page Body (modules rendered here) ──────────────── -->
+    <!-- â”€â”€ Page Body (modules rendered here) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
     <div id="page-body" class="page-content">
       <!-- Dashboard module rendered here by JS -->
       <div id="dashboard-view"></div>
@@ -247,7 +266,7 @@
   <div class="modal" style="max-width:640px">
     <div class="modal-header">
       <div class="flex items-center gap-3">
-        <div style="width:36px;height:36px;background:var(--gradient-brand);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;font-size:18px">✨</div>
+        <div style="width:36px;height:36px;background:var(--gradient-brand);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;font-size:18px">âœ¨</div>
         <div>
           <div class="heading-4">NexaAI Assistant</div>
           <div class="caption">Powered by business intelligence</div>
@@ -272,7 +291,7 @@
 <!-- Theme Picker Modal -->
 <div id="theme-picker-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)" onclick="if(event.target===this)this.style.display='none'">
   <div style="background:var(--color-bg-elevated);border:1px solid var(--color-border-default);border-radius:var(--radius-2xl);padding:var(--space-8);width:480px;max-width:95vw">
-    <div style="font-family:var(--font-display);font-size:var(--text-xl);font-weight:700;margin-bottom:var(--space-6)">🎨 Choose Theme</div>
+    <div style="font-family:var(--font-display);font-size:var(--text-xl);font-weight:700;margin-bottom:var(--space-6)">ðŸŽ¨ Choose Theme</div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:var(--space-3)" id="theme-grid">
       <!-- Rendered by JS -->
     </div>
@@ -289,5 +308,6 @@
 <script src="js/inventory.js"></script>
 <script src="js/pos.js"></script>
 <script src="js/modules.js"></script>
+<script src="js/sap_modules.js"></script>
 </body>
 </html>

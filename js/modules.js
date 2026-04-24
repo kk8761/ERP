@@ -1,10 +1,10 @@
-/**
- * NexaERP — Modules.js
+﻿/**
+ * NexaERP â€” Modules.js
  * Renders all remaining modules: Orders, Customers, Staff,
  * Payroll, Suppliers, Accounting, Notifications, Settings
  */
 
-// ─── ORDERS MODULE ────────────────────────────────────────────
+// â”€â”€â”€ ORDERS MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderOrders() {
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
@@ -81,20 +81,20 @@ function renderOrdersTable() {
     return matchSearch && matchStatus && matchDate;
   });
 
-  const payIcons = { cash:'💵', upi:'📱', card:'💳', credit:'📋' };
+  const payIcons = { cash:'ðŸ’µ', upi:'ðŸ“±', card:'ðŸ’³', credit:'ðŸ“‹' };
   document.getElementById('orders-tbody').innerHTML = filtered.map(o => `
     <tr>
       <td><code style="font-size:var(--text-xs);background:var(--color-bg-elevated);padding:2px 6px;border-radius:4px;cursor:pointer" onclick="viewOrder('${o.id}')">${o.id}</code></td>
       <td style="font-weight:500">${o.customer}</td>
       <td style="font-size:var(--text-xs);color:var(--color-text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis">${o.items.join(', ')}</td>
       <td style="font-weight:700">${Format.currency(o.total)}</td>
-      <td>${payIcons[o.payment]||'💰'} ${o.payment?.toUpperCase()}</td>
+      <td>${payIcons[o.payment]||'ðŸ’°'} ${o.payment?.toUpperCase()}</td>
       <td><span class="badge badge-${o.status==='completed'?'success':o.status==='pending'?'warning':'info'}">${o.status}</span></td>
       <td style="font-size:var(--text-xs);color:var(--color-text-secondary)">${Format.date(o.date)}</td>
       <td>
         <div style="display:flex;gap:4px">
           <button class="btn btn-sm btn-secondary" onclick="viewOrder('${o.id}')">View</button>
-          <button class="btn btn-sm btn-ghost" onclick="printOrderInvoice('${o.id}')">🖨️</button>
+          <button class="btn btn-sm btn-ghost" onclick="printOrderInvoice('${o.id}')">ðŸ–¨ï¸</button>
         </div>
       </td>
     </tr>
@@ -107,7 +107,7 @@ function viewOrder(id) {
   const o = DemoData.orders.find(or => or.id === id);
   if (!o) return;
   Modal.create({
-    title: `Order — ${o.id}`,
+    title: `Order â€” ${o.id}`,
     body: `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin-bottom:var(--space-4)">
         ${[['Customer',o.customer],['Invoice',o.invoiceNo],['Date',Format.date(o.date)],['Payment',o.payment?.toUpperCase()],['Status',`<span class="badge badge-${o.status==='completed'?'success':'warning'}">${o.status}</span>`],['Total',`<strong style="color:var(--color-brand-400)">${Format.currency(o.total)}</strong>`]].map(([k,v])=>`
@@ -124,7 +124,7 @@ function viewOrder(id) {
     `,
     footer: `
       <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Close</button>
-      <button class="btn btn-primary" onclick="Toast.success('Invoice sent!');document.querySelector('.modal-backdrop').remove()">📱 Resend Invoice</button>
+      <button class="btn btn-primary" onclick="Toast.success('Invoice sent!');document.querySelector('.modal-backdrop').remove()">ðŸ“± Resend Invoice</button>
     `
   });
 }
@@ -132,7 +132,7 @@ function viewOrder(id) {
 function printOrderInvoice(id) { Toast.info(`Printing invoice for ${id}...`); }
 function openNewOrderModal() { navigateTo('pos'); Toast.info('Navigate to POS to create a new sale'); }
 
-// ─── CUSTOMERS MODULE ─────────────────────────────────────────
+// â”€â”€â”€ CUSTOMERS MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderCustomers() {
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
@@ -149,10 +149,10 @@ function renderCustomers() {
     <!-- Stats -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-4);margin-bottom:var(--space-6)">
       ${[
-        { label:'Total Customers', value:DemoData.customers.length, icon:'👥' },
-        { label:'VIP Customers', value:DemoData.customers.filter(c=>c.type==='vip').length, icon:'⭐' },
-        { label:'New This Month', value:DemoData.customers.filter(c=>c.type==='new').length, icon:'🆕' },
-        { label:'Total Revenue', value:Format.currency(DemoData.customers.reduce((s,c)=>s+c.totalSpent,0)), icon:'💰' },
+        { label:'Total Customers', value:DemoData.customers.length, icon:'ðŸ‘¥' },
+        { label:'VIP Customers', value:DemoData.customers.filter(c=>c.type==='vip').length, icon:'â­' },
+        { label:'New This Month', value:DemoData.customers.filter(c=>c.type==='new').length, icon:'ðŸ†•' },
+        { label:'Total Revenue', value:Format.currency(DemoData.customers.reduce((s,c)=>s+c.totalSpent,0)), icon:'ðŸ’°' },
       ].map(s=>`
         <div class="stat-card" style="padding:var(--space-5)">
           <div style="font-size:28px;margin-bottom:var(--space-2)">${s.icon}</div>
@@ -217,7 +217,7 @@ function viewCustomer(id) {
         <span class="badge badge-primary">${c.type?.toUpperCase()}</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
-        ${[['Phone',c.phone],['Email',c.email||'—'],['Address',c.address||'—'],['Total Orders',c.totalOrders],['Total Spent',Format.currency(c.totalSpent)],['Loyalty Points',c.loyaltyPoints+' pts'],['Last Visit',Format.date(c.lastVisit)]].map(([k,v])=>`
+        ${[['Phone',c.phone],['Email',c.email||'â€”'],['Address',c.address||'â€”'],['Total Orders',c.totalOrders],['Total Spent',Format.currency(c.totalSpent)],['Loyalty Points',c.loyaltyPoints+' pts'],['Last Visit',Format.date(c.lastVisit)]].map(([k,v])=>`
           <div style="background:var(--color-bg-secondary);border-radius:var(--radius-lg);padding:var(--space-3)">
             <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">${k}</div>
             <div style="font-weight:600;font-size:var(--text-sm)">${v}</div>
@@ -262,7 +262,7 @@ function saveNewCustomer() {
   renderCustomers();
 }
 
-// ─── STAFF MODULE ─────────────────────────────────────────────
+// â”€â”€â”€ STAFF MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderStaff() {
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
@@ -280,7 +280,7 @@ function renderStaff() {
             <div class="avatar avatar-lg">${s.avatar}</div>
             <div>
               <div style="font-weight:700">${s.name}</div>
-              <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">${s.role} · ${s.dept}</div>
+              <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">${s.role} Â· ${s.dept}</div>
               <div class="status-dot ${s.status==='active'?'status-online':'status-offline'}" style="display:inline-block;margin-top:4px"></div>
               <span style="font-size:var(--text-xs);color:var(--color-text-secondary);margin-left:4px">${s.status}</span>
             </div>
@@ -300,8 +300,8 @@ function renderStaff() {
             <div class="progress-bar"><div class="progress-fill" style="width:${s.attendance}%;background:${s.attendance>=95?'var(--gradient-success)':'var(--gradient-warning)'}"></div></div>
           </div>
           <div style="display:flex;gap:var(--space-2);margin-top:var(--space-4)">
-            <button class="btn btn-sm btn-secondary" style="flex:1" onclick="Toast.info('Calling ${s.name}...')">📞 Call</button>
-            <button class="btn btn-sm btn-primary" style="flex:1" onclick="openPayrollFor('${s.id}')">💰 Payroll</button>
+            <button class="btn btn-sm btn-secondary" style="flex:1" onclick="Toast.info('Calling ${s.name}...')">ðŸ“ž Call</button>
+            <button class="btn btn-sm btn-primary" style="flex:1" onclick="openPayrollFor('${s.id}')">ðŸ’° Payroll</button>
           </div>
         </div>
       `).join('')}
@@ -325,7 +325,7 @@ function openStaffModal() {
         </div>
         <div class="form-group"><label class="form-label">Phone</label><input type="tel" id="se-phone" class="form-input" /></div>
         <div class="form-group"><label class="form-label">Email</label><input type="email" id="se-email" class="form-input" /></div>
-        <div class="form-group"><label class="form-label">Salary (₹/month) *</label><input type="number" id="se-salary" class="form-input" min="0" /></div>
+        <div class="form-group"><label class="form-label">Salary (â‚¹/month) *</label><input type="number" id="se-salary" class="form-input" min="0" /></div>
         <div class="form-group"><label class="form-label">Join Date</label><input type="date" id="se-join" class="form-input" /></div>
       </div>
     `,
@@ -347,7 +347,7 @@ function saveStaff() {
   renderStaff();
 }
 
-// ─── PAYROLL MODULE ───────────────────────────────────────────
+// â”€â”€â”€ PAYROLL MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function openPayrollFor(staffId) {
   const s = DemoData.staff.find(st => st.id === staffId);
   if (!s) return;
@@ -358,13 +358,13 @@ function openPayrollFor(staffId) {
   const netSalary    = basicSalary - deductions;
 
   Modal.create({
-    title: `Payroll — ${s.name}`,
+    title: `Payroll â€” ${s.name}`,
     body: `
       <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-5)">
         <div class="avatar avatar-lg">${s.avatar}</div>
         <div>
           <div style="font-weight:700">${s.name}</div>
-          <div style="font-size:var(--text-sm);color:var(--color-text-secondary)">${s.role} · Joined ${Format.date(s.joinDate)}</div>
+          <div style="font-size:var(--text-sm);color:var(--color-text-secondary)">${s.role} Â· Joined ${Format.date(s.joinDate)}</div>
         </div>
       </div>
       <div style="background:var(--color-bg-secondary);border-radius:var(--radius-xl);padding:var(--space-5)">
@@ -373,7 +373,7 @@ function openPayrollFor(staffId) {
           ['Present Days', presentDays, presentDays < 22 ? 'color:var(--color-warning-400)' : ''],
           ['Basic Salary', Format.currency(basicSalary), ''],
           ['PF Deduction (12%)', `-${Format.currency(deductions)}`, 'color:var(--color-danger-400)'],
-          ['Other Deductions','₹0.00',''],
+          ['Other Deductions','â‚¹0.00',''],
           ['Net Payable', Format.currency(netSalary), 'font-weight:800;font-size:1.1rem;color:var(--color-success-400)'],
         ].map(([k,v,style])=>`
           <div style="display:flex;justify-content:space-between;padding:var(--space-2) 0;border-bottom:1px solid var(--color-border-subtle)">
@@ -385,7 +385,7 @@ function openPayrollFor(staffId) {
     `,
     footer: `
       <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="Toast.success('Salary of ${Format.currency(netSalary)} marked as paid for ${s.name}!');document.querySelector('.modal-backdrop').remove()">✅ Mark as Paid</button>
+      <button class="btn btn-primary" onclick="Toast.success('Salary of ${Format.currency(netSalary)} marked as paid for ${s.name}!');document.querySelector('.modal-backdrop').remove()">âœ… Mark as Paid</button>
     `
   });
 }
@@ -395,7 +395,7 @@ function renderPayroll() {
     <div class="page-header">
       <div>
         <div class="page-heading">Payroll</div>
-        <div class="page-meta">April 2026 · ${DemoData.staff.length} employees</div>
+        <div class="page-meta">April 2026 Â· ${DemoData.staff.length} employees</div>
       </div>
       <div style="display:flex;gap:var(--space-3)">
         <select class="form-select" style="width:auto">
@@ -445,7 +445,7 @@ function renderPayroll() {
 
 function processAllPayroll() { Toast.success('All payroll processed for April 2026!'); }
 
-// ─── SUPPLIERS MODULE ──────────────────────────────────────────
+// â”€â”€â”€ SUPPLIERS MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderSuppliers() {
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
@@ -462,7 +462,7 @@ function renderSuppliers() {
           <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:var(--space-4)">
             <div>
               <div style="font-weight:700;font-size:var(--text-base)">${s.name}</div>
-              <div style="font-size:var(--text-xs);color:var(--color-text-secondary);margin-top:2px">${s.city} · ${s.contact}</div>
+              <div style="font-size:var(--text-xs);color:var(--color-text-secondary);margin-top:2px">${s.city} Â· ${s.contact}</div>
             </div>
             <span class="badge badge-${s.status==='active'?'success':'gray'}">${s.status}</span>
           </div>
@@ -477,12 +477,12 @@ function renderSuppliers() {
             </div>
           </div>
           <div style="font-size:var(--text-xs);color:var(--color-text-secondary);margin-bottom:var(--space-3)">
-            📞 ${s.phone} · Last Order: ${Format.date(s.lastOrder)}
+            ðŸ“ž ${s.phone} Â· Last Order: ${Format.date(s.lastOrder)}
           </div>
           <div style="font-size:var(--text-xs);color:var(--color-text-tertiary);font-family:monospace;margin-bottom:var(--space-3)">GST: ${s.gst}</div>
           <div style="display:flex;gap:var(--space-2)">
             <button class="btn btn-sm btn-secondary" style="flex:1" onclick="Toast.info('Creating PO for ${s.name}...')">+ Purchase Order</button>
-            ${s.outstanding > 0 ? `<button class="btn btn-sm btn-primary" onclick="Toast.success('Payment recorded for ${s.name}!')">Pay ₹${(s.outstanding/1000).toFixed(1)}k</button>` : ''}
+            ${s.outstanding > 0 ? `<button class="btn btn-sm btn-primary" onclick="Toast.success('Payment recorded for ${s.name}!')">Pay â‚¹${(s.outstanding/1000).toFixed(1)}k</button>` : ''}
           </div>
         </div>
       `).join('')}
@@ -492,7 +492,7 @@ function renderSuppliers() {
 
 function openSupplierModal() { Toast.info('Supplier form opening...'); }
 
-// ─── ACCOUNTING MODULE (SAP-style) ────────────────────────────
+// â”€â”€â”€ ACCOUNTING MODULE (SAP-style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderAccounting() {
   // Compute from DemoData as fallback
   const income  = DemoData.transactions.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
@@ -522,10 +522,10 @@ function renderAccounting() {
       <!-- KPI Row -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-4);margin-bottom:var(--space-6)">
         ${[
-          { label:'Total Revenue', value:Format.currency(income), color:'var(--color-success-400)', icon:'📈' },
-          { label:'Total Expenses', value:Format.currency(expense), color:'var(--color-danger-400)', icon:'📉' },
-          { label:'Net Profit', value:Format.currency(income-expense), color:income-expense>0?'var(--color-brand-400)':'var(--color-danger-400)', icon:'💰' },
-          { label:'Profit Margin', value:income>0?((income-expense)/income*100).toFixed(1)+'%':'0%', color:'var(--color-warning-400)', icon:'📊' },
+          { label:'Total Revenue', value:Format.currency(income), color:'var(--color-success-400)', icon:'ðŸ“ˆ' },
+          { label:'Total Expenses', value:Format.currency(expense), color:'var(--color-danger-400)', icon:'ðŸ“‰' },
+          { label:'Net Profit', value:Format.currency(income-expense), color:income-expense>0?'var(--color-brand-400)':'var(--color-danger-400)', icon:'ðŸ’°' },
+          { label:'Profit Margin', value:income>0?((income-expense)/income*100).toFixed(1)+'%':'0%', color:'var(--color-warning-400)', icon:'ðŸ“Š' },
         ].map(s=>`
           <div class="stat-card" style="padding:var(--space-5)">
             <div style="font-size:24px;margin-bottom:var(--space-2)">${s.icon}</div>
@@ -538,7 +538,7 @@ function renderAccounting() {
       <!-- Income vs Expense breakdown -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-5)">
         <div class="panel-card">
-          <div style="font-weight:700;margin-bottom:var(--space-4);color:var(--color-success-400)">💚 Income Breakdown</div>
+          <div style="font-weight:700;margin-bottom:var(--space-4);color:var(--color-success-400)">ðŸ’š Income Breakdown</div>
           ${['Sales Revenue','Service Income','Returns & Refunds','Other Income'].map((cat,i)=>{
             const amt = [income*0.78, income*0.12, -income*0.03, income*0.05][i];
             return `<div style="display:flex;justify-content:space-between;padding:var(--space-2) 0;border-bottom:1px solid var(--color-border-subtle);font-size:var(--text-sm)">
@@ -547,7 +547,7 @@ function renderAccounting() {
           }).join('')}
         </div>
         <div class="panel-card">
-          <div style="font-weight:700;margin-bottom:var(--space-4);color:var(--color-danger-400)">❤️ Expense Breakdown</div>
+          <div style="font-weight:700;margin-bottom:var(--space-4);color:var(--color-danger-400)">â¤ï¸ Expense Breakdown</div>
           ${['Purchase / COGS','Salaries & Wages','Rent & Utilities','Marketing','Other Expenses'].map((cat,i)=>{
             const rates=[0.55,0.20,0.12,0.05,0.08];
             const amt = expense*rates[i];
@@ -560,7 +560,7 @@ function renderAccounting() {
 
       <!-- Transaction Table -->
       <div class="panel-card" style="margin-top:var(--space-5)">
-        <div style="font-weight:700;margin-bottom:var(--space-4)">📋 Recent Transactions</div>
+        <div style="font-weight:700;margin-bottom:var(--space-4)">ðŸ“‹ Recent Transactions</div>
         <div style="overflow-x:auto">
           <table class="data-table">
             <thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Description</th><th>Ref</th><th>Amount</th></tr></thead>
@@ -600,7 +600,7 @@ function renderAccounting() {
 
       <div class="panel-card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4)">
-          <div style="font-weight:700">👤 Customers with Outstanding Balance</div>
+          <div style="font-weight:700">ðŸ‘¤ Customers with Outstanding Balance</div>
           <button class="btn btn-sm btn-primary" onclick="openARModal()">+ Create Invoice</button>
         </div>
         <table class="data-table">
@@ -617,10 +617,10 @@ function renderAccounting() {
                 <td style="font-weight:600">${Format.currency(c.totalSpent)}</td>
                 <td>${Format.currency(c.credit||0)}</td>
                 <td style="font-weight:700;color:${(c.credit||0)>0?'var(--color-warning-400)':'var(--color-success-400)'}">
-                  ${(c.credit||0)>0?'⚠️ '+Format.currency(c.credit):'✅ Clear'}
+                  ${(c.credit||0)>0?'âš ï¸ '+Format.currency(c.credit):'âœ… Clear'}
                 </td>
                 <td style="font-size:var(--text-xs);color:var(--color-text-secondary)">${Format.date(c.lastVisit)}</td>
-                <td><button class="btn btn-sm btn-primary" onclick="recordARPayment('${c.id}','${c.name}')">💳 Record Payment</button></td>
+                <td><button class="btn btn-sm btn-primary" onclick="recordARPayment('${c.id}','${c.name}')">ðŸ’³ Record Payment</button></td>
               </tr>
             `).join('')}
           </tbody>
@@ -647,7 +647,7 @@ function renderAccounting() {
 
       <div class="panel-card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-4)">
-          <div style="font-weight:700">🏭 Supplier Payables</div>
+          <div style="font-weight:700">ðŸ­ Supplier Payables</div>
           <button class="btn btn-sm btn-secondary" onclick="exportCSV(DemoData.suppliers,'payables.csv');Toast.success('Exported!')">Export</button>
         </div>
         <table class="data-table">
@@ -661,19 +661,19 @@ function renderAccounting() {
                 <tr>
                   <td>
                     <div style="font-weight:600">${s.name}</div>
-                    <div style="font-size:11px;color:var(--color-text-secondary)">${s.city} · GST: ${s.gst}</div>
+                    <div style="font-size:11px;color:var(--color-text-secondary)">${s.city} Â· GST: ${s.gst}</div>
                   </td>
                   <td>${Format.currency(total)}</td>
                   <td style="color:var(--color-success-400);font-weight:600">${Format.currency(paid)}</td>
                   <td style="font-weight:700;color:${(s.outstanding||0)>0?'var(--color-danger-400)':'var(--color-success-400)'}">
-                    ${(s.outstanding||0)>0?Format.currency(s.outstanding):'✅ Clear'}
+                    ${(s.outstanding||0)>0?Format.currency(s.outstanding):'âœ… Clear'}
                   </td>
                   <td style="font-size:var(--text-xs);color:${daysLeft<0?'var(--color-danger-400)':daysLeft<7?'var(--color-warning-400)':'var(--color-text-secondary)'}">
-                    ${daysLeft<0?`⚠️ ${Math.abs(daysLeft)}d overdue`:daysLeft===0?'Due Today':'In '+daysLeft+'d'}
+                    ${daysLeft<0?`âš ï¸ ${Math.abs(daysLeft)}d overdue`:daysLeft===0?'Due Today':'In '+daysLeft+'d'}
                   </td>
                   <td><span class="badge badge-${(s.outstanding||0)===0?'success':daysLeft<0?'danger':'warning'}">${(s.outstanding||0)===0?'Paid':daysLeft<0?'Overdue':'Pending'}</span></td>
                   <td>
-                    ${(s.outstanding||0)>0?`<button class="btn btn-sm btn-primary" onclick="recordAPPayment('${s.id||i}','${s.name}',${s.outstanding||0})">Pay ₹${((s.outstanding||0)/1000).toFixed(1)}k</button>`:'<span style="color:var(--color-success-400);font-size:var(--text-xs)">✅ Settled</span>'}
+                    ${(s.outstanding||0)>0?`<button class="btn btn-sm btn-primary" onclick="recordAPPayment('${s.id||i}','${s.name}',${s.outstanding||0})">Pay â‚¹${((s.outstanding||0)/1000).toFixed(1)}k</button>`:'<span style="color:var(--color-success-400);font-size:var(--text-xs)">âœ… Settled</span>'}
                   </td>
                 </tr>
               `;
@@ -693,7 +693,7 @@ function renderAccounting() {
     <!-- Ledger Entries Tab -->
     <div id="acc-panel-3" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-5)">
-        <div style="font-weight:700;font-size:var(--text-lg)">📖 Full Ledger Book</div>
+        <div style="font-weight:700;font-size:var(--text-lg)">ðŸ“– Full Ledger Book</div>
         <button class="btn btn-primary" onclick="openTransactionModal()">+ New Entry</button>
       </div>
       <div class="panel-card" style="overflow-x:auto">
@@ -708,10 +708,10 @@ function renderAccounting() {
                 return `<tr>
                   <td style="font-size:var(--text-xs)">${Format.date(t.date)}</td>
                   <td><span class="badge badge-${isCredit?'success':'danger'}">${isCredit?'CR':'DR'}</span></td>
-                  <td style="font-size:var(--text-xs);color:var(--color-text-secondary)">${t.ref||'—'}</td>
+                  <td style="font-size:var(--text-xs);color:var(--color-text-secondary)">${t.ref||'â€”'}</td>
                   <td style="font-size:var(--text-sm)">${t.description}</td>
-                  <td style="color:var(--color-danger-400);font-weight:600">${!isCredit?Format.currency(t.amount):'—'}</td>
-                  <td style="color:var(--color-success-400);font-weight:600">${isCredit?Format.currency(t.amount):'—'}</td>
+                  <td style="color:var(--color-danger-400);font-weight:600">${!isCredit?Format.currency(t.amount):'â€”'}</td>
+                  <td style="color:var(--color-success-400);font-weight:600">${isCredit?Format.currency(t.amount):'â€”'}</td>
                   <td style="font-weight:700;color:${running>=0?'var(--color-brand-400)':'var(--color-danger-400)'}">${Format.currency(running)}</td>
                 </tr>`;
               }).join('');
@@ -740,9 +740,9 @@ function switchAccTab(idx) {
 
 function recordARPayment(customerId, name) {
   Modal.create({
-    title: `💳 Record Payment from ${name}`,
+    title: `ðŸ’³ Record Payment from ${name}`,
     body: `
-      <div class="form-group"><label class="form-label">Amount Received (₹) *</label><input type="number" id="ar-amount" class="form-input" min="1" placeholder="0.00" /></div>
+      <div class="form-group"><label class="form-label">Amount Received (â‚¹) *</label><input type="number" id="ar-amount" class="form-input" min="1" placeholder="0.00" /></div>
       <div class="form-group"><label class="form-label">Payment Mode</label>
         <select id="ar-mode" class="form-select"><option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option></select>
       </div>
@@ -751,7 +751,7 @@ function recordARPayment(customerId, name) {
     `,
     footer: `
       <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveARPayment('${customerId}','${name}')">✅ Record Payment</button>
+      <button class="btn btn-primary" onclick="saveARPayment('${customerId}','${name}')">âœ… Record Payment</button>
     `
   });
 }
@@ -776,19 +776,19 @@ function saveARPayment(id, name) {
   DemoData.transactions.unshift({ id:'T'+Date.now(), date:new Date().toISOString().split('T')[0], type:'income', category:'Receivables', description:`Payment from ${name}`, amount, ref:ref||'MANUAL' });
 
   document.querySelector('.modal-backdrop')?.remove();
-  Toast.success(`✅ ₹${Format.currency(amount)} received from ${name}!`);
+  Toast.success(`âœ… â‚¹${Format.currency(amount)} received from ${name}!`);
   renderAccounting();
 }
 
 function recordAPPayment(supplierId, name, outstanding) {
   Modal.create({
-    title: `💸 Pay ${name}`,
+    title: `ðŸ’¸ Pay ${name}`,
     body: `
       <div style="background:rgba(239,68,68,0.08);border-radius:var(--radius-lg);padding:var(--space-4);margin-bottom:var(--space-4)">
         <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">Outstanding to ${name}</div>
         <div style="font-size:var(--text-2xl);font-weight:800;color:var(--color-danger-400)">${Format.currency(outstanding)}</div>
       </div>
-      <div class="form-group"><label class="form-label">Amount to Pay (₹) *</label><input type="number" id="ap-amount" class="form-input" min="1" value="${outstanding}" /></div>
+      <div class="form-group"><label class="form-label">Amount to Pay (â‚¹) *</label><input type="number" id="ap-amount" class="form-input" min="1" value="${outstanding}" /></div>
       <div class="form-group"><label class="form-label">Payment Mode</label>
         <select id="ap-mode" class="form-select"><option>Bank Transfer</option><option>Cheque</option><option>Cash</option><option>UPI</option></select>
       </div>
@@ -796,7 +796,7 @@ function recordAPPayment(supplierId, name, outstanding) {
     `,
     footer: `
       <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Cancel</button>
-      <button class="btn btn-danger" onclick="saveAPPayment('${supplierId}','${name}')">💸 Confirm Payment</button>
+      <button class="btn btn-danger" onclick="saveAPPayment('${supplierId}','${name}')">ðŸ’¸ Confirm Payment</button>
     `
   });
 }
@@ -815,17 +815,17 @@ function saveAPPayment(id, name) {
   Http.post('/ledger', { type:'payment_made', partyType:'supplier', partyName:name, invoiceAmount:amount, description:`Payment to ${name}`, payments:[{amount,mode,reference:ref}] }).catch(()=>{});
 
   document.querySelector('.modal-backdrop')?.remove();
-  Toast.success(`✅ Paid ₹${Format.currency(amount)} to ${name}!`);
+  Toast.success(`âœ… Paid â‚¹${Format.currency(amount)} to ${name}!`);
   renderAccounting();
 }
 
 function openARModal() {
   Modal.create({
-    title: '📄 Create Invoice (Accounts Receivable)',
+    title: 'ðŸ“„ Create Invoice (Accounts Receivable)',
     body: `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
         <div class="form-group"><label class="form-label">Customer Name *</label><input type="text" id="inv-party" class="form-input" /></div>
-        <div class="form-group"><label class="form-label">Invoice Amount (₹) *</label><input type="number" id="inv-amount" class="form-input" min="0" /></div>
+        <div class="form-group"><label class="form-label">Invoice Amount (â‚¹) *</label><input type="number" id="inv-amount" class="form-input" min="0" /></div>
         <div class="form-group"><label class="form-label">Due Date</label><input type="date" id="inv-due" class="form-input" /></div>
         <div class="form-group"><label class="form-label">Category</label>
           <select id="inv-cat" class="form-select"><option>Sales</option><option>Services</option><option>Other</option></select>
@@ -846,10 +846,10 @@ function saveARInvoice() {
   const desc   = document.getElementById('inv-desc')?.value?.trim();
   if(!party||!amount||!desc) { Toast.error('All required fields must be filled'); return; }
 
-  DemoData.transactions.unshift({ id:'INV'+Date.now(), date:new Date().toISOString().split('T')[0], type:'income', category:document.getElementById('inv-cat')?.value||'Sales', description:`Invoice: ${desc} — ${party}`, amount, ref:'INV'+Date.now() });
+  DemoData.transactions.unshift({ id:'INV'+Date.now(), date:new Date().toISOString().split('T')[0], type:'income', category:document.getElementById('inv-cat')?.value||'Sales', description:`Invoice: ${desc} â€” ${party}`, amount, ref:'INV'+Date.now() });
 
   document.querySelector('.modal-backdrop')?.remove();
-  Toast.success(`Invoice for ₹${Format.currency(amount)} raised for ${party}!`);
+  Toast.success(`Invoice for â‚¹${Format.currency(amount)} raised for ${party}!`);
   renderAccounting();
 }
 
@@ -866,7 +866,7 @@ function openTransactionModal() {
         </select>
       </div>
       <div class="form-group"><label class="form-label">Description *</label><input type="text" id="tr-desc" class="form-input" /></div>
-      <div class="form-group"><label class="form-label">Amount (₹) *</label><input type="number" id="tr-amount" class="form-input" min="0" step="0.01" /></div>
+      <div class="form-group"><label class="form-label">Amount (â‚¹) *</label><input type="number" id="tr-amount" class="form-input" min="0" step="0.01" /></div>
       <div class="form-group"><label class="form-label">Date</label><input type="date" id="tr-date" class="form-input" value="${new Date().toISOString().split('T')[0]}" /></div>
     `,
     footer: `
@@ -891,7 +891,7 @@ function saveTransaction() {
   renderAccounting();
 }
 
-// ─── NOTIFICATIONS MODULE ──────────────────────────────────────
+// â”€â”€â”€ NOTIFICATIONS MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderNotifications() {
   document.getElementById('page-body').innerHTML = `
     <div style="max-width:680px">
@@ -921,7 +921,7 @@ async function loadAllNotifications() {
   list.innerHTML = notifs.map(n=>`
     <div class="panel-card" style="margin-bottom:var(--space-3);${!n.isRead?'border-left:3px solid var(--color-brand-500)':''}">
       <div style="display:flex;gap:var(--space-4);padding:var(--space-4)">
-        <div style="width:44px;height:44px;border-radius:var(--radius-xl);background:${n.priority==='critical'?'rgba(239,68,68,0.15)':n.type==='warning'?'rgba(234,179,8,0.15)':n.type==='success'?'rgba(34,197,94,0.15)':'rgba(99,102,241,0.15)'};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${n.icon||'🔔'}</div>
+        <div style="width:44px;height:44px;border-radius:var(--radius-xl);background:${n.priority==='critical'?'rgba(239,68,68,0.15)':n.type==='warning'?'rgba(234,179,8,0.15)':n.type==='success'?'rgba(34,197,94,0.15)':'rgba(99,102,241,0.15)'};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${n.icon||'ðŸ””'}</div>
         <div style="flex:1">
           <div style="font-weight:${n.isRead?'500':'700'};margin-bottom:4px">${n.title}</div>
           <div style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-bottom:4px">${n.message}</div>
@@ -930,7 +930,7 @@ async function loadAllNotifications() {
         ${!n.isRead?`<div class="status-dot status-online" style="flex-shrink:0;margin-top:6px"></div>`:''}
       </div>
     </div>
-  `).join('') || '<div style="text-align:center;padding:40px;color:var(--color-text-secondary)">🎉 All caught up!</div>';
+  `).join('') || '<div style="text-align:center;padding:40px;color:var(--color-text-secondary)">ðŸŽ‰ All caught up!</div>';
 }
 
 async function markAllNotifsRead() {
@@ -942,32 +942,32 @@ async function markAllNotifsRead() {
   Toast.success('All notifications marked as read!');
 }
 
-// ─── CHAT MODULE ────────────────────────────────────────────────
+// â”€â”€â”€ CHAT MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const Chat = {
   currentRoom: null,
   rooms: [
-    { id:'room-staff',    name:'Staff General',     icon:'👥', type:'group',     unread:3, last:'Check today\'s schedule' },
-    { id:'room-mgmt',     name:'Management',        icon:'👔', type:'group',     unread:0, last:'Monthly review done' },
-    { id:'room-ops',      name:'Operations',        icon:'⚙️', type:'group',     unread:1, last:'Delivery at 4pm' },
-    { id:'room-vendor-1', name:'Reckitt Benckiser', icon:'🏭', type:'vendor',    unread:2, last:'PO #1042 confirmed ✅' },
-    { id:'room-vendor-2', name:'HUL Distributor',   icon:'🏭', type:'vendor',    unread:0, last:'Invoice attached' },
-    { id:'room-broadcast',name:'Announcements',     icon:'📢', type:'broadcast', unread:0, last:'Store open 8am-10pm' },
+    { id:'room-staff',    name:'Staff General',     icon:'ðŸ‘¥', type:'group',     unread:3, last:'Check today\'s schedule' },
+    { id:'room-mgmt',     name:'Management',        icon:'ðŸ‘”', type:'group',     unread:0, last:'Monthly review done' },
+    { id:'room-ops',      name:'Operations',        icon:'âš™ï¸', type:'group',     unread:1, last:'Delivery at 4pm' },
+    { id:'room-vendor-1', name:'Reckitt Benckiser', icon:'ðŸ­', type:'vendor',    unread:2, last:'PO #1042 confirmed âœ…' },
+    { id:'room-vendor-2', name:'HUL Distributor',   icon:'ðŸ­', type:'vendor',    unread:0, last:'Invoice attached' },
+    { id:'room-broadcast',name:'Announcements',     icon:'ðŸ“¢', type:'broadcast', unread:0, last:'Store open 8am-10pm' },
   ],
   messages: {
     'room-staff': [
-      { id:'m1', sender:'Priya K.', role:'Cashier', content:'Good morning team! Ready for the day 🌅', time:new Date(Date.now()-3600000), self:false },
-      { id:'m2', sender:'Rajesh M.', role:'Manager', content:'Reminder: stock audit at 2pm today. All hands needed 📦', time:new Date(Date.now()-3000000), self:false },
+      { id:'m1', sender:'Priya K.', role:'Cashier', content:'Good morning team! Ready for the day ðŸŒ…', time:new Date(Date.now()-3600000), self:false },
+      { id:'m2', sender:'Rajesh M.', role:'Manager', content:'Reminder: stock audit at 2pm today. All hands needed ðŸ“¦', time:new Date(Date.now()-3000000), self:false },
       { id:'m3', sender:'You', role:'Owner', content:'Great! I\'ll be there. Also check the expired items list I sent', time:new Date(Date.now()-2400000), self:true },
-      { id:'m4', sender:'Priya K.', role:'Cashier', content:'On it! The Maggi section also needs restocking 👍', time:new Date(Date.now()-1800000), self:false },
+      { id:'m4', sender:'Priya K.', role:'Cashier', content:'On it! The Maggi section also needs restocking ðŸ‘', time:new Date(Date.now()-1800000), self:false },
     ],
     'room-vendor-1': [
-      { id:'v1', sender:'Reckitt Rep', role:'Vendor', content:'Your PO #1042 has been confirmed. Dispatch tomorrow morning 🚚', time:new Date(Date.now()-5400000), self:false },
+      { id:'v1', sender:'Reckitt Rep', role:'Vendor', content:'Your PO #1042 has been confirmed. Dispatch tomorrow morning ðŸšš', time:new Date(Date.now()-5400000), self:false },
       { id:'v2', sender:'You', role:'Owner', content:'Great! Please ensure Dettol (1L x 24) is included', time:new Date(Date.now()-4800000), self:true },
-      { id:'v3', sender:'Reckitt Rep', role:'Vendor', content:'Confirmed ✅ Will also include the new Surf Excel promo packs', time:new Date(Date.now()-4200000), self:false },
+      { id:'v3', sender:'Reckitt Rep', role:'Vendor', content:'Confirmed âœ… Will also include the new Surf Excel promo packs', time:new Date(Date.now()-4200000), self:false },
     ],
     'room-broadcast': [
-      { id:'b1', sender:'Store Owner', role:'Owner', content:'📢 Store timings: Mon-Sat 8AM-10PM, Sunday 9AM-8PM', time:new Date(Date.now()-86400000*2), self:true },
-      { id:'b2', sender:'Store Owner', role:'Owner', content:'🎉 We hit ₹50,000 in daily sales yesterday! Great work team!', time:new Date(Date.now()-86400000), self:true },
+      { id:'b1', sender:'Store Owner', role:'Owner', content:'ðŸ“¢ Store timings: Mon-Sat 8AM-10PM, Sunday 9AM-8PM', time:new Date(Date.now()-86400000*2), self:true },
+      { id:'b2', sender:'Store Owner', role:'Owner', content:'ðŸŽ‰ We hit â‚¹50,000 in daily sales yesterday! Great work team!', time:new Date(Date.now()-86400000), self:true },
     ]
   },
 };
@@ -980,7 +980,7 @@ function renderChat() {
       <div style="width:280px;flex-shrink:0;background:var(--color-bg-secondary);border-right:1px solid var(--color-border-subtle);display:flex;flex-direction:column">
         <!-- Header -->
         <div style="padding:var(--space-4);border-bottom:1px solid var(--color-border-subtle)">
-          <div style="font-weight:700;font-size:var(--text-base);margin-bottom:var(--space-3)">💬 Messenger</div>
+          <div style="font-weight:700;font-size:var(--text-base);margin-bottom:var(--space-3)">ðŸ’¬ Messenger</div>
           <input type="text" class="form-input" placeholder="Search conversations..." style="font-size:var(--text-xs)" oninput="filterChatRooms(this.value)" />
         </div>
 
@@ -999,7 +999,7 @@ function renderChat() {
       <div style="flex:1;display:flex;flex-direction:column;background:var(--color-bg-primary)" id="chat-main">
         <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--color-text-secondary)">
           <div style="text-align:center">
-            <div style="font-size:48px;margin-bottom:var(--space-3)">💬</div>
+            <div style="font-size:48px;margin-bottom:var(--space-3)">ðŸ’¬</div>
             <div style="font-weight:600">Select a conversation</div>
             <div style="font-size:var(--text-sm);margin-top:8px">Chat with employees, managers, or vendors</div>
           </div>
@@ -1052,11 +1052,11 @@ function openChatRoom(roomId) {
       <div style="width:40px;height:40px;border-radius:var(--radius-xl);background:${typeColors[room.type]||'#6366f1'}22;display:flex;align-items:center;justify-content:center;font-size:20px">${room.icon}</div>
       <div style="flex:1">
         <div style="font-weight:700">${room.name}</div>
-        <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">${room.type==='vendor'?'Vendor':'Group'} · ${room.type==='broadcast'?'Announcements channel':'Click to view members'}</div>
+        <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">${room.type==='vendor'?'Vendor':'Group'} Â· ${room.type==='broadcast'?'Announcements channel':'Click to view members'}</div>
       </div>
       <div style="display:flex;gap:var(--space-2)">
-        <button class="btn btn-sm btn-ghost" onclick="Toast.info('Voice call starting...')" title="Voice Call">📞</button>
-        <button class="btn btn-sm btn-ghost" onclick="sharePOInChat('${roomId}')" title="Share PO">📋</button>
+        <button class="btn btn-sm btn-ghost" onclick="Toast.info('Voice call starting...')" title="Voice Call">ðŸ“ž</button>
+        <button class="btn btn-sm btn-ghost" onclick="sharePOInChat('${roomId}')" title="Share PO">ðŸ“‹</button>
       </div>
     </div>
 
@@ -1067,12 +1067,12 @@ function openChatRoom(roomId) {
 
     <!-- Composer -->
     <div style="padding:var(--space-3) var(--space-4);border-top:1px solid var(--color-border-subtle);display:flex;align-items:center;gap:var(--space-2);background:var(--color-bg-secondary)">
-      <button class="btn btn-sm btn-ghost" onclick="Toast.info('File sharing coming soon!')" style="flex-shrink:0">📎</button>
+      <button class="btn btn-sm btn-ghost" onclick="Toast.info('File sharing coming soon!')" style="flex-shrink:0">ðŸ“Ž</button>
       <input type="text" id="chat-input" class="form-input" style="flex:1"
         placeholder="Type a message..."
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMessage('${roomId}')}" />
-      <button class="btn btn-sm btn-ghost" onclick="insertEmoji()" style="flex-shrink:0">😊</button>
-      <button class="btn btn-sm btn-primary" onclick="sendChatMessage('${roomId}')" style="flex-shrink:0">Send ↑</button>
+      <button class="btn btn-sm btn-ghost" onclick="insertEmoji()" style="flex-shrink:0">ðŸ˜Š</button>
+      <button class="btn btn-sm btn-primary" onclick="sendChatMessage('${roomId}')" style="flex-shrink:0">Send â†‘</button>
     </div>
   `;
 
@@ -1089,11 +1089,11 @@ function renderChatMessage(msg) {
     <div style="display:flex;align-items:flex-end;gap:var(--space-2);${isSelf?'flex-direction:row-reverse':'flex-direction:row'}">
       ${!isSelf?`<div style="width:32px;height:32px;border-radius:50%;background:var(--gradient-brand);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;color:white">${msg.sender.split(' ').map(n=>n[0]).join('')}</div>`:''}
       <div style="max-width:70%">
-        ${!isSelf?`<div style="font-size:10px;color:var(--color-text-secondary);margin-bottom:2px">${msg.sender} · ${msg.role||''}</div>`:''}
+        ${!isSelf?`<div style="font-size:10px;color:var(--color-text-secondary);margin-bottom:2px">${msg.sender} Â· ${msg.role||''}</div>`:''}
         <div style="padding:var(--space-2) var(--space-4);border-radius:${isSelf?'var(--radius-xl) var(--radius-xl) 4px var(--radius-xl)':'var(--radius-xl) var(--radius-xl) var(--radius-xl) 4px'};background:${isSelf?'var(--color-brand-500)':'var(--color-bg-elevated)'};color:${isSelf?'white':'var(--color-text-primary)'};font-size:var(--text-sm);line-height:1.5;word-break:break-word">
           ${msg.content}
         </div>
-        <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:2px;${isSelf?'text-align:right':''}">${Format.relativeTime(msg.time)} ${isSelf?'✓✓':''}</div>
+        <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:2px;${isSelf?'text-align:right':''}">${Format.relativeTime(msg.time)} ${isSelf?'âœ“âœ“':''}</div>
       </div>
     </div>
   `;
@@ -1134,9 +1134,9 @@ function sendChatMessage(roomId) {
   if(roomId.startsWith('room-vendor')) {
     setTimeout(() => {
       const replies = [
-        '✅ Noted! Will update the dispatch details.',
+        'âœ… Noted! Will update the dispatch details.',
         'Sure, let me check with our warehouse team.',
-        'The delivery will arrive by 11am tomorrow 🚚',
+        'The delivery will arrive by 11am tomorrow ðŸšš',
         'Invoice will be emailed tonight.',
       ];
       const replyMsg = { id:'m'+Date.now(), sender:room?.name||'Vendor', role:'Vendor', content:replies[Math.floor(Math.random()*replies.length)], time:new Date(), self:false };
@@ -1151,14 +1151,14 @@ function sendChatMessage(roomId) {
 }
 
 function sharePOInChat(roomId) {
-  const content = `📋 Purchase Order #PO-${Date.now().toString().slice(-6)}\n✅ Contains: Maggi 2min (x48), Dettol 1L (x24), Horlicks (x12)\n💰 Total: ₹12,450\n🗓️ Expected Delivery: Tomorrow 10AM`;
+  const content = `ðŸ“‹ Purchase Order #PO-${Date.now().toString().slice(-6)}\nâœ… Contains: Maggi 2min (x48), Dettol 1L (x24), Horlicks (x12)\nðŸ’° Total: â‚¹12,450\nðŸ—“ï¸ Expected Delivery: Tomorrow 10AM`;
   const input = document.getElementById('chat-input');
   if(input) input.value = content;
   Toast.info('PO details added to message! Press Send to share');
 }
 
 function insertEmoji() {
-  const emojis = ['👍','✅','🚀','📦','💰','🎉','⚠️','📋','🏭','💳'];
+  const emojis = ['ðŸ‘','âœ…','ðŸš€','ðŸ“¦','ðŸ’°','ðŸŽ‰','âš ï¸','ðŸ“‹','ðŸ­','ðŸ’³'];
   const emoji = emojis[Math.floor(Math.random()*emojis.length)];
   const input = document.getElementById('chat-input');
   if(input) { input.value += emoji; input.focus(); }
@@ -1176,7 +1176,7 @@ function openNewChatModal() {
         </select>
       </div>
       <div class="form-group"><label class="form-label">Name *</label><input type="text" id="nc-name" class="form-input" placeholder="Chat name or person" /></div>
-      <div class="form-group"><label class="form-label">Icon (emoji)</label><input type="text" id="nc-icon" class="form-input" placeholder="💬" /></div>
+      <div class="form-group"><label class="form-label">Icon (emoji)</label><input type="text" id="nc-icon" class="form-input" placeholder="ðŸ’¬" /></div>
     `,
     footer: `
       <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Cancel</button>
@@ -1188,7 +1188,7 @@ function openNewChatModal() {
 function createNewChat() {
   const type = document.getElementById('nc-type')?.value || 'group';
   const name = document.getElementById('nc-name')?.value?.trim();
-  const icon = document.getElementById('nc-icon')?.value?.trim() || '💬';
+  const icon = document.getElementById('nc-icon')?.value?.trim() || 'ðŸ’¬';
   if(!name) { Toast.error('Name is required'); return; }
 
   const newRoom = { id:'room-'+Date.now(), name, icon, type, unread:0, last:'New conversation' };
@@ -1199,7 +1199,7 @@ function createNewChat() {
   setTimeout(()=>openChatRoom(newRoom.id), 100);
 }
 
-// ─── SETTINGS MODULE ──────────────────────────────────────────
+// â”€â”€â”€ SETTINGS MODULE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderSettings() {
   const user = Auth.getUser() || {};
 
@@ -1225,18 +1225,18 @@ function renderSettings() {
             <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" placeholder="+91 9876543210" /></div>
             <div class="form-group"><label class="form-label">GSTIN</label><input type="text" class="form-input" placeholder="27AABCN1234Z1ZI" /></div>
             <div class="form-group" style="grid-column:1/-1"><label class="form-label">Address</label><input type="text" class="form-input" placeholder="Shop address" /></div>
-            <div class="form-group"><label class="form-label">Currency</label><select class="form-select"><option value="INR">₹ INR (Indian Rupee)</option><option value="USD">$ USD</option></select></div>
+            <div class="form-group"><label class="form-label">Currency</label><select class="form-select"><option value="INR">â‚¹ INR (Indian Rupee)</option><option value="USD">$ USD</option></select></div>
             <div class="form-group"><label class="form-label">Financial Year</label><select class="form-select"><option>April - March</option><option>January - December</option></select></div>
           </div>
           <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6)">
-            <button class="btn btn-primary" onclick="Toast.success('Settings saved successfully!')">💾 Save Changes</button>
-            <button class="btn btn-secondary" onclick="openThemePicker()">🎨 Change Theme</button>
+            <button class="btn btn-primary" onclick="Toast.success('Settings saved successfully!')">ðŸ’¾ Save Changes</button>
+            <button class="btn btn-secondary" onclick="openThemePicker()">ðŸŽ¨ Change Theme</button>
           </div>
         </div>
 
         <!-- Danger Zone -->
         <div class="panel-card" style="padding:var(--space-6);margin-top:var(--space-4);border-color:rgba(239,68,68,0.3)">
-          <h4 style="color:var(--color-danger-400);margin-bottom:var(--space-4)">⚠️ Danger Zone</h4>
+          <h4 style="color:var(--color-danger-400);margin-bottom:var(--space-4)">âš ï¸ Danger Zone</h4>
           <div style="display:flex;align-items:center;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:var(--text-sm)">Sign Out from All Devices</div>
@@ -1252,154 +1252,3 @@ function renderSettings() {
 
 function showSettingsSection(name) { Toast.info(`Opening ${name} settings...`); }
 
-function renderAccounting() {
-  const income = DemoData.transactions.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-  const expense = DemoData.transactions.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
-
-  document.getElementById('page-body').innerHTML = `
-    <div class="page-header">
-      <div><div class="page-heading">Accounting</div></div>
-      <div style="display:flex;gap:var(--space-3)">
-        <button class="btn btn-secondary" onclick="exportCSV(DemoData.transactions,'transactions.csv');Toast.success('Exported!')">Export</button>
-        <button class="btn btn-primary" onclick="openTransactionModal()">+ Add Transaction</button>
-      </div>
-    </div>
-
-    <!-- P&L Summary -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-4);margin-bottom:var(--space-6)">
-      <div class="stat-card"><div style="color:var(--color-text-secondary);font-size:var(--text-xs);font-weight:600;text-transform:uppercase;margin-bottom:var(--space-1)">Total Income</div><div style="font-size:var(--text-2xl);font-weight:700;color:var(--color-success-400)">${Format.currency(income)}</div></div>
-      <div class="stat-card"><div style="color:var(--color-text-secondary);font-size:var(--text-xs);font-weight:600;text-transform:uppercase;margin-bottom:var(--space-1)">Total Expense</div><div style="font-size:var(--text-2xl);font-weight:700;color:var(--color-danger-400)">${Format.currency(expense)}</div></div>
-      <div class="stat-card"><div style="color:var(--color-text-secondary);font-size:var(--text-xs);font-weight:600;text-transform:uppercase;margin-bottom:var(--space-1)">Net Profit</div><div style="font-size:var(--text-2xl);font-weight:700;color:${income-expense>0?'var(--color-brand-400)':'var(--color-danger-400)'}">${Format.currency(income-expense)}</div></div>
-    </div>
-
-    <!-- Transactions Table -->
-    <div class="panel-card">
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Description</th><th>Reference</th><th>Amount</th></tr></thead>
-          <tbody>
-            ${DemoData.transactions.map(t=>`
-              <tr>
-                <td style="font-size:var(--text-xs)">${Format.date(t.date)}</td>
-                <td><span class="badge badge-${t.type==='income'?'success':'danger'}">${t.type}</span></td>
-                <td><span class="chip">${t.category}</span></td>
-                <td style="font-size:var(--text-sm)">${t.description}</td>
-                <td style="font-size:var(--text-xs);color:var(--color-text-secondary);font-family:monospace">${t.ref}</td>
-                <td style="font-weight:700;${t.type==='income'?'color:var(--color-success-400)':'color:var(--color-danger-400)'}">${t.type==='income'?'+':'-'}${Format.currency(t.amount)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
-function openTransactionModal() {
-  Modal.create({
-    title: 'Record Transaction',
-    body: `
-      <div class="form-group"><label class="form-label">Type *</label>
-        <select id="tr-type" class="form-select"><option value="income">Income</option><option value="expense">Expense</option></select>
-      </div>
-      <div class="form-group"><label class="form-label">Category *</label>
-        <select id="tr-cat" class="form-select">
-          <option>Sales</option><option>Purchase</option><option>Rent</option><option>Utilities</option><option>Salary</option><option>Other</option>
-        </select>
-      </div>
-      <div class="form-group"><label class="form-label">Description *</label><input type="text" id="tr-desc" class="form-input" /></div>
-      <div class="form-group"><label class="form-label">Amount (₹) *</label><input type="number" id="tr-amount" class="form-input" min="0" step="0.01" /></div>
-      <div class="form-group"><label class="form-label">Date</label><input type="date" id="tr-date" class="form-input" value="${new Date().toISOString().split('T')[0]}" /></div>
-    `,
-    footer: `
-      <button class="btn btn-ghost" onclick="document.querySelector('.modal-backdrop').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveTransaction()">Save</button>
-    `
-  });
-}
-
-function saveTransaction() {
-  const type = document.getElementById('tr-type')?.value;
-  const amount = parseFloat(document.getElementById('tr-amount')?.value);
-  const desc = document.getElementById('tr-desc')?.value?.trim();
-  if (!desc||!amount) { Toast.error('Description and amount are required'); return; }
-  DemoData.transactions.unshift({ id:'T'+Date.now(), date:document.getElementById('tr-date')?.value, type, category:document.getElementById('tr-cat')?.value, description:desc, amount, ref:'MANUAL' });
-  document.querySelector('.modal-backdrop')?.remove();
-  Toast.success('Transaction recorded!');
-  renderAccounting();
-}
-
-// ─── NOTIFICATIONS MODULE ──────────────────────────────────────
-function renderNotifications() {
-  document.getElementById('page-body').innerHTML = `
-    <div style="max-width:680px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-6)">
-        <div class="page-heading">All Notifications</div>
-        <button class="btn btn-secondary" onclick="markAllRead();renderNotifications()">Mark All Read</button>
-      </div>
-      ${DemoData.notifications.map(n => `
-        <div class="panel-card" style="margin-bottom:var(--space-3);${!n.read?'border-left:3px solid var(--color-brand-500)':''}">
-          <div style="display:flex;gap:var(--space-4);padding:var(--space-4)">
-            <div style="width:44px;height:44px;border-radius:var(--radius-xl);background:${n.type==='warning'?'rgba(234,179,8,0.15)':n.type==='success'?'rgba(34,197,94,0.15)':'rgba(99,102,241,0.15)'};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${n.icon}</div>
-            <div style="flex:1">
-              <div style="font-weight:${n.read?'500':'700'};margin-bottom:4px">${n.title}</div>
-              <div style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-bottom:4px">${n.message}</div>
-              <div style="font-size:var(--text-xs);color:var(--color-text-tertiary)">${Format.relativeTime(n.time)}</div>
-            </div>
-            ${!n.read?`<div class="status-dot status-online" style="flex-shrink:0;margin-top:6px"></div>`:''}
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
-
-// ─── SETTINGS MODULE ──────────────────────────────────────────
-function renderSettings() {
-  const user = Auth.getUser() || {};
-
-  document.getElementById('page-body').innerHTML = `
-    <div style="display:grid;grid-template-columns:220px 1fr;gap:var(--space-6)">
-
-      <!-- Settings Nav -->
-      <div>
-        ${['Business Profile','Store Settings','Users & Roles','Tax & GST','Payment Methods','Notifications','Security','Integrations','Billing & Plan'].map((s,i) => `
-          <button onclick="showSettingsSection('${s}')" class="nav-item" style="width:100%;border-radius:var(--radius-lg);margin-bottom:4px;text-align:left;${i===0?'background:rgba(99,102,241,0.1);color:var(--color-brand-400)':''}">${s}</button>
-        `).join('')}
-      </div>
-
-      <!-- Settings Content -->
-      <div>
-        <div class="panel-card" style="padding:var(--space-8)">
-          <h3 style="font-family:var(--font-display);font-size:var(--text-xl);font-weight:700;margin-bottom:var(--space-6)">Business Profile</h3>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)">
-            <div class="form-group"><label class="form-label">Business Name</label><input type="text" class="form-input" value="${user.business||'My Business'}" /></div>
-            <div class="form-group"><label class="form-label">Business Type</label><select class="form-select"><option>Grocery Store</option><option>Pharmacy</option><option>Restaurant</option><option>Hostel</option><option>School</option></select></div>
-            <div class="form-group"><label class="form-label">Owner Name</label><input type="text" class="form-input" value="${user.name||''}" /></div>
-            <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" value="${user.email||''}" /></div>
-            <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" placeholder="+91 9876543210" /></div>
-            <div class="form-group"><label class="form-label">GSTIN</label><input type="text" class="form-input" placeholder="27AABCN1234Z1ZI" /></div>
-            <div class="form-group" style="grid-column:1/-1"><label class="form-label">Address</label><input type="text" class="form-input" placeholder="Shop address" /></div>
-            <div class="form-group"><label class="form-label">Currency</label><select class="form-select"><option value="INR">₹ INR (Indian Rupee)</option><option value="USD">$ USD</option></select></div>
-            <div class="form-group"><label class="form-label">Financial Year</label><select class="form-select"><option>April - March</option><option>January - December</option></select></div>
-          </div>
-          <button class="btn btn-primary" style="margin-top:var(--space-6)" onclick="Toast.success('Settings saved successfully!')">💾 Save Changes</button>
-        </div>
-
-        <!-- Danger Zone -->
-        <div class="panel-card" style="padding:var(--space-6);margin-top:var(--space-4);border-color:rgba(239,68,68,0.3)">
-          <h4 style="color:var(--color-danger-400);margin-bottom:var(--space-4)">⚠️ Danger Zone</h4>
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <div>
-              <div style="font-weight:600;font-size:var(--text-sm)">Sign Out from All Devices</div>
-              <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">This will invalidate all active sessions</div>
-            </div>
-            <button class="btn btn-danger" onclick="Auth.clearSession();window.location.href='index.html'">Sign Out</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function showSettingsSection(name) { Toast.info(`Opening ${name} settings...`); }
