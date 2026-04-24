@@ -1308,3 +1308,92 @@ function simulateExport(format) {
     if (p > 70) msg.textContent = 'Generating final file...';
   }, 400);
 }
+
+// ─── ENTERPRISE MESSENGER (CHAT) ──────────────────────────────
+function renderChat() {
+  const users = [
+    { id: 1, name: 'Arjun Sharma', status: 'online', role: 'Owner', avatar: 'AS' },
+    { id: 2, name: 'Priya Patel', status: 'away', role: 'Cashier', avatar: 'PP' },
+    { id: 3, name: 'Rahul Kumar', status: 'online', role: 'Manager', avatar: 'RK' },
+    { id: 4, name: 'System Bot', status: 'online', role: 'NexaAI', avatar: 'AI' },
+  ];
+
+  const messages = [
+    { from: 2, text: 'Arjun, we need to restock the Heritage Dairy products for Warehouse A.', time: '09:12 AM' },
+    { from: 1, text: 'I saw the notification. I will release the PO now.', time: '09:15 AM' },
+    { from: 4, text: 'Alert: Low stock on [Basmati Rice] in Retail B. Recommending order of 50 units.', time: '10:01 AM' },
+    { from: 3, text: 'Accepted the recommendation. PO created.', time: '10:05 AM' },
+  ];
+
+  document.getElementById('page-body').innerHTML = `
+    <div style="display: grid; grid-template-columns: 280px 1fr; height: calc(100vh - 160px); background: var(--color-bg-card); border-radius: var(--radius-2xl); border: 1px solid var(--color-border-default); overflow: hidden;">
+      <!-- Chat Sidebar -->
+      <div style="border-right: 1px solid var(--color-border-default); display: flex; flex-direction: column; background: var(--color-bg-secondary);">
+        <div style="padding: 20px; border-bottom: 1px solid var(--color-border-default);">
+          <div class="heading-4">Teams Messenger</div>
+          <p class="caption">Enterprise Communication</p>
+        </div>
+        <div style="flex: 1; overflow-y: auto; padding: 10px;">
+          ${users.map(u => `
+            <div style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: var(--radius-lg); cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--color-surface-subtle)'" onmouseout="this.style.background='transparent'">
+              <div style="position: relative;">
+                <div class="avatar avatar-sm">${u.avatar}</div>
+                <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; border-radius: 50%; background: ${u.status === 'online' ? 'var(--color-success-400)' : 'var(--color-warning-400)'}; border: 2px solid var(--color-bg-secondary);"></div>
+              </div>
+              <div style="flex: 1;">
+                <div style="font-size: 13px; font-weight: 600;">${u.name}</div>
+                <div style="font-size: 11px; color: var(--color-text-tertiary);">${u.role}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Chat Main -->
+      <div style="display: flex; flex-direction: column;">
+        <div style="padding: 16px 24px; border-bottom: 1px solid var(--color-border-default); display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div class="avatar avatar-sm">AS</div>
+            <div>
+              <div style="font-size: 14px; font-weight: 700;">General Channel</div>
+              <div style="font-size: 11px; color: var(--color-success-400);">4 members active</div>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-ghost">⚙️</button>
+        </div>
+        
+        <div id="chat-messages" style="flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+          ${messages.map(m => {
+            const user = users.find(u => u.id === m.from);
+            return `
+              <div style="display: flex; gap: 12px;">
+                <div class="avatar avatar-sm">${user?.avatar || '?'}</div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span style="font-size: 13px; font-weight: 700;">${user?.name || 'Unknown'}</span>
+                    <span style="font-size: 10px; color: var(--color-text-tertiary);">${m.time}</span>
+                  </div>
+                  <div style="padding: 10px 14px; background: var(--color-bg-primary); border: 1px solid var(--color-border-default); border-radius: 0 12px 12px 12px; font-size: 13px; line-height: 1.5; color: var(--color-text-secondary); max-width: 500px;">
+                    ${m.text}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <div style="padding: 20px; border-top: 1px solid var(--color-border-default);">
+          <div style="display: flex; gap: 12px; background: var(--color-bg-secondary); padding: 8px 16px; border-radius: var(--radius-xl); border: 1px solid var(--color-border-default);">
+            <button class="btn btn-icon btn-ghost" style="padding: 0;">📎</button>
+            <input type="text" placeholder="Type a message to the team..." style="flex: 1; background: transparent; border: none; outline: none; color: var(--color-text-primary); font-size: 13px;" onkeydown="if(event.key==='Enter') Toast.success('Message sent!')">
+            <button class="btn btn-icon btn-ghost" style="padding: 0;">😊</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Scroll to bottom
+  const container = document.getElementById('chat-messages');
+  if (container) container.scrollTop = container.scrollHeight;
+}
