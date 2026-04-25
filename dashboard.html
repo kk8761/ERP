@@ -230,6 +230,31 @@
         </button>
       </div>
 
+      <!-- Enterprise Plus v3.5 -->
+      <div class="nav-section">
+        <div class="nav-section-label">Enterprise Plus v3.5</div>
+        <button class="nav-item" onclick="navigateTo('crm')" id="nav-crm">
+          <span class="nav-item-icon">👥</span>
+          <span class="nav-item-label">CRM & Pipeline</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('hrms')" id="nav-hrms">
+          <span class="nav-item-icon">📅</span>
+          <span class="nav-item-label">HR & Attendance</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('manufacturing')" id="nav-manufacturing">
+          <span class="nav-item-icon">⚙️</span>
+          <span class="nav-item-label">Manufacturing</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('governance')" id="nav-governance">
+          <span class="nav-item-icon">🛡️</span>
+          <span class="nav-item-label">DMS & GRC</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('bi-dashboard')" id="nav-bi-dashboard">
+          <span class="nav-item-icon">📊</span>
+          <span class="nav-item-label">Executive BI</span>
+        </button>
+      </div>
+
       <!-- System -->
       <div class="nav-section">
         <div class="nav-section-label">System</div>
@@ -407,6 +432,7 @@
 <script src="js/modules.js"></script>
 <script src="js/sap_modules.js"></script>
 <script src="js/enterprise_modules.js"></script>
+<script src="js/enterprise_plus.js"></script>
 <script>
 // PWA — Register Service Worker
 if ('serviceWorker' in navigator) {

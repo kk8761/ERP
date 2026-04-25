@@ -111,6 +111,12 @@ function setupRoutes() {
   try { app.use('/api/forecast',       require('./routes/forecast')); } catch(e) { console.error('forecast routes:', e.message); }
   try { app.use('/api/automation',     require('./routes/automation')); } catch(e) { console.error('automation routes:', e.message); }
 
+  // ── Enterprise Modules (v3.5) ────────────────────────────────────
+  try { app.use('/api/crm',            require('./routes/crm')); } catch(e) { console.error('crm routes:', e.message); }
+  try { app.use('/api/hrms',           require('./routes/hrms')); } catch(e) { console.error('hrms routes:', e.message); }
+  try { app.use('/api/manufacturing',  require('./routes/manufacturing')); } catch(e) { console.error('manufacturing routes:', e.message); }
+  try { app.use('/api/governance',     require('./routes/governance')); } catch(e) { console.error('governance routes:', e.message); }
+
   // 404 fallback
   app.use((req, res) => res.status(404).json({ success: false, message: `Route ${req.method} ${req.originalUrl} not found` }));
 

@@ -1,12 +1,12 @@
 /**
- * NexaERP Ã¢â‚¬â€ Dashboard Module
+ * NexaERP ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Dashboard Module
  * Renders the main dashboard with KPIs, charts, recent activity
  */
 
 let currentModule = 'dashboard';
 let sidebarCollapsed = false;
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Navigation Router Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Navigation Router ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 function navigateTo(module) {
   currentModule = module;
 
@@ -23,19 +23,19 @@ function navigateTo(module) {
     inventory:  { title: 'Inventory', sub: 'Manage products and stock' },
     orders:     { title: 'Orders', sub: 'Purchase and sales orders' },
     suppliers:  { title: 'Suppliers', sub: 'Manage supplier relationships' },
-    accounting: { title: 'Accounting & Ledger', sub: 'SAP-style AR/AP Ã‚Â· Accounts Receivable & Payable' },
+    accounting: { title: 'Accounting & Ledger', sub: 'SAP-style AR/AP Ãƒâ€šÃ‚Â· Accounts Receivable & Payable' },
     payroll:    { title: 'Payroll', sub: 'Staff salaries and attendance' },
     reports:    { title: 'Reports', sub: 'Business intelligence reports' },
     customers:  { title: 'Customers', sub: 'Customer relationship management' },
     staff:      { title: 'Staff', sub: 'Employee management' },
     chat:       { title: 'Messenger', sub: 'Chat with employees, managers & vendors' },
-    gst:        { title: 'GST Management', sub: 'GSTR-1 Ã‚Â· GSTR-3B Ã‚Â· Input Tax Credit' },
-    costcenter: { title: 'Cost Centers & Budget', sub: 'SAP CO Ã¢â‚¬â€ Budget vs Actual by Department' },
-    assets:     { title: 'Asset Management', sub: 'SAP FI-AA Ã¢â‚¬â€ Fixed Asset Register & Depreciation' },
+    gst:        { title: 'GST Management', sub: 'GSTR-1 Ãƒâ€šÃ‚Â· GSTR-3B Ãƒâ€šÃ‚Â· Input Tax Credit' },
+    costcenter: { title: 'Cost Centers & Budget', sub: 'SAP CO ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Budget vs Actual by Department' },
+    assets:     { title: 'Asset Management', sub: 'SAP FI-AA ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Fixed Asset Register & Depreciation' },
     notifications: { title: 'Notifications', sub: 'Alerts and updates' },
     settings:   { title: 'Settings', sub: 'Business and system settings' },
-    approvals:  { title: 'Approvals', sub: 'Release Strategy Ã‚Â· Document Release' },
-    export:     { title: 'Export Center', sub: 'Data Exchange Ã‚Â· Unified Governance' },
+    approvals:  { title: 'Approvals', sub: 'Release Strategy Ãƒâ€šÃ‚Â· Document Release' },
+    export:     { title: 'Export Center', sub: 'Data Exchange Ãƒâ€šÃ‚Â· Unified Governance' },
   };
 
   const info = titles[module] || { title: module, sub: '' };
@@ -74,12 +74,17 @@ function navigateTo(module) {
       case 'demand-forecast': renderDemandForecast(); break;
       case 'barcode':         renderBarcode(); break;
       case 'automation':      renderAutomation(); break;
+            case 'crm':             renderCRM(); break;
+      case 'hrms':            renderHRMS(); break;
+      case 'manufacturing':   renderManufacturing(); break;
+      case 'governance':      renderGovernance(); break;
+      case 'bi-dashboard':    renderExecutiveBI(); break;
       default:            renderDashboard();
     }
   }, 150);
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Sidebar Toggle Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Sidebar Toggle ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 function toggleSidebar() {
   sidebarCollapsed = !sidebarCollapsed;
   const sidebar = document.getElementById('sidebar');
@@ -99,7 +104,7 @@ function closeMobileSidebar() {
   document.getElementById('sidebar-backdrop').classList.remove('visible');
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ User Info Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ User Info ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 function loadUserInfo() {
   const user = Auth.getUser();
   if (!user) return;
@@ -117,7 +122,7 @@ function capitalizeFirst(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Logout Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Logout ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 function handleLogout(e) {
   e.stopPropagation();
   Auth.clearSession();
@@ -125,7 +130,7 @@ function handleLogout(e) {
   setTimeout(() => { window.location.href = 'index.html'; }, 600);
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Notifications Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Notifications ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 let notifOpen = false;
 
 function toggleNotifications() {
@@ -160,7 +165,7 @@ async function loadNotifPanel() {
   }));
 
   if (!notifications.length) {
-    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--color-text-secondary);font-size:13px">Ã°Å¸Å½â€° No new notifications</div>';
+    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--color-text-secondary);font-size:13px">ÃƒÂ°Ã…Â¸Ã…Â½Ã¢â‚¬Â° No new notifications</div>';
     return;
   }
 
@@ -169,7 +174,7 @@ async function loadNotifPanel() {
   list.innerHTML = notifications.map(n => `
     <div class="notif-item ${n.isRead ? '' : 'unread'}" style="padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--color-border-subtle);cursor:pointer" onclick="markNotifRead('${n._id}')">
       <div style="display:flex;gap:var(--space-3);align-items:flex-start">
-        <div style="width:36px;height:36px;border-radius:var(--radius-lg);background:rgba(99,102,241,0.12);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${n.icon || 'Ã°Å¸â€â€'}</div>
+        <div style="width:36px;height:36px;border-radius:var(--radius-lg);background:rgba(99,102,241,0.12);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${n.icon || 'ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ¢â‚¬Â'}</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:var(--text-xs);font-weight:${n.isRead ? '500' : '700'};margin-bottom:2px;${n.priority === 'critical' ? 'color:var(--color-danger-400)' : ''};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.title}</div>
           <div style="font-size:11px;color:var(--color-text-secondary);line-height:1.4;margin-bottom:4px">${n.message}</div>
@@ -178,7 +183,7 @@ async function loadNotifPanel() {
             ${n.priority === 'critical' ? '<span style="font-size:10px;font-weight:700;color:var(--color-danger-400);background:rgba(239,68,68,0.1);padding:1px 6px;border-radius:99px">CRITICAL</span>' : ''}
             ${!n.isRead ? '<span style="width:6px;height:6px;border-radius:50%;background:var(--color-brand-500);display:inline-block;flex-shrink:0"></span>' : ''}
           </div>
-          ${n.actionLabel && !n.poCreated ? `<button class="btn btn-sm btn-primary" style="margin-top:var(--space-2);font-size:11px" onclick="event.stopPropagation();createPOFromNotif('${n._id}','${n.relatedProduct}')">Ã°Å¸â€œâ€¹ ${n.actionLabel}</button>` : ''}
+          ${n.actionLabel && !n.poCreated ? `<button class="btn btn-sm btn-primary" style="margin-top:var(--space-2);font-size:11px" onclick="event.stopPropagation();createPOFromNotif('${n._id}','${n.relatedProduct}')">ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹ ${n.actionLabel}</button>` : ''}
         </div>
       </div>
     </div>
@@ -199,7 +204,7 @@ async function createPOFromNotif(notifId, productId) {
   try {
     const res = await Http.post(`/notifications/${notifId}/create-po`);
     if (res?.success) {
-      Toast.success(`Ã¢Å“â€¦ ${res.message || 'Purchase Order created!'} `);
+      Toast.success(`ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ ${res.message || 'Purchase Order created!'} `);
       await loadNotifPanel();
     }
   } catch(e) {
@@ -216,13 +221,13 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ THEME PICKER Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ THEME PICKER ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 const THEME_META = {
-  dark:   { label: 'Dark',    emoji: 'Ã°Å¸Å’â€˜', preview: '#0a0a0f' },
-  light:  { label: 'Light',   emoji: 'Ã¢Ëœâ‚¬Ã¯Â¸Â', preview: '#f8fafc' },
-  ocean:  { label: 'Ocean',   emoji: 'Ã°Å¸Å’Å ', preview: '#040d14' },
-  forest: { label: 'Forest',  emoji: 'Ã°Å¸Å’Â¿', preview: '#050e06' },
-  sunset: { label: 'Sunset',  emoji: 'Ã°Å¸Å’â€¦', preview: '#140808' },
+  dark:   { label: 'Dark',    emoji: 'ÃƒÂ°Ã…Â¸Ã…â€™Ã¢â‚¬Ëœ', preview: '#0a0a0f' },
+  light:  { label: 'Light',   emoji: 'ÃƒÂ¢Ã‹Å“Ã¢â€šÂ¬ÃƒÂ¯Ã‚Â¸Ã‚Â', preview: '#f8fafc' },
+  ocean:  { label: 'Ocean',   emoji: 'ÃƒÂ°Ã…Â¸Ã…â€™Ã…Â ', preview: '#040d14' },
+  forest: { label: 'Forest',  emoji: 'ÃƒÂ°Ã…Â¸Ã…â€™Ã‚Â¿', preview: '#050e06' },
+  sunset: { label: 'Sunset',  emoji: 'ÃƒÂ°Ã…Â¸Ã…â€™Ã¢â‚¬Â¦', preview: '#140808' },
 };
 
 function openThemePicker() {
@@ -253,7 +258,7 @@ function applyTheme(name) {
 }
 
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ AI Assistant Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ AI Assistant ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 function openAIAssistant() {
   const modal = document.getElementById('ai-modal');
   modal.style.display = 'flex';
@@ -264,7 +269,7 @@ function openAIAssistant() {
     appendAIMessage('assistant', DemoData.aiResponses.default);
 
     // Suggestion chips
-    const chips = ['Ã°Å¸â€œË† Sales insights', 'Ã°Å¸â€œÂ¦ Inventory status', 'Ã°Å¸â€Â® Demand forecast', 'Ã°Å¸â€™Â° Profit analysis'];
+    const chips = ['ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‹â€  Sales insights', 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¦ Inventory status', 'ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â® Demand forecast', 'ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â° Profit analysis'];
     const chipHtml = `
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
         ${chips.map(c => `<button class="chip" style="cursor:pointer" onclick="handleAISuggestion('${c}')">${c}</button>`).join('')}
@@ -309,7 +314,7 @@ async function sendAIMessage() {
   else if (lower.includes('inventory') || lower.includes('stock')) response = DemoData.aiResponses.inventory;
   else if (lower.includes('forecast') || lower.includes('demand')) response = DemoData.aiResponses.forecast;
   else if (lower.includes('profit') || lower.includes('margin'))   response = DemoData.aiResponses.profit;
-  else response = `Here's what I found regarding "${msg}": Based on your 7-day data, your business is trending positively with 18.7% monthly growth. Would you like me to dive deeper into any specific area? Ã°Å¸Å½Â¯`;
+  else response = `Here's what I found regarding "${msg}": Based on your 7-day data, your business is trending positively with 18.7% monthly growth. Would you like me to dive deeper into any specific area? ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Â¯`;
 
   appendAIMessage('assistant', response);
 }
@@ -321,7 +326,7 @@ function appendAIMessage(role, text) {
   div.style.cssText = `display:flex;gap:10px;align-items:flex-start;flex-direction:${isUser?'row-reverse':'row'}`;
   div.innerHTML = `
     <div style="width:32px;height:32px;border-radius:50%;background:${isUser?'var(--gradient-brand)':'rgba(99,102,241,0.2)'};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px">
-      ${isUser ? (Auth.getUser()?.avatar || 'Ã°Å¸â€˜Â¤') : 'Ã¢Å“Â¨'}
+      ${isUser ? (Auth.getUser()?.avatar || 'ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ‚Â¤') : 'ÃƒÂ¢Ã…â€œÃ‚Â¨'}
     </div>
     <div style="max-width:75%;background:${isUser?'var(--gradient-brand)':'var(--color-bg-elevated)'};color:${isUser?'white':'var(--color-text-primary)'};padding:10px 14px;border-radius:${isUser?'14px 14px 4px 14px':'14px 14px 14px 4px'};font-size:var(--text-sm);line-height:1.5">
       ${text}
@@ -331,7 +336,7 @@ function appendAIMessage(role, text) {
   chat.scrollTop = chat.scrollHeight;
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Dashboard Render Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Dashboard Render ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 function renderDashboard() {
   const kpis = DemoData.kpis;
   const trend = DemoData.salesTrend;
@@ -342,7 +347,7 @@ function renderDashboard() {
     <!-- Welcome Banner -->
     <div style="background:linear-gradient(135deg,rgba(99,102,241,0.15) 0%,rgba(139,92,246,0.08) 100%);border:1px solid rgba(99,102,241,0.2);border-radius:var(--radius-2xl);padding:var(--space-6);margin-bottom:var(--space-6);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-4)">
       <div>
-        <div style="font-size:var(--text-xs);color:var(--color-brand-400);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Good ${getTimeOfDay()} Ã°Å¸â€˜â€¹</div>
+        <div style="font-size:var(--text-xs);color:var(--color-brand-400);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Good ${getTimeOfDay()} ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ¢â‚¬Â¹</div>
         <h2 style="font-family:var(--font-display);font-size:var(--text-2xl);font-weight:700;color:var(--color-text-primary)" id="welcome-name">Arjun Sharma</h2>
         <p style="font-size:var(--text-sm);color:var(--color-text-secondary);margin-top:4px">Here's what's happening at <strong>Sharma Grocery & Provisions</strong> today.</p>
       </div>
@@ -360,10 +365,10 @@ function renderDashboard() {
 
     <!-- KPI Stats Grid -->
     <div class="stats-grid" style="margin-bottom:var(--space-6)">
-      ${renderKPICard("Today's Sales", Format.currency(kpis.todaySales.value), kpis.todaySales.delta, 'Ã°Å¸â€™Â°', 'rgba(99,102,241,0.15)', [8420, 12300, 9800, 15600, 11200, 14800, 8420])}
-      ${renderKPICard("Today's Orders", kpis.todayOrders.value, kpis.todayOrders.delta, 'Ã°Å¸â€ºÂÃ¯Â¸Â', 'rgba(34,197,94,0.15)', [35, 42, 38, 51, 44, 49, 47])}
-      ${renderKPICard("Monthly Revenue", Format.currency(kpis.monthlyRevenue.value), kpis.monthlyRevenue.delta, 'Ã°Å¸â€œË†', 'rgba(168,85,247,0.15)', [110000, 118000, 125000, 130000, 135000, 140000, 142800])}
-      ${renderKPICard("Low Stock Alerts", kpis.lowStockItems.value + ' items', 0, 'Ã¢Å¡Â Ã¯Â¸Â', 'rgba(239,68,68,0.15)', null, true)}
+      ${renderKPICard("Today's Sales", Format.currency(kpis.todaySales.value), kpis.todaySales.delta, 'ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â°', 'rgba(99,102,241,0.15)', [8420, 12300, 9800, 15600, 11200, 14800, 8420])}
+      ${renderKPICard("Today's Orders", kpis.todayOrders.value, kpis.todayOrders.delta, 'ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂºÃ‚ÂÃƒÂ¯Ã‚Â¸Ã‚Â', 'rgba(34,197,94,0.15)', [35, 42, 38, 51, 44, 49, 47])}
+      ${renderKPICard("Monthly Revenue", Format.currency(kpis.monthlyRevenue.value), kpis.monthlyRevenue.delta, 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‹â€ ', 'rgba(168,85,247,0.15)', [110000, 118000, 125000, 130000, 135000, 140000, 142800])}
+      ${renderKPICard("Low Stock Alerts", kpis.lowStockItems.value + ' items', 0, 'ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â', 'rgba(239,68,68,0.15)', null, true)}
     </div>
 
     <!-- Charts Row -->
@@ -416,7 +421,7 @@ function renderDashboard() {
       <div class="panel-card">
         <div class="panel-header">
           <div class="panel-title">Recent Orders</div>
-          <button class="btn btn-sm btn-ghost" onclick="navigateTo('orders')">View All Ã¢â€ â€™</button>
+          <button class="btn btn-sm btn-ghost" onclick="navigateTo('orders')">View All ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢</button>
         </div>
         <div style="overflow-x:auto">
           <table class="data-table" style="width:100%">
@@ -445,18 +450,18 @@ function renderDashboard() {
       <!-- Low Stock Alerts -->
       <div class="panel-card">
         <div class="panel-header">
-          <div class="panel-title">Ã¢Å¡Â Ã¯Â¸Â Low Stock Alerts</div>
-          <button class="btn btn-sm btn-ghost" onclick="navigateTo('inventory')">Manage Ã¢â€ â€™</button>
+          <div class="panel-title">ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â Low Stock Alerts</div>
+          <button class="btn btn-sm btn-ghost" onclick="navigateTo('inventory')">Manage ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢</button>
         </div>
         <div style="padding:var(--space-4)">
           ${lowStock.length === 0
-            ? '<div style="text-align:center;color:var(--color-text-secondary);padding:var(--space-8)">Ã¢Å“â€¦ All items are well stocked!</div>'
+            ? '<div style="text-align:center;color:var(--color-text-secondary);padding:var(--space-8)">ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ All items are well stocked!</div>'
             : lowStock.map(p => `
               <div style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3);border-bottom:1px solid var(--color-border-subtle)">
                 <span style="font-size:24px">${p.image}</span>
                 <div style="flex:1">
                   <div style="font-size:var(--text-sm);font-weight:600">${p.name}</div>
-                  <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">${p.stock} ${p.unit} remaining Ã‚Â· Min: ${p.minStock}</div>
+                  <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">${p.stock} ${p.unit} remaining Ãƒâ€šÃ‚Â· Min: ${p.minStock}</div>
                 </div>
                 <div class="progress-bar" style="width:80px">
                   <div class="progress-fill" style="width:${Math.min(100,(p.stock/p.minStock)*100)}%;background:${p.stock <= p.minStock/2 ? 'var(--gradient-danger)' : 'var(--gradient-warning)'}"></div>
@@ -468,8 +473,8 @@ function renderDashboard() {
 
           <!-- AI Suggestion -->
           <div style="margin-top:var(--space-4);padding:var(--space-4);background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:var(--radius-lg)">
-            <div style="font-size:var(--text-xs);font-weight:600;color:var(--color-brand-400);margin-bottom:var(--space-2)">Ã¢Å“Â¨ AI Recommendation</div>
-            <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">Place reorder for Dettol products Ã¢â‚¬â€ supplier Reckitt has 2-day delivery. Estimated reorder cost: <strong>Ã¢â€šÂ¹4,200</strong></div>
+            <div style="font-size:var(--text-xs);font-weight:600;color:var(--color-brand-400);margin-bottom:var(--space-2)">ÃƒÂ¢Ã…â€œÃ‚Â¨ AI Recommendation</div>
+            <div style="font-size:var(--text-xs);color:var(--color-text-secondary)">Place reorder for Dettol products ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â supplier Reckitt has 2-day delivery. Estimated reorder cost: <strong>ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹4,200</strong></div>
             <button class="btn btn-sm btn-primary" style="margin-top:var(--space-3)" onclick="generatePO()">Generate PO</button>
           </div>
         </div>
@@ -479,7 +484,7 @@ function renderDashboard() {
     <!-- Quick Actions Bar -->
     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:var(--space-3);margin-top:var(--space-6)">
       ${['New Sale', 'Add Product', 'Add Customer', 'Stock Count', 'Daily Report', 'Staff Check-in'].map((action, i) => {
-        const icons = ['Ã°Å¸â€™Â³','Ã°Å¸â€œÂ¦','Ã°Å¸â€˜Â¤','Ã°Å¸â€œÂ','Ã°Å¸â€œÅ ','Ã¢Å“â€¦'];
+        const icons = ['ÃƒÂ°Ã…Â¸Ã¢â‚¬â„¢Ã‚Â³','ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â¦','ÃƒÂ°Ã…Â¸Ã¢â‚¬ËœÃ‚Â¤','ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â','ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â ','ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦'];
         const modules = ['pos','inventory','customers','inventory','reports','staff'];
         return `
           <button class="btn btn-secondary" onclick="navigateTo('${modules[i]}')" style="flex-direction:column;height:72px;gap:var(--space-1)">
@@ -499,11 +504,11 @@ function renderDashboard() {
   }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Helper Renderers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Helper Renderers ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 function renderKPICard(label, value, delta, icon, bgColor, sparkData, isAlert = false) {
   const deltaHtml = delta !== 0 ? `
     <span class="stat-card-delta ${delta > 0 ? 'delta-up' : 'delta-down'}">
-      ${delta > 0 ? 'Ã¢â€ â€˜' : 'Ã¢â€ â€œ'} ${Math.abs(delta)}%
+      ${delta > 0 ? 'ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬Ëœ' : 'ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬Å“'} ${Math.abs(delta)}%
       <span style="font-weight:400;color:var(--color-text-tertiary)"> vs last month</span>
     </span>
   ` : `<span class="stat-card-delta" style="color:var(--color-text-tertiary)">No change</span>`;
@@ -540,8 +545,8 @@ function renderBarChart(data, labels) {
         const isToday = i === data.length - 1;
         return `
           <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end">
-            <div style="font-size:9px;color:var(--color-text-tertiary)">Ã¢â€šÂ¹${(v/1000).toFixed(1)}k</div>
-            <div style="width:100%;border-radius:4px 4px 0 0;background:${isToday?'var(--gradient-brand)':'rgba(99,102,241,0.3)'};height:${height}%;min-height:4px;transition:height 0.5s ease" title="${labels[i]}: Ã¢â€šÂ¹${Format.number(v)}"></div>
+            <div style="font-size:9px;color:var(--color-text-tertiary)">ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹${(v/1000).toFixed(1)}k</div>
+            <div style="width:100%;border-radius:4px 4px 0 0;background:${isToday?'var(--gradient-brand)':'rgba(99,102,241,0.3)'};height:${height}%;min-height:4px;transition:height 0.5s ease" title="${labels[i]}: ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¹${Format.number(v)}"></div>
             <div style="font-size:9px;font-weight:600;color:${isToday?'var(--color-brand-400)':'var(--color-text-tertiary)'}">${labels[i]}</div>
           </div>
         `;
@@ -573,7 +578,7 @@ function renderCategoryDonut() {
   `;
 }
 
-// â”€â”€â”€ Interaction Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Interaction Handlers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 document.addEventListener('DOMContentLoaded', () => {
   loadUserInfo();
   loadBranches();
@@ -587,7 +592,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// â”€â”€â”€ Branch Selector Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Branch Selector Logic Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 let selectedBranches = Storage.get('nexaerp_branches') || ['all'];
 
 function loadBranches() {
@@ -648,4 +653,4 @@ function setBranch(branch) {
   navigateTo(currentModule);
 }
 
-// â”€â”€â”€ Analytics Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Analytics Page Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
