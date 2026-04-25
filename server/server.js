@@ -104,6 +104,13 @@ function setupRoutes() {
   try { app.use('/api/ledger',        require('./routes/ledger')); } catch(e) { console.error('ledger routes:', e.message); }
   try { app.use('/api/messages',      require('./routes/messages')); } catch(e) { console.error('messages routes:', e.message); }
 
+  // ── Enterprise Modules (v3) ──────────────────────────────────────
+  try { app.use('/api/procurement',    require('./routes/procurement')); } catch(e) { console.error('procurement routes:', e.message); }
+  try { app.use('/api/audit',          require('./routes/audit')); } catch(e) { console.error('audit routes:', e.message); }
+  try { app.use('/api/stock-transfers',require('./routes/stockTransfers')); } catch(e) { console.error('stockTransfers routes:', e.message); }
+  try { app.use('/api/forecast',       require('./routes/forecast')); } catch(e) { console.error('forecast routes:', e.message); }
+  try { app.use('/api/automation',     require('./routes/automation')); } catch(e) { console.error('automation routes:', e.message); }
+
   // 404 fallback
   app.use((req, res) => res.status(404).json({ success: false, message: `Route ${req.method} ${req.originalUrl} not found` }));
 

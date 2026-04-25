@@ -4,8 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard — NexaERP</title>
-  <meta name="description" content="NexaERP business management dashboard with real-time analytics, inventory, billing, and more." />
+  <meta name="description" content="NexaERP Enterprise: Procurement, AI Forecasting, Audit Logs, PWA, Barcode & Workflow Automation." />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/design-system.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
@@ -179,6 +183,50 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
           </span>
           <span class="nav-item-label">Staff</span>
+        </button>
+      </div>
+
+      <!-- Enterprise v3 -->
+      <div class="nav-section">
+        <div class="nav-section-label">Enterprise v3</div>
+        <button class="nav-item" onclick="navigateTo('procurement')" id="nav-procurement">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>
+          </span>
+          <span class="nav-item-label">Procurement</span>
+          <span class="nav-badge" style="background:var(--color-warning-400)">3</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('stock-transfers')" id="nav-stock-transfers">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
+          </span>
+          <span class="nav-item-label">Stock Transfers</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('demand-forecast')" id="nav-demand-forecast">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </span>
+          <span class="nav-item-label">AI Forecast</span>
+          <span class="nav-badge" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">AI</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('barcode')" id="nav-barcode">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="2" height="16"/><rect x="7" y="4" width="1" height="16"/><rect x="10" y="4" width="3" height="16"/><rect x="15" y="4" width="1" height="16"/><rect x="18" y="4" width="3" height="16"/></svg>
+          </span>
+          <span class="nav-item-label">Barcode</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('audit-logs')" id="nav-audit-logs">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </span>
+          <span class="nav-item-label">Audit Logs</span>
+        </button>
+        <button class="nav-item" onclick="navigateTo('automation')" id="nav-automation">
+          <span class="nav-item-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          </span>
+          <span class="nav-item-label">Automation</span>
+          <span class="nav-badge" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">new</span>
         </button>
       </div>
 
@@ -358,5 +406,27 @@
 <script src="js/pos.js"></script>
 <script src="js/modules.js"></script>
 <script src="js/sap_modules.js"></script>
+<script src="js/enterprise_modules.js"></script>
+<script>
+// PWA — Register Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        console.log('[NexaERP] SW registered, scope:', reg.scope);
+        // Listen for sync messages
+        navigator.serviceWorker.addEventListener('message', event => {
+          if (event.data?.type === 'SYNC_REQUESTED') {
+            console.log('[NexaERP] Background sync requested');
+          }
+        });
+      })
+      .catch(err => console.warn('[NexaERP] SW registration failed:', err));
+  });
+}
+// Online/Offline indicator
+window.addEventListener('online', () => Toast?.success?.('🌐 Back online — syncing data...'));
+window.addEventListener('offline', () => Toast?.info?.('📡 Offline mode — using cached data'));
+</script>
 </body>
 </html>
