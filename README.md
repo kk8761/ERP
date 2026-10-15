@@ -1,225 +1,124 @@
-# NexaERP
+# NexaERP - Enterprise Resource Planning System
 
-**Production-grade SaaS ERP platform for small businesses**
-
-[![Netlify Status](https://api.netlify.com/api/v1/badges/nexaerp/deploy-status)](https://app.netlify.com/sites/nexaerp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
-## 🚀 Live Demo
-> **[https://nexaerp.netlify.app](https://nexaerp.netlify.app)**
-
-**Demo Credentials** — Click "Try as Store Owner" or "Try as Cashier" on the login page.
+> **Grow Your Business** with an enterprise-grade ERP designed with modern web architecture and an enterprise visual interface inspired by SAP Fiori Horizon.
 
 ---
 
-## ✨ Overview
+## 1. Project Overview & Architecture
 
-NexaERP is a free, investor-grade SaaS ERP platform built for modern small businesses. Starting with grocery stores and expandable to pharmacies, restaurants, hostels, and schools.
-
-### 🎯 Supported Business Types
-| Business | Status |
-|---|---|
-| 🛒 Grocery Store | ✅ Full support |
-| 💊 Pharmacy | 🟡 Module ready |
-| 🍽️ Restaurant | 🟡 Module ready |
-| 🏨 Hostel / Hotel | 🟡 Module ready |
-| 🎓 School | 🔮 Roadmap |
+NexaERP is a complete, secure, full-stack ERP application built from scratch to streamline enterprise business operations:
+- **Point of Sale (POS) & Billing**: Real-time barcode lookup, tax calculation, checkout, and receipt issuance.
+- **Inventory & Supply Chain**: Minimum stock alert monitoring, reorder level tracking, and stock movement ledgers.
+- **Procurement**: Purchase orders, supplier directory, and goods receipt automated restocking.
+- **Finance & Accounting**: Chart of accounts, double-entry journal posting (`debits == credits`), and expense tracking.
+- **Human Resources & Payroll**: Staff management, daily attendance clocking, leave approvals, and automated payroll computations.
+- **Security & JIT Elevation**: Role-Based Access Control (RBAC), Just-In-Time role elevation with **strict separation of duties (no-self-approval)**, and tamper-proof audit trails.
+- **Nexa AI Assistant**: Contextual natural language assistant capable of querying live ERP data (sales summaries, low-stock warnings, expense breakdowns).
 
 ---
 
-## 📦 Feature Modules
+## 2. Technology Stack & Constraints
 
-| Module | Description |
-|---|---|
-| 🏠 **Dashboard** | Real-time KPIs, revenue charts, alerts |
-| 🧾 **POS / Billing** | Touch-friendly point-of-sale with GST invoice |
-| 📦 **Inventory** | Full CRUD, barcode scan, stock alerts |
-| 🛍️ **Orders** | Sales and purchase order management |
-| 💰 **Accounting** | Income/expense ledger, P&L |
-| 👥 **Customers** | CRM with loyalty points |
-| 👨‍💼 **Staff** | Employee management |
-| 💸 **Payroll** | Salary slip with PF deductions |
-| 🚛 **Suppliers** | Vendor management and PO |
-| 📊 **Analytics** | Revenue trends, category breakdown |
-| 📋 **Reports** | GST, P&L, inventory, sales exports |
-| 🔔 **Notifications** | Smart alerts for stock, orders, payments |
-| ⚙️ **Settings** | Business profile, roles, tax config |
-| ✨ **AI Assistant** | Natural language business insights |
+- **Zero TypeScript**: All frontend and backend code is written strictly in JavaScript/JSX and Python 3.14 to eliminate transpile and typing complexity while ensuring rapid execution.
+- **Frontend**: React 19, Vite, Lucide React icons, and a custom SAP Fiori Horizon design system (`src/index.css`) supporting both Light and Dark modes.
+- **Backend**: Python 3.14 + FastAPI + Pydantic v2 + SQLAlchemy 2.0 (asyncio with `aiosqlite` and `asyncpg`).
+- **Database**: Persistent SQLite (`nexaerp.db`) for development; PostgreSQL 16 ready for production.
+- **Security**: Argon2id/Bcrypt password hashing, PyJWT signed tokens, token revocation blacklist, account lockouts on consecutive failed logins, and OWASP security headers.
 
 ---
 
-## 🏗️ Architecture
+## 3. Seed Credentials (Development)
 
-```
-NexaERP/
-├── index.html           # Auth / Login page
-├── dashboard.html       # Main app shell (all modules)
-├── css/
-│   ├── design-system.css  # Design tokens, components
-│   ├── auth.css           # Login/register styles  
-│   ├── dashboard.css      # Layout, sidebar, POS
-│   └── modules.css        # Module-specific styles
-├── js/
-│   ├── utils.js           # Shared utilities (HTTP, format, toast)
-│   ├── auth.js            # Authentication module
-│   ├── demo-data.js       # Realistic demo datasets
-│   ├── dashboard.js       # Dashboard + router + AI
-│   ├── inventory.js       # Inventory CRUD
-│   ├── pos.js             # POS / Billing engine
-│   └── modules.js         # All other modules
-└── assets/
-    └── favicon.svg
-```
+The database comes pre-seeded with an organization, multiple branches, products matching the dashboard screenshot (Basmati Rice, Sunflower Oil, Amul Milk, Atta, Sugar), recent sales (#INV-001241 through #INV-001245), and sample role accounts:
 
-### Tech Stack
-- **Frontend**: Vanilla HTML5 / CSS3 / ES6+ JavaScript
-- **Design**: Custom design system with CSS variables (dark mode)
-- **Fonts**: Google Fonts — Inter + Space Grotesk
-- **Deployment**: Netlify (static hosting)
-- **Backend-ready**: JWT auth, REST API client, offline-capable
+| Role | Email | Password |
+|---|---|---|
+| **System Administrator** | `admin@nexaerp.internal` | `Admin@NexaERP2026!` |
+| **Cashier** | `cashier@nexaerp.internal` | `Cashier@NexaERP2026!` |
+| **Inventory Manager** | `inventory@nexaerp.internal` | `Inventory@NexaERP2026!` |
+| **Accountant** | `accountant@nexaerp.internal` | `Accountant@NexaERP2026!` |
+| **HR Manager** | `hr@nexaerp.internal` | `HRManager@NexaERP2026!` |
+
+*(Note: The login page also features convenient one-click demo persona quick-fill buttons).*
 
 ---
 
-## 🎨 Design System
+## 4. Local Development Quickstart
 
-- **Color**: Indigo-Violet brand with semantic danger/success/warning tokens
-- **Typography**: Inter (body), Space Grotesk (display)
-- **Glassmorphism**: Backdrop blur on panels and auth page
-- **Dark Mode**: Full dark UI by default
-- **Micro-animations**: Page transitions, hover states, loading states
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
 
----
+### Step 1: Backend Setup
+```bash
+# Navigate to backend directory
+cd backend
 
-## 🛡️ Security Features
+# Create and activate virtual environment
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
 
-- JWT-based authentication with token validation
-- Input validation and sanitization on all forms  
-- XSS prevention (no innerHTML with user data)
-- Role-based access: Owner, Manager, Cashier
-- Session expiry handling
+# Install dependencies
+pip install -r requirements.txt
 
----
+# Run database seeder (populates products, accounts, roles, initial data)
+python ../scripts/seed_demo_data.py
 
-## 🚀 Backend Architecture (Production)
-
-When connecting a real backend:
-
-### Recommended Stack
-```
-Backend: Node.js + Express
-Database: PostgreSQL + Prisma ORM
-Caching: Redis
-Auth: JWT + bcrypt
-File Storage: AWS S3 / Firebase Storage
-Search: ElasticSearch (inventory)
-Queue: Bull (notifications, reports)
+# Launch FastAPI development server (runs on port 8000)
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### API Endpoints
+### Step 2: Frontend Setup
+```bash
+# In a new terminal window:
+cd frontend
+
+# Install npm dependencies
+npm install
+
+# Start Vite dev server (runs on port 5173)
+npm run dev
 ```
-POST /api/auth/login
-POST /api/auth/register
-POST /api/auth/forgot-password
 
-GET  /api/products           
-POST /api/products           
-PUT  /api/products/:id       
-DELETE /api/products/:id     
-
-GET  /api/orders             
-POST /api/orders             
-GET  /api/orders/:id         
-
-GET  /api/customers          
-POST /api/customers          
-
-GET  /api/staff              
-GET  /api/payroll            
-
-GET  /api/reports/sales      
-GET  /api/reports/gst        
-GET  /api/reports/inventory  
-```
+Open `http://localhost:5173` in your browser.
 
 ---
 
-## 📱 Mobile App
+## 5. Automated Testing Suite
 
-Mobile app planned with React Native:
-
-```
-mobile/
-├── App.tsx
-├── src/
-│   ├── screens/
-│   │   ├── Dashboard.tsx
-│   │   ├── POS.tsx
-│   │   ├── Inventory.tsx
-│   │   └── Reports.tsx
-│   └── components/
-```
-
----
-
-## 🗺️ Roadmap
-
-### ✅ Phase 1 — MVP (Current)
-- Authentication (login/register/demo)
-- Dashboard with KPIs and charts
-- Inventory management (full CRUD)
-- POS / Billing with GST
-- Customer and staff management
-- Payroll calculator
-- Accounting ledger
-- Reports with CSV export
-
-### 🚧 Phase 2 — Growth
-- [ ] Firebase backend integration
-- [ ] Barcode camera scanner
-- [ ] WhatsApp invoice delivery
-- [ ] Offline mode (PWA)
-- [ ] Multi-store management
-- [ ] Purchase orders workflow
-- [ ] AI demand forecasting
-
-### 🔮 Phase 3 — Enterprise
-- [ ] Multi-tenant SaaS
-- [ ] Subscription billing
-- [ ] Native mobile app (React Native)
-- [ ] Advanced analytics
-- [ ] API integrations (Tally, Razorpay)
-- [ ] B2B marketplace
-
----
-
-## 🚀 Local Development
+All 13 comprehensive backend unit, integration, and security tests can be verified using Pytest:
 
 ```bash
-# No build step needed — pure HTML/CSS/JS
-# Open index.html directly or use a local server:
-
-npx serve .
-# or
-python -m http.server 8080
+# From the project root:
+backend\venv\Scripts\pytest backend/tests -W ignore -v
 ```
 
----
-
-## 📦 Deployment
-
-### Netlify (Recommended)
-1. Push to GitHub
-2. Connect repo to Netlify
-3. Build command: (none)
-4. Publish directory: `./`
-5. Deploy!
-
----
-
-## 📄 License
-
-MIT License — Free to use and modify
+### Covered Test Scenarios:
+1. `test_health_check`: API availability and version probe.
+2. `test_login_success`: Authentication and JWT issuance.
+3. `test_login_invalid_credentials`: Negative authentication check.
+4. `test_get_me`: Protected route verification.
+5. `test_logout_revokes_token`: Token revocation and immediate invalidation.
+6. `test_jit_elevation_lifecycle_and_no_self_approval`: JIT elevation request, approval by separate manager, and effective permission grant.
+7. `test_admin_cannot_self_approve_elevation`: Enforced separation of duties preventing self-approval.
+8. `test_admin_has_full_rbac_access`: Verification of master permissions for administrative role.
+9. `test_cashier_denied_sensitive_operations`: Verification that cashier cannot access or modify finance journal entries (negative authorization).
+10. `test_sales_and_inventory_transaction_integrity`: Atomic checkout, stock decrement, and negative stock rejection.
+11. `test_security_headers_present`: Verification of OWASP CSP, HSTS, X-Frame-Options, and nosniff headers.
+12. `test_sql_injection_defense`: Verification that SQL injection strings fail safely in parameterized ORM queries.
+13. `test_account_lockout_on_consecutive_failed_logins`: Verification of brute-force mitigation after 5 failed attempts.
 
 ---
 
-**Built with ❤️ by the NexaERP team · Powered by NexaERP**
+## 6. Project Documentation
+
+Detailed technical manuals are located in the [`docs/`](file:///c:/Users/karth/OneDrive/Desktop/dream/docs) directory:
+- [ARCHITECTURE.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/ARCHITECTURE.md): System design, component diagrams, and concurrency safety.
+- [SECURITY.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/SECURITY.md): OWASP compliance, token revocation, and threat matrix.
+- [RBAC.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/RBAC.md): Granular permission catalog and JIT elevation rules.
+- [API.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/API.md): Full REST API endpoint reference and query schemas.
+- [DATABASE.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/DATABASE.md): ER diagrams, table schemas, and backup/restore steps.
+- [DEPLOYMENT.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/DEPLOYMENT.md): Container orchestration and production checklist.

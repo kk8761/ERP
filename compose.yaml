@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: nexaerp_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nexaerp_db
+      POSTGRES_USER: nexa_user
+      POSTGRES_PASSWORD: nexa_secure_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexa_user -d nexaerp_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nexaerp_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nexaerp_backend
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://nexa_user:nexa_secure_password@db:5432/nexaerp_db
+      - SECRET_KEY=nexa_erp_production_secret_key_needs_override
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:80
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks:
+      - nexaerp_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nexaerp_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - nexaerp_net
+
+volumes:
+  postgres_data:
+
+networks:
+  nexaerp_net:
+    driver: bridge
