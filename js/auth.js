@@ -61,6 +61,7 @@ async function handleLogin(e) {
 
   const email    = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
+  const rememberMe = document.getElementById('remember-me')?.checked || false;
   let valid = true;
 
   // Validate
@@ -93,7 +94,17 @@ async function handleLogin(e) {
       user = demoUser;
     } else {
       // Real API call
-      const res = await Http.post('/auth/login', { email, password });
+      const res = await Http.post('/auth/login', { email, password, rememberMe });
+      
+      // Check if MFA is required
+      if (res.requireMFA) {
+        Toast.info('MFA verification required');
+        setTimeout(() => {
+          window.location.href = '/mfa/verify';
+        }, 500);
+        return;
+      }
+      
       token = res.token;
       user  = res.user;
     }
@@ -102,7 +113,7 @@ async function handleLogin(e) {
     Auth.setSession(token, user);
 
     // Remember me
-    if (document.getElementById('remember-me')?.checked) {
+    if (rememberMe) {
       Storage.set('nexaerp_remember_email', email);
     }
 

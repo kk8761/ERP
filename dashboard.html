@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="css/design-system.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
   <link rel="stylesheet" href="css/modules.css" />
+  <link rel="stylesheet" href="css/mobile-responsive.css" />
   <!-- Backend config — change NEXAERP_API to your Render.com URL -->
   <script>
     window.NEXAERP_API    = 'https://nexaerp-api.onrender.com/api';
@@ -425,7 +426,10 @@
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 
 <script src="js/utils.js"></script>
+<script src="js/error-handler.js"></script>
 <script src="js/demo-data.js"></script>
+<script src="js/mobile-gestures.js"></script>
+<script src="js/release-notes.js"></script>
 <script src="js/dashboard.js"></script>
 <script src="js/inventory.js"></script>
 <script src="js/pos.js"></script>
@@ -433,6 +437,8 @@
 <script src="js/sap_modules.js"></script>
 <script src="js/enterprise_modules.js"></script>
 <script src="js/enterprise_plus.js"></script>
+<script src="js/offline-manager.js"></script>
+<script src="js/offline-ui.js"></script>
 <script>
 // PWA — Register Service Worker
 if ('serviceWorker' in navigator) {
@@ -444,15 +450,16 @@ if ('serviceWorker' in navigator) {
         navigator.serviceWorker.addEventListener('message', event => {
           if (event.data?.type === 'SYNC_REQUESTED') {
             console.log('[NexaERP] Background sync requested');
+            // Trigger offline manager sync
+            if (window.OfflineManager) {
+              window.OfflineManager.syncOfflineData();
+            }
           }
         });
       })
       .catch(err => console.warn('[NexaERP] SW registration failed:', err));
   });
 }
-// Online/Offline indicator
-window.addEventListener('online', () => Toast?.success?.('🌐 Back online — syncing data...'));
-window.addEventListener('offline', () => Toast?.info?.('📡 Offline mode — using cached data'));
 </script>
 </body>
 </html>

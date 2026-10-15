@@ -93,6 +93,7 @@ async function startDatabase() {
 // ─── Routes Setup ─────────────────────────────────────────
 function setupRoutes() {
   try { app.use('/api/auth',          authLimiter, require('./routes/auth')); } catch(e) { console.error('auth routes:', e.message); }
+  try { app.use('/api/sessions',      require('./routes/sessions')); } catch(e) { console.error('sessions routes:', e.message); }
   try { app.use('/api/products',      require('./routes/products')); } catch(e) { console.error('products routes:', e.message); }
   try { app.use('/api/orders',        require('./routes/orders')); } catch(e) { console.error('orders routes:', e.message); }
   try { app.use('/api/customers',     require('./routes/customers')); } catch(e) { console.error('customers routes:', e.message); }
@@ -116,6 +117,8 @@ function setupRoutes() {
   try { app.use('/api/hrms',           require('./routes/hrms')); } catch(e) { console.error('hrms routes:', e.message); }
   try { app.use('/api/manufacturing',  require('./routes/manufacturing')); } catch(e) { console.error('manufacturing routes:', e.message); }
   try { app.use('/api/governance',     require('./routes/governance')); } catch(e) { console.error('governance routes:', e.message); }
+  try { app.use('/api/rbac',           require('./routes/rbac.routes')); } catch(e) { console.error('rbac routes:', e.message); }
+  try { app.use('/api/industry40',     require('./dist/routes/industry40.routes').default); } catch(e) { console.error('industry40 routes:', e.message); }
 
   // 404 fallback
   app.use((req, res) => res.status(404).json({ success: false, message: `Route ${req.method} ${req.originalUrl} not found` }));
@@ -141,6 +144,7 @@ function startCrons() {
   try {
     const cron = require('node-cron');
     const { runLowStockCheck } = require('./utils/notifications');
+    const { getSessionManager } = require('./services/sessionManager');
 
     // Daily low-stock check at 9 AM IST
     cron.schedule('0 3 * * *', async () => { // 9 AM IST = 3:30 AM UTC
@@ -159,6 +163,15 @@ function startCrons() {
           io.emit('critical_stock', { count: critical.length, items: critical.map(p => p.name) });
         }
       } catch {}
+    });
+
+    // Session cleanup every hour
+    cron.schedule('0 * * * *', async () => {
+      try {
+        const sessionManager = getSessionManager();
+        const cleaned = await sessionManager.cleanupExpiredSessions();
+        console.log(`✅ [CRON] Cleaned up ${cleaned} expired session references`);
+      } catch (err) { console.error('❌ [CRON] Session cleanup failed:', err.message); }
     });
 
     console.log('✅ Cron jobs started');

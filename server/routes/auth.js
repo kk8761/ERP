@@ -1,5 +1,6 @@
 /**
  * Auth Routes — Register, Login, Me, Logout
+ * Integrated with Redis session management
  */
 
 const express = require('express');
@@ -8,6 +9,7 @@ const { body, validationResult } = require('express-validator');
 
 const User           = require('../models/User');
 const { protect }    = require('../middleware/auth');
+const { getSessionManager } = require('../services/sessionManager');
 
 const router = express.Router();
 
@@ -90,10 +92,22 @@ router.post('/login', [
 
     const token = signToken(user);
 
+    // Create session
+    const sessionManager = getSessionManager();
+    const sessionId = await sessionManager.createSession(
+      user._id.toString(),
+      token,
+      {
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent'] || 'unknown'
+      }
+    );
+
     res.json({
       success: true,
       message: `Welcome back, ${user.name}!`,
       token,
+      sessionId,
       user: user.toJSON()
     });
   } catch (err) {
@@ -104,6 +118,25 @@ router.post('/login', [
 // ── GET /api/auth/me ──────────────────────────────────────
 router.get('/me', protect, async (req, res) => {
   res.json({ success: true, user: req.user });
+});
+
+// ── POST /api/auth/logout ─────────────────────────────────
+router.post('/logout', protect, async (req, res, next) => {
+  try {
+    const sessionManager = getSessionManager();
+    const sessionId = req.sessionId;
+
+    if (sessionId) {
+      await sessionManager.revokeSession(sessionId);
+    }
+
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── PATCH /api/auth/preferences ──────────────────────────

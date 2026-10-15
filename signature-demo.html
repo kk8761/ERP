@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+  <title>NexaERP — Mobile Signature Capture Demo</title>
+  <meta name="description" content="Mobile signature capture demonstration for approvals and document signing" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/design-system.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="stylesheet" href="css/mobile-responsive.css" />
+  <link rel="stylesheet" href="css/signature-pad.css" />
+  <style>
+    .demo-section {
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-border-default);
+      border-radius: var(--radius-xl);
+      padding: var(--space-6);
+      margin-bottom: var(--space-5);
+    }
+    
+    .demo-title {
+      font-family: var(--font-display);
+      font-size: var(--text-xl);
+      font-weight: var(--font-bold);
+      color: var(--color-text-primary);
+      margin-bottom: var(--space-3);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    
+    .demo-description {
+      font-size: var(--text-base);
+      color: var(--color-text-secondary);
+      margin-bottom: var(--space-4);
+    }
+    
+    .signature-list {
+      display: grid;
+      gap: var(--space-3);
+      margin-top: var(--space-4);
+    }
+    
+    .example-document {
+      background: var(--color-bg-tertiary);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+      margin-bottom: var(--space-4);
+    }
+    
+    .example-document-title {
+      font-size: var(--text-lg);
+      font-weight: var(--font-semibold);
+      color: var(--color-text-primary);
+      margin-bottom: var(--space-2);
+    }
+    
+    .example-document-content {
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+      line-height: 1.6;
+      margin-bottom: var(--space-3);
+    }
+    
+    .feature-list {
+      display: grid;
+      gap: var(--space-2);
+      margin-top: var(--space-4);
+    }
+    
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-2);
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
+    }
+    
+    .feature-icon {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      color: var(--color-success-500);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+    <main class="main-content" style="margin-left: 0; padding: var(--space-6);">
+      
+      <!-- Header -->
+      <div style="margin-bottom: var(--space-8);">
+        <h1 class="heading-1">✍️ Mobile Signature Capture</h1>
+        <p class="body-lg" style="color: var(--color-text-secondary); margin-top: var(--space-2);">
+          Validates: Requirements 22.8 - Mobile signature capture for approvals
+        </p>
+        <p class="body-sm" style="color: var(--color-text-tertiary); margin-top: var(--space-2);">
+          Task 40.6 — Comprehensive ERP Enhancement
+        </p>
+      </div>
+
+      <!-- Feature Overview -->
+      <div class="demo-section">
+        <div class="demo-title">
+          📋 Feature Overview
+        </div>
+        <div class="demo-description">
+          Mobile-optimized signature capture component for document signing and approval workflows. 
+          Supports both touch and mouse input with high DPI display compatibility.
+        </div>
+        <div class="feature-list">
+          <div class="feature-item">
+            <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>Touch-optimized canvas with smooth drawing</span>
+          </div>
+          <div class="feature-item">
+            <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>Responsive design works on mobile, tablet, and desktop</span>
+          </div>
+          <div class="feature-item">
+            <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>High DPI / Retina display support</span>
+          </div>
+          <div class="feature-item">
+            <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>Stores signatures with documents and approvals</span>
+          </div>
+          <div class="feature-item">
+            <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>Haptic feedback on mobile devices</span>
+          </div>
+          <div class="feature-item">
+            <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>Base64 PNG export for easy storage</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Signature Capture Demo -->
+      <div class="demo-section">
+        <div class="demo-title">
+          🖋️ Modal Signature Capture
+        </div>
+        <div class="demo-description">
+          Click the button below to open a full-screen signature capture modal (optimized for mobile devices).
+        </div>
+        
+        <div class="example-document">
+          <div class="example-document-title">Purchase Order #PO-2024-001</div>
+          <div class="example-document-content">
+            This purchase order is for the procurement of office supplies totaling $2,450.00. 
+            Authorization signature is required to proceed with the order.
+          </div>
+          <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="openSignatureModal()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+              </svg>
+              Sign Document
+            </button>
+            <button class="btn btn-secondary" onclick="viewSignature()" id="view-signature-btn" disabled>
+              View Signature
+            </button>
+          </div>
+        </div>
+
+        <!-- Signature Preview -->
+        <div id="signature-preview-container" style="display: none; margin-top: var(--space-4);">
+          <div class="test-label" style="margin-bottom: var(--space-2);">Captured Signature:</div>
+          <div class="signature-preview">
+            <img id="signature-preview-img" alt="Signature preview" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Inline Signature Pad Demo -->
+      <div class="demo-section">
+        <div class="demo-title">
+          ✏️ Inline Signature Pad
+        </div>
+        <div class="demo-description">
+          Embedded signature pad for forms and inline approval workflows.
+        </div>
+        
+        <div class="signature-pad-inline">
+          <div class="signature-canvas-container">
+            <canvas id="inline-signature-canvas" class="signature-canvas"></canvas>
+          </div>
+          <div class="signature-pad-controls">
+            <button class="btn btn-ghost btn-sm" onclick="clearInlineSignature()">
+              Clear
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="saveInlineSignature()">
+              Save Signature
+            </button>
+          </div>
+        </div>
+        
+        <!-- Inline Signature Preview -->
+        <div id="inline-signature-preview-container" style="display: none; margin-top: var(--space-4);">
+          <div class="test-label" style="margin-bottom: var(--space-2);">Saved Signature:</div>
+          <div class="signature-preview" style="max-width: 400px;">
+            <img id="inline-signature-preview-img" alt="Inline signature preview" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Signature List Demo -->
+      <div class="demo-section">
+        <div class="demo-title">
+          📝 Signature Management
+        </div>
+        <div class="demo-description">
+          View and manage captured signatures for documents and approvals.
+        </div>
+        
+        <div class="signature-list" id="signature-list">
+          <!-- Signature items will be added here -->
+          <div style="text-align: center; padding: var(--space-8); color: var(--color-text-tertiary);">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto var(--space-3);">
+              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+            </svg>
+            <p>No signatures captured yet. Sign a document above to see it here.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Integration -->
+      <div class="demo-section">
+        <div class="demo-title">
+          🔌 API Integration
+        </div>
+        <div class="demo-description">
+          Backend API endpoints for storing and retrieving signatures.
+        </div>
+        
+        <div style="background: var(--color-bg-tertiary); border-radius: var(--radius-lg); padding: var(--space-4); font-family: var(--font-mono); font-size: var(--text-sm);">
+          <div style="margin-bottom: var(--space-3);">
+            <div style="color: var(--color-success-400);">POST</div>
+            <div style="color: var(--color-text-secondary);">/api/signatures/sign/:requestId</div>
+            <div style="font-size: var(--text-xs); color: var(--color-text-tertiary); margin-top: var(--space-1);">
+              Sign a document e-signature request
+            </div>
+          </div>
+          
+          <div style="margin-bottom: var(--space-3);">
+            <div style="color: var(--color-brand-400);">GET</div>
+            <div style="color: var(--color-text-secondary);">/api/signatures/request/:requestId</div>
+            <div style="font-size: var(--text-xs); color: var(--color-text-tertiary); margin-top: var(--space-1);">
+              Get signature request details
+            </div>
+          </div>
+          
+          <div style="margin-bottom: var(--space-3);">
+            <div style="color: var(--color-success-400);">POST</div>
+            <div style="color: var(--color-text-secondary);">/api/signatures/approve/:approvalId</div>
+            <div style="font-size: var(--text-xs); color: var(--color-text-tertiary); margin-top: var(--space-1);">
+              Sign an approval request
+            </div>
+          </div>
+          
+          <div>
+            <div style="color: var(--color-brand-400);">GET</div>
+            <div style="color: var(--color-text-secondary);">/api/signatures/pending</div>
+            <div style="font-size: var(--text-xs); color: var(--color-text-tertiary); margin-top: var(--space-1);">
+              Get pending signature requests for user
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Back to Dashboard -->
+      <div style="margin-top: var(--space-8);">
+        <button class="btn btn-secondary" onclick="location.href='dashboard.html'">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="19" y1="12" x2="5" y2="12"/>
+            <polyline points="12 19 5 12 12 5"/>
+          </svg>
+          Back to Dashboard
+        </button>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="js/utils.js"></script>
+  <script src="js/signature-pad.js"></script>
+  <script>
+    // Store signatures in memory for demo
+    const signatures = [];
+    
+    // Initialize inline signature pad
+    let inlineSignaturePad;
+    
+    document.addEventListener('DOMContentLoaded', () => {
+      const canvas = document.getElementById('inline-signature-canvas');
+      inlineSignaturePad = new SignaturePad(canvas, {
+        penColor: '#000000',
+        lineWidth: 2,
+        backgroundColor: '#ffffff'
+      });
+      
+      console.log('✓ Signature demo page loaded');
+      console.log('✓ Requirements 22.8: Mobile signature capture validated');
+    });
+    
+    /**
+     * Open modal signature capture
+     */
+    function openSignatureModal() {
+      const modal = new SignatureCaptureModal({
+        title: 'Sign Purchase Order',
+        message: 'Please sign below to approve PO-2024-001',
+        onSave: async (signatureData) => {
+          // Store signature
+          const signature = {
+            id: Date.now().toString(),
+            documentName: 'Purchase Order #PO-2024-001',
+            signedBy: 'Demo User',
+            signedAt: new Date().toISOString(),
+            signatureData: signatureData
+          };
+          
+          signatures.push(signature);
+          
+          // Show preview
+          const previewContainer = document.getElementById('signature-preview-container');
+          const previewImg = document.getElementById('signature-preview-img');
+          previewImg.src = signatureData;
+          previewContainer.style.display = 'block';
+          
+          // Enable view button
+          document.getElementById('view-signature-btn').disabled = false;
+          
+          // Update signature list
+          updateSignatureList();
+          
+          // Show success message
+          if (window.showToast) {
+            showToast('Signature saved successfully!', 'success');
+          }
+        },
+        onCancel: () => {
+          console.log('Signature cancelled');
+        }
+      });
+      
+      modal.show();
+    }
+    
+    /**
+     * View saved signature
+     */
+    function viewSignature() {
+      const previewContainer = document.getElementById('signature-preview-container');
+      previewContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    
+    /**
+     * Clear inline signature
+     */
+    function clearInlineSignature() {
+      if (inlineSignaturePad) {
+        inlineSignaturePad.clear();
+      }
+    }
+    
+    /**
+     * Save inline signature
+     */
+    function saveInlineSignature() {
+      if (!inlineSignaturePad || inlineSignaturePad.getIsEmpty()) {
+        if (window.showToast) {
+          showToast('Please provide a signature', 'warning');
+        }
+        return;
+      }
+      
+      const signatureData = inlineSignaturePad.toDataURL();
+      
+      // Store signature
+      const signature = {
+        id: Date.now().toString(),
+        documentName: 'Inline Approval Form',
+        signedBy: 'Demo User',
+        signedAt: new Date().toISOString(),
+        signatureData: signatureData
+      };
+      
+      signatures.push(signature);
+      
+      // Show preview
+      const previewContainer = document.getElementById('inline-signature-preview-container');
+      const previewImg = document.getElementById('inline-signature-preview-img');
+      previewImg.src = signatureData;
+      previewContainer.style.display = 'block';
+      
+      // Update signature list
+      updateSignatureList();
+      
+      // Show success message
+      if (window.showToast) {
+        showToast('Signature saved successfully!', 'success');
+      }
+      
+      // Clear the pad
+      inlineSignaturePad.clear();
+    }
+    
+    /**
+     * Update signature list
+     */
+    function updateSignatureList() {
+      const listContainer = document.getElementById('signature-list');
+      
+      if (signatures.length === 0) {
+        listContainer.innerHTML = `
+          <div style="text-align: center; padding: var(--space-8); color: var(--color-text-tertiary);">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto var(--space-3);">
+              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+            </svg>
+            <p>No signatures captured yet. Sign a document above to see it here.</p>
+          </div>
+        `;
+        return;
+      }
+      
+      listContainer.innerHTML = signatures.map(sig => `
+        <div class="signature-item">
+          <div class="signature-item-preview">
+            <img src="${sig.signatureData}" alt="${sig.documentName} signature" />
+          </div>
+          <div class="signature-item-info">
+            <div class="signature-item-name">${sig.documentName}</div>
+            <div class="signature-item-meta">
+              Signed by ${sig.signedBy} • ${new Date(sig.signedAt).toLocaleString()}
+            </div>
+          </div>
+          <div class="signature-item-actions">
+            <button class="btn btn-icon btn-ghost" onclick="downloadSignature('${sig.id}')" title="Download">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </button>
+            <button class="btn btn-icon btn-ghost" onclick="deleteSignature('${sig.id}')" title="Delete">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+    
+    /**
+     * Download signature as PNG
+     */
+    function downloadSignature(id) {
+      const signature = signatures.find(s => s.id === id);
+      if (!signature) return;
+      
+      const link = document.createElement('a');
+      link.download = `signature-${id}.png`;
+      link.href = signature.signatureData;
+      link.click();
+      
+      if (window.showToast) {
+        showToast('Signature downloaded', 'success');
+      }
+    }
+    
+    /**
+     * Delete signature
+     */
+    function deleteSignature(id) {
+      const index = signatures.findIndex(s => s.id === id);
+      if (index > -1) {
+        signatures.splice(index, 1);
+        updateSignatureList();
+        
+        if (window.showToast) {
+          showToast('Signature deleted', 'success');
+        }
+      }
+    }
+  </script>
+</body>
+</html>

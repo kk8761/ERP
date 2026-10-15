@@ -582,6 +582,12 @@ function renderCategoryDonut() {
 document.addEventListener('DOMContentLoaded', () => {
   loadUserInfo();
   loadBranches();
+
+  // Show "What's New" banner if release-notes.js is loaded
+  if (window.ReleaseNotes && typeof ReleaseNotes.showWhatsNew === 'function') {
+    // Small delay so the dashboard finishes rendering first
+    setTimeout(() => ReleaseNotes.showWhatsNew(), 1500);
+  }
   
   // Close branch list on outside click
   document.addEventListener('click', (e) => {

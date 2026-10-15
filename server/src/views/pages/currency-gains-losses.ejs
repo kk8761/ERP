@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Currency Gains & Losses - NexaERP</title>
+  <link rel="stylesheet" href="/css/design-system.css">
+  <link rel="stylesheet" href="/css/modules.css">
+  <style>
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .summary-card {
+      background: white;
+      border-radius: 8px;
+      padding: 1.5rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .summary-card h3 {
+      margin: 0 0 0.5rem 0;
+      font-size: 0.875rem;
+      color: #666;
+      text-transform: uppercase;
+    }
+    .summary-value {
+      font-size: 2rem;
+      font-weight: 600;
+      margin: 0;
+    }
+    .summary-value.positive {
+      color: #388e3c;
+    }
+    .summary-value.negative {
+      color: #d32f2f;
+    }
+    .summary-value.neutral {
+      color: #1976d2;
+    }
+    .gl-table {
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .gl-table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .gl-table th {
+      background: #f5f5f5;
+      padding: 1rem;
+      text-align: left;
+      font-weight: 600;
+      border-bottom: 2px solid #ddd;
+    }
+    .gl-table td {
+      padding: 1rem;
+      border-bottom: 1px solid #eee;
+    }
+    .gl-table tr:hover {
+      background: #f9f9f9;
+    }
+    .type-badge {
+      padding: 0.25rem 0.75rem;
+      border-radius: 12px;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+    .type-realized {
+      background: #e8f5e9;
+      color: #388e3c;
+    }
+    .type-unrealized {
+      background: #fff3e0;
+      color: #f57c00;
+    }
+    .amount-positive {
+      color: #388e3c;
+      font-weight: 600;
+    }
+    .amount-negative {
+      color: #d32f2f;
+      font-weight: 600;
+    }
+    .filters {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .filter-group label {
+      font-size: 0.875rem;
+      color: #666;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <%- include('../partials/header') %>
+  
+  <div class="container">
+    <div class="page-header">
+      <div>
+        <h1>Currency Gains & Losses</h1>
+        <p class="subtitle">Track realized and unrealized currency gains and losses</p>
+      </div>
+      <button class="btn btn-primary" onclick="revalueCurrencies()">
+        <span>🔄</span> Revalue Currencies
+      </button>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters">
+      <div class="filter-group">
+        <label for="periodFilter">Fiscal Period</label>
+        <input type="month" id="periodFilter" value="<%= fiscalPeriod %>" onchange="filterGainsLosses()">
+      </div>
+      <div class="filter-group">
+        <label for="typeFilter">Type</label>
+        <select id="typeFilter" class="form-control" onchange="filterGainsLosses()">
+          <option value="">All Types</option>
+          <option value="realized">Realized</option>
+          <option value="unrealized">Unrealized</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>&nbsp;</label>
+        <button class="btn btn-secondary" onclick="filterGainsLosses()">
+          Apply Filters
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="summary-cards">
+      <div class="summary-card">
+        <h3>Total Gains/Losses</h3>
+        <p class="summary-value <%= summary.totalGainLoss >= 0 ? 'positive' : 'negative' %>">
+          <%= summary.totalGainLoss >= 0 ? '+' : '' %><%= summary.totalGainLoss.toFixed(2) %>
+        </p>
+      </div>
+      <div class="summary-card">
+        <h3>Number of Transactions</h3>
+        <p class="summary-value neutral">
+          <%= summary.count %>
+        </p>
+      </div>
+      <div class="summary-card">
+        <h3>Fiscal Period</h3>
+        <p class="summary-value neutral" style="font-size: 1.5rem;">
+          <%= fiscalPeriod %>
+        </p>
+      </div>
+    </div>
+
+    <!-- Gains/Losses Table -->
+    <div class="gl-table">
+      <% if (gainsLosses && gainsLosses.length > 0) { %>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Transaction Type</th>
+              <th>Currency</th>
+              <th>Original Amount</th>
+              <th>Original Rate</th>
+              <th>Settlement Rate</th>
+              <th>Gain/Loss</th>
+              <th>Type</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% gainsLosses.forEach(gl => { %>
+              <tr>
+                <td>
+                  <%= new Date(gl.transactionDate).toLocaleDateString() %>
+                </td>
+                <td>
+                  <%= gl.transactionType.replace('_', ' ').toUpperCase() %>
+                  <br>
+                  <small style="color: #666;"><%= gl.transactionId %></small>
+                </td>
+                <td>
+                  <strong><%= gl.currency.code %></strong>
+                  <br>
+                  <small><%= gl.currency.name %></small>
+                </td>
+                <td>
+                  <%= gl.originalAmount.toFixed(2) %>
+                </td>
+                <td>
+                  <%= gl.originalRate.toFixed(6) %>
+                </td>
+                <td>
+                  <%= gl.settlementRate ? gl.settlementRate.toFixed(6) : 'N/A' %>
+                </td>
+                <td class="<%= gl.gainLossAmount >= 0 ? 'amount-positive' : 'amount-negative' %>">
+                  <%= gl.gainLossAmount >= 0 ? '+' : '' %><%= gl.gainLossAmount.toFixed(2) %>
+                </td>
+                <td>
+                  <span class="type-badge type-<%= gl.gainLossType %>">
+                    <%= gl.gainLossType.toUpperCase() %>
+                  </span>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } else { %>
+        <div class="empty-state">
+          <p>No currency gains or losses recorded for this period.</p>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- Revaluation Modal -->
+  <div id="revaluationModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="modal-content" style="background: white; border-radius: 8px; padding: 2rem; max-width: 500px; width: 90%;">
+      <h2>Revalue Foreign Currency Balances</h2>
+      <form id="revaluationForm" onsubmit="performRevaluation(event)">
+        <div class="form-group">
+          <label for="asOfDate">As Of Date *</label>
+          <input type="date" id="asOfDate" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="revalPeriod">Fiscal Period *</label>
+          <input type="month" id="revalPeriod" required>
+        </div>
+        
+        <div class="form-actions" style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeRevaluationModal()">
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary">
+            Revalue
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // Set default dates
+    document.getElementById('asOfDate').valueAsDate = new Date();
+    const today = new Date();
+    document.getElementById('revalPeriod').value = today.toISOString().slice(0, 7);
+
+    function filterGainsLosses() {
+      const period = document.getElementById('periodFilter').value;
+      const type = document.getElementById('typeFilter').value;
+      
+      let url = `/finance/gains-losses?period=${period}`;
+      if (type) {
+        url += `&type=${type}`;
+      }
+      
+      window.location.href = url;
+    }
+
+    function revalueCurrencies() {
+      document.getElementById('revaluationModal').style.display = 'flex';
+    }
+
+    function closeRevaluationModal() {
+      document.getElementById('revaluationModal').style.display = 'none';
+    }
+
+    async function performRevaluation(event) {
+      event.preventDefault();
+      
+      const data = {
+        asOfDate: document.getElementById('asOfDate').value,
+        fiscalPeriod: document.getElementById('revalPeriod').value,
+      };
+      
+      try {
+        const response = await fetch('/finance/api/revalue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to revalue currencies');
+        }
+        
+        const result = await response.json();
+        alert(`Revaluation completed successfully!\n\nAccounts revalued: ${result.accountsRevalued}\nTotal gain/loss: ${result.totalGainLoss.toFixed(2)}`);
+        window.location.reload();
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+  </script>
+</body>
+</html>

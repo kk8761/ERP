@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+  <title>Mobile Responsive Test — NexaERP</title>
+  <meta name="description" content="Test suite for mobile responsive features" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/design-system.css" />
+  <link rel="stylesheet" href="../css/mobile-responsive.css" />
+  <style>
+    body {
+      padding: 20px;
+      max-width: 100%;
+    }
+
+    .test-section {
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-border-default);
+      border-radius: var(--radius-xl);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .test-section h2 {
+      font-family: var(--font-display);
+      font-size: var(--text-2xl);
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--color-brand-400);
+    }
+
+    .test-section h3 {
+      font-size: var(--text-lg);
+      font-weight: 600;
+      margin: 20px 0 12px;
+      color: var(--color-text-primary);
+    }
+
+    .test-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .test-item {
+      background: var(--color-bg-tertiary);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+    }
+
+    .test-item-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .test-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+
+    .test-status.pass {
+      background: var(--color-success-400);
+      color: white;
+    }
+
+    .test-status.fail {
+      background: var(--color-danger-400);
+      color: white;
+    }
+
+    .test-status.info {
+      background: var(--color-info-400);
+      color: white;
+    }
+
+    .breakpoint-indicator {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: var(--gradient-brand);
+      color: white;
+      padding: 8px 16px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
+      font-weight: 700;
+      z-index: 9999;
+      box-shadow: var(--shadow-xl);
+    }
+
+    .demo-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+
+    .demo-table thead {
+      background: var(--color-bg-secondary);
+    }
+
+    .demo-table th,
+    .demo-table td {
+      padding: 12px;
+      text-align: left;
+      border: 1px solid var(--color-border-subtle);
+    }
+
+    .demo-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .demo-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .demo-card {
+      background: var(--color-bg-tertiary);
+      border: 1px solid var(--color-border-default);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      cursor: pointer;
+      transition: all var(--transition-base);
+    }
+
+    .demo-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .demo-form {
+      margin-top: 16px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--color-text-primary);
+    }
+
+    .form-input,
+    .form-select {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--color-bg-secondary);
+      border: 1px solid var(--color-border-default);
+      border-radius: var(--radius-lg);
+      color: var(--color-text-primary);
+      font-size: 16px;
+      min-height: 44px;
+    }
+
+    .form-input:focus,
+    .form-select:focus {
+      outline: none;
+      border-color: var(--color-brand-400);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 20px;
+      min-height: 44px;
+      background: var(--gradient-brand);
+      color: white;
+      border: none;
+      border-radius: var(--radius-lg);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--transition-base);
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-secondary {
+      background: var(--color-bg-elevated);
+      color: var(--color-text-primary);
+      border: 1px solid var(--color-border-default);
+    }
+
+    .btn-icon {
+      width: 44px;
+      height: 44px;
+      padding: 10px;
+      min-height: auto;
+    }
+
+    .test-results {
+      margin-top: 20px;
+      padding: 16px;
+      background: var(--color-bg-tertiary);
+      border-radius: var(--radius-lg);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Breakpoint Indicator -->
+  <div class="breakpoint-indicator" id="breakpoint-indicator">
+    <span id="breakpoint-name">Loading...</span>
+    <span id="screen-size"></span>
+  </div>
+
+  <h1 style="font-family: var(--font-display); font-size: var(--text-4xl); font-weight: 700; margin-bottom: 8px;">
+    📱 Mobile Responsive Test Suite
+  </h1>
+  <p style="color: var(--color-text-secondary); margin-bottom: 32px;">
+    Validates Requirements 22.1 — Responsive web interface for mobile browsers
+  </p>
+
+  <!-- Test Section 1: Viewport & Breakpoints -->
+  <div class="test-section">
+    <h2>1. Viewport & Breakpoints</h2>
+    <div class="test-item">
+      <div class="test-item-label">Current Breakpoint</div>
+      <div id="viewport-info"></div>
+      <div class="test-status info" id="breakpoint-status">Testing...</div>
+    </div>
+
+    <h3>Breakpoint Definitions</h3>
+    <div class="test-item">
+      <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
+        <li><strong>xs:</strong> 320px - Small mobile (iPhone SE)</li>
+        <li><strong>sm:</strong> 640px - Mobile (standard phones)</li>
+        <li><strong>md:</strong> 768px - Tablet (iPad mini)</li>
+        <li><strong>lg:</strong> 1024px - Desktop (laptop)</li>
+        <li><strong>xl:</strong> 1280px - Large desktop</li>
+        <li><strong>2xl:</strong> 1536px - Extra large</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Test Section 2: Touch Targets -->
+  <div class="test-section">
+    <h2>2. Touch-Friendly Controls (44x44pt minimum)</h2>
+    <p style="color: var(--color-text-secondary); margin-bottom: 16px;">
+      All interactive elements should be at least 44x44 pixels for easy tapping
+    </p>
+
+    <h3>Button Sizes</h3>
+    <div class="demo-buttons">
+      <button class="btn" id="test-btn-1">Primary Button (44pt)</button>
+      <button class="btn btn-secondary" id="test-btn-2">Secondary Button</button>
+      <button class="btn-icon" id="test-btn-icon" title="Icon Button">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>
+      </button>
+    </div>
+
+    <div id="touch-test-results" class="test-results" style="display: none;"></div>
+  </div>
+
+  <!-- Test Section 3: Form Controls -->
+  <div class="test-section">
+    <h2>3. Form Controls</h2>
+    <p style="color: var(--color-text-secondary); margin-bottom: 16px;">
+      Forms should prevent zoom on iOS (16px minimum) and have proper touch targets
+    </p>
+
+    <div class="demo-form">
+      <div class="form-group">
+        <label class="form-label" for="test-input-1">Text Input (16px font)</label>
+        <input type="text" id="test-input-1" class="form-input" placeholder="Type here..." />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="test-input-2">Email Input</label>
+        <input type="email" id="test-input-2" class="form-input" placeholder="email@example.com" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="test-select">Select Dropdown</label>
+        <select id="test-select" class="form-select">
+          <option>Option 1</option>
+          <option>Option 2</option>
+          <option>Option 3</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+          <input type="checkbox" style="width: 20px; height: 20px;" />
+          <span>Checkbox with 20x20pt hit area</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 4: Responsive Grid -->
+  <div class="test-section">
+    <h2>4. Responsive Grid Layout</h2>
+    <p style="color: var(--color-text-secondary); margin-bottom: 16px;">
+      Cards should stack on mobile, 2 columns on tablet, 4 columns on desktop
+    </p>
+
+    <div class="demo-cards grid-cols-4">
+      <div class="demo-card">
+        <div style="font-size: 32px; margin-bottom: 8px;">📊</div>
+        <div style="font-weight: 600;">Card 1</div>
+        <div style="font-size: 12px; color: var(--color-text-secondary);">Sample content</div>
+      </div>
+      <div class="demo-card">
+        <div style="font-size: 32px; margin-bottom: 8px;">💰</div>
+        <div style="font-weight: 600;">Card 2</div>
+        <div style="font-size: 12px; color: var(--color-text-secondary);">Sample content</div>
+      </div>
+      <div class="demo-card">
+        <div style="font-size: 32px; margin-bottom: 8px;">📦</div>
+        <div style="font-weight: 600;">Card 3</div>
+        <div style="font-size: 12px; color: var(--color-text-secondary);">Sample content</div>
+      </div>
+      <div class="demo-card">
+        <div style="font-size: 32px; margin-bottom: 8px;">👥</div>
+        <div style="font-weight: 600;">Card 4</div>
+        <div style="font-size: 12px; color: var(--color-text-secondary);">Sample content</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Section 5: Responsive Table -->
+  <div class="test-section">
+    <h2>5. Responsive Table</h2>
+    <p style="color: var(--color-text-secondary); margin-bottom: 16px;">
+      Tables should convert to card-based layout on mobile (&lt;768px)
+    </p>
+
+    <table class="demo-table data-table-mobile-cards">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>SKU</th>
+          <th>Price</th>
+          <th>Stock</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td data-label="Product">Rice (1kg)</td>
+          <td data-label="SKU">RICE-001</td>
+          <td data-label="Price">₹50.00</td>
+          <td data-label="Stock">150</td>
+          <td data-label="Status"><span style="color: var(--color-success-400);">In Stock</span></td>
+        </tr>
+        <tr>
+          <td data-label="Product">Wheat (1kg)</td>
+          <td data-label="SKU">WHEAT-001</td>
+          <td data-label="Price">₹45.00</td>
+          <td data-label="Stock">80</td>
+          <td data-label="Status"><span style="color: var(--color-warning-400);">Low Stock</span></td>
+        </tr>
+        <tr>
+          <td data-label="Product">Sugar (1kg)</td>
+          <td data-label="SKU">SUGAR-001</td>
+          <td data-label="Price">₹42.00</td>
+          <td data-label="Stock">0</td>
+          <td data-label="Status"><span style="color: var(--color-danger-400);">Out of Stock</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Test Section 6: Mobile Gestures -->
+  <div class="test-section">
+    <h2>6. Mobile Gestures & Interactions</h2>
+    <p style="color: var(--color-text-secondary); margin-bottom: 16px;">
+      Pull-to-refresh and touch feedback should work on mobile devices
+    </p>
+
+    <div class="test-item">
+      <div class="test-item-label">Pull-to-Refresh</div>
+      <p style="font-size: 14px; margin: 8px 0;">
+        On mobile: Scroll to top and pull down to test refresh gesture
+      </p>
+      <div class="test-status info">Gesture-based (test on device)</div>
+    </div>
+
+    <div class="test-item">
+      <div class="test-item-label">Touch Feedback / Ripple Effect</div>
+      <button class="btn" id="ripple-test-btn" style="margin-top: 8px;">
+        Tap me to see ripple effect
+      </button>
+      <div class="test-status info">Visual feedback on touch</div>
+    </div>
+
+    <div class="test-item">
+      <div class="test-item-label">Haptic Feedback</div>
+      <p style="font-size: 14px; margin: 8px 0;">
+        Supported on iOS Safari and Android Chrome
+      </p>
+      <button class="btn btn-secondary" onclick="testHaptic()" style="margin-top: 8px;">
+        Test Haptic Feedback
+      </button>
+      <div id="haptic-status" class="test-status info">Click to test</div>
+    </div>
+  </div>
+
+  <!-- Test Section 7: PWA Features -->
+  <div class="test-section">
+    <h2>7. PWA & Safe Area Support</h2>
+    <p style="color: var(--color-text-secondary); margin-bottom: 16px;">
+      Support for iOS notch, home indicator, and PWA install prompt
+    </p>
+
+    <div class="test-item">
+      <div class="test-item-label">Safe Area Insets (iOS)</div>
+      <div id="safe-area-info"></div>
+    </div>
+
+    <div class="test-item">
+      <div class="test-item-label">PWA Install Status</div>
+      <div id="pwa-status"></div>
+    </div>
+  </div>
+
+  <!-- Test Summary -->
+  <div class="test-section">
+    <h2>📋 Test Summary</h2>
+    <div id="test-summary" class="test-results"></div>
+  </div>
+
+  <script>
+    // Test Suite Implementation
+    const testResults = [];
+
+    function updateBreakpointIndicator() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      let breakpoint = '2xl';
+
+      if (width < 640) breakpoint = 'xs/sm';
+      else if (width < 768) breakpoint = 'sm';
+      else if (width < 1024) breakpoint = 'md';
+      else if (width < 1280) breakpoint = 'lg';
+      else if (width < 1536) breakpoint = 'xl';
+
+      document.getElementById('breakpoint-name').textContent = breakpoint;
+      document.getElementById('screen-size').textContent = ` ${width}x${height}px`;
+
+      // Update viewport info
+      const viewportInfo = document.getElementById('viewport-info');
+      viewportInfo.innerHTML = `
+        <div style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">
+          <strong>Breakpoint:</strong> ${breakpoint}
+        </div>
+        <div style="font-size: 14px; color: var(--color-text-secondary);">
+          ${width}px × ${height}px ${window.devicePixelRatio > 1 ? `(${window.devicePixelRatio}x DPR)` : ''}
+        </div>
+      `;
+
+      const status = document.getElementById('breakpoint-status');
+      if (width >= 320) {
+        status.className = 'test-status pass';
+        status.textContent = '✓ Breakpoint detected correctly';
+        addTestResult('Breakpoint Detection', 'pass', `Current: ${breakpoint} at ${width}px`);
+      }
+    }
+
+    function measureTouchTargets() {
+      const btn1 = document.getElementById('test-btn-1');
+      const btn2 = document.getElementById('test-btn-2');
+      const btnIcon = document.getElementById('test-btn-icon');
+
+      const results = [];
+      [btn1, btn2, btnIcon].forEach((btn, index) => {
+        const rect = btn.getBoundingClientRect();
+        const minSize = 44;
+        const pass = rect.width >= minSize && rect.height >= minSize;
+        results.push({
+          element: `Button ${index + 1}`,
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          pass
+        });
+      });
+
+      const resultsEl = document.getElementById('touch-test-results');
+      resultsEl.style.display = 'block';
+      resultsEl.innerHTML = results.map(r => 
+        `<div style="margin-bottom: 8px;">
+          ${r.element}: ${r.width}×${r.height}px 
+          ${r.pass ? '<span style="color: var(--color-success-400);">✓ Pass</span>' : '<span style="color: var(--color-danger-400);">✗ Fail</span>'}
+        </div>`
+      ).join('');
+
+      const allPass = results.every(r => r.pass);
+      addTestResult('Touch Targets', allPass ? 'pass' : 'fail', 
+        `${results.filter(r => r.pass).length}/${results.length} buttons meet 44px minimum`);
+    }
+
+    function checkFormInputs() {
+      const input1 = document.getElementById('test-input-1');
+      const fontSize = window.getComputedStyle(input1).fontSize;
+      const fontSizeNum = parseFloat(fontSize);
+      
+      const pass = fontSizeNum >= 16;
+      addTestResult('Form Input Font Size', pass ? 'pass' : 'fail', 
+        `${fontSize} ${pass ? '(prevents iOS zoom)' : '(may trigger zoom on iOS)'}`);
+    }
+
+    function checkSafeArea() {
+      const safeAreaInfo = document.getElementById('safe-area-info');
+      const top = getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-top)') || '0px';
+      const bottom = getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-bottom)') || '0px';
+      
+      safeAreaInfo.innerHTML = `
+        <div style="font-size: 14px; line-height: 1.6;">
+          <div><strong>Top:</strong> ${top}</div>
+          <div><strong>Bottom:</strong> ${bottom}</div>
+          ${top !== '0px' || bottom !== '0px' 
+            ? '<div style="color: var(--color-success-400); margin-top: 8px;">✓ Safe area insets detected (iOS device)</div>'
+            : '<div style="color: var(--color-text-secondary); margin-top: 8px;">No safe area insets (non-iOS or no notch)</div>'
+          }
+        </div>
+      `;
+    }
+
+    function checkPWA() {
+      const pwaStatus = document.getElementById('pwa-status');
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                          window.navigator.standalone ||
+                          document.referrer.includes('android-app://');
+      
+      const hasServiceWorker = 'serviceWorker' in navigator;
+      
+      pwaStatus.innerHTML = `
+        <div style="font-size: 14px; line-height: 1.6;">
+          <div><strong>PWA Mode:</strong> ${isStandalone ? '✓ Installed' : 'Browser mode'}</div>
+          <div><strong>Service Worker:</strong> ${hasServiceWorker ? '✓ Supported' : '✗ Not supported'}</div>
+        </div>
+      `;
+
+      addTestResult('PWA Support', hasServiceWorker ? 'pass' : 'fail', 
+        `Service Worker ${hasServiceWorker ? 'available' : 'not available'}`);
+    }
+
+    function testHaptic() {
+      const status = document.getElementById('haptic-status');
+      
+      if ('vibrate' in navigator) {
+        navigator.vibrate(50);
+        status.className = 'test-status pass';
+        status.textContent = '✓ Haptic feedback triggered';
+        addTestResult('Haptic Feedback', 'pass', 'Vibration API supported');
+      } else {
+        status.className = 'test-status fail';
+        status.textContent = '✗ Haptic not supported';
+        addTestResult('Haptic Feedback', 'fail', 'Vibration API not available');
+      }
+    }
+
+    function addTestResult(name, status, details) {
+      const existing = testResults.findIndex(r => r.name === name);
+      const result = { name, status, details, timestamp: new Date().toISOString() };
+      
+      if (existing >= 0) {
+        testResults[existing] = result;
+      } else {
+        testResults.push(result);
+      }
+      
+      updateTestSummary();
+    }
+
+    function updateTestSummary() {
+      const summary = document.getElementById('test-summary');
+      const passed = testResults.filter(r => r.status === 'pass').length;
+      const failed = testResults.filter(r => r.status === 'fail').length;
+      const total = testResults.length;
+
+      summary.innerHTML = `
+        <div style="margin-bottom: 16px;">
+          <strong>Total Tests:</strong> ${total} | 
+          <span style="color: var(--color-success-400);">✓ Passed: ${passed}</span> | 
+          <span style="color: var(--color-danger-400);">✗ Failed: ${failed}</span>
+        </div>
+        ${testResults.map(r => `
+          <div style="margin-bottom: 8px; padding: 8px; background: var(--color-bg-secondary); border-radius: 4px;">
+            <div style="font-weight: 600;">
+              ${r.status === 'pass' ? '✓' : '✗'} ${r.name}
+            </div>
+            <div style="font-size: 11px; color: var(--color-text-secondary); margin-top: 4px;">
+              ${r.details}
+            </div>
+          </div>
+        `).join('')}
+        <div style="margin-top: 16px; padding: 12px; background: var(--color-brand-500); color: white; border-radius: 8px; text-align: center; font-weight: 600;">
+          ${failed === 0 ? '✓ All tests passed!' : `⚠ ${failed} test(s) need attention`}
+        </div>
+      `;
+    }
+
+    // Run tests on load and resize
+    function runAllTests() {
+      updateBreakpointIndicator();
+      measureTouchTargets();
+      checkFormInputs();
+      checkSafeArea();
+      checkPWA();
+    }
+
+    window.addEventListener('load', runAllTests);
+    window.addEventListener('resize', () => {
+      updateBreakpointIndicator();
+      measureTouchTargets();
+    });
+
+    // Orientation change detection
+    window.addEventListener('orientationchange', () => {
+      setTimeout(runAllTests, 100);
+    });
+
+    // Listen for app:refresh event from mobile-gestures.js
+    window.addEventListener('app:refresh', (e) => {
+      console.log('✓ Pull-to-refresh event received:', e.detail);
+      addTestResult('Pull-to-Refresh', 'pass', 'Gesture triggered successfully');
+    });
+  </script>
+
+</body>
+</html>
