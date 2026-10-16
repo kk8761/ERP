@@ -10,6 +10,12 @@ from app.main import app
 from app.database import AsyncSessionLocal, engine, Base
 from app.config import settings
 
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def setup_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+
 @pytest_asyncio.fixture(scope="function")
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:

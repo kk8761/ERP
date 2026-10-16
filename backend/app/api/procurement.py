@@ -34,12 +34,41 @@ async def create_supplier(
     current_user: User = Depends(require_permission("procurement.create")),
     db: AsyncSession = Depends(get_db)
 ):
-    supplier = Supplier(**data.model_dump())
+    supplier_data = data.model_dump()
+    if not supplier_data.get("vendor_code"):
+        supplier_data["vendor_code"] = f"VEND-{uuid.uuid4().hex[:5].upper()}"
+
+    supplier = Supplier(**supplier_data)
     db.add(supplier)
     await record_audit_log(
         db, action="SUPPLIER_CREATED", entity_name="Supplier",
         user_id=current_user.id, user_email=current_user.email,
-        details={"name": supplier.name}
+        details={"name": supplier.name, "vendor_code": supplier.vendor_code}
+    )
+    await db.commit()
+    await db.refresh(supplier)
+    return supplier
+
+@router.patch("/suppliers/{supplier_id}", response_model=SupplierOut)
+async def update_supplier(
+    supplier_id: int,
+    data: dict,
+    current_user: User = Depends(require_permission("procurement.create")),
+    db: AsyncSession = Depends(get_db)
+):
+    res = await db.execute(select(Supplier).where(Supplier.id == supplier_id))
+    supplier = res.scalar_one_or_none()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    for k, v in data.items():
+        if hasattr(supplier, k) and v is not None:
+            setattr(supplier, k, v)
+
+    await record_audit_log(
+        db, action="SUPPLIER_UPDATED", entity_name="Supplier",
+        entity_id=str(supplier.id), user_id=current_user.id,
+        user_email=current_user.email, details=data
     )
     await db.commit()
     await db.refresh(supplier)

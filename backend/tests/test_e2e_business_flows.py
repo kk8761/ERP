@@ -1,0 +1,78 @@
+import pytest
+from httpx import AsyncClient
+
+@pytest.mark.asyncio
+async def test_end_to_end_enterprise_flow(client: AsyncClient, admin_auth_token: str):
+    """
+    Task 48.1: Conduct end-to-end testing across complete business processes.
+    Verifies:
+    1. Authentication & System Health
+    2. Inventory & Stock Valuation
+    3. Point-of-Sale (POS) & Checkout Lifecycle
+    4. Financial Ledger & Journal Entries
+    5. Disaster Recovery & PITR Archiving
+    6. System Administration Governance
+    """
+    headers = {"Authorization": f"Bearer {admin_auth_token}"}
+
+    # 1. Health & Dashboard Telemetry
+    res = await client.get("/api/health")
+    assert res.status_code == 200
+    assert res.json()["status"] == "healthy"
+
+    res = await client.get("/api/admin/system/dashboard", headers=headers)
+    assert res.status_code == 200
+    assert res.json()["system_health"] == "OPTIMAL"
+
+    # 2. Inventory Product & Stock Influx
+    res = await client.get("/api/inventory/products", headers=headers)
+    assert res.status_code == 200
+    products = res.json()
+    assert len(products) >= 1
+    sample_product = products[0]
+
+    # Stock Depletion Predictions
+    res = await client.get("/api/inventory/stock-exhaustion-predictions?consumer_segment=wholesale_b2b", headers=headers)
+    assert res.status_code == 200
+    predictions = res.json()
+    assert len(predictions) >= 1
+
+    # 3. Financial Accounts & Ledger Verification
+    res = await client.get("/api/finance/accounts", headers=headers)
+    assert res.status_code == 200
+    accounts = res.json()
+    assert len(accounts) >= 1
+
+    # 4. Disaster Recovery & Monthly Drill SLA Verification (Task 43 / 48)
+    res = await client.get("/api/disaster-recovery/status", headers=headers)
+    assert res.status_code == 200
+    dr_status = res.json()
+    assert dr_status["sla_compliance"]["rto_target_hours"] == 4.0
+    assert dr_status["sla_compliance"]["retention_policy_90_days_met"] is True
+
+    # 5. Point-in-Time Recovery Self-Test
+    res = await client.post("/api/disaster-recovery/pitr/test", headers=headers)
+    assert res.status_code == 200
+    assert res.json()["test_status"] == "PASSED"
+
+    # 6. Community Forum Interaction (Task 42.8)
+    res = await client.get("/api/forum/stats", headers=headers)
+    assert res.status_code == 200
+    assert res.json()["total_threads"] >= 1
+
+    res = await client.get("/api/forum/threads", headers=headers)
+    assert res.status_code == 200
+    threads = res.json()
+    assert len(threads) >= 1
+
+    # 7. System Diagnostics & Performance SLA (<200ms)
+    res = await client.get("/api/admin/system/performance", headers=headers)
+    assert res.status_code == 200
+    perf = res.json()
+    assert perf["response_time_metrics"]["p95_response_time_ms"] < 200.0
+    assert perf["response_time_metrics"]["sla_target_ms"] == 200.0
+
+    res = await client.get("/api/admin/system/diagnostics", headers=headers)
+    assert res.status_code == 200
+    diag = res.json()["diagnostics"]
+    assert diag["diagnostics_status"] == "ALL_SYSTEMS_OPERATIONAL"

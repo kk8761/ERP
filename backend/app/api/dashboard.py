@@ -109,7 +109,7 @@ async def get_dashboard_metrics(
         .group_by(Expense.category)
     )
     exp_cats = exp_cats_res.all()
-    total_exp_all = sum(float(row[1]) for row in exp_cats) or 85400.00
+    total_exp_all = sum(float(row[1]) for row in exp_cats)
     expense_breakdown = [
         {
             "category": row[0],
@@ -139,14 +139,36 @@ async def get_dashboard_metrics(
             "profit": round(day_sales * 0.4, 2)
         })
 
-    # Alerts & Notifications
-    alerts = [
-        {"id": 1, "type": "danger", "title": "Low Stock Alert", "description": "Basmati Rice (5kg) is out of stock", "time": "5 minutes ago"},
-        {"id": 2, "type": "warning", "title": "Payment Due", "description": "Supplier payment of ₹ 25,000 due tomorrow", "time": "1 hour ago"},
-        {"id": 3, "type": "info", "title": "New Customer", "description": "Rahul Verma registered as new customer", "time": "2 hours ago"},
-        {"id": 4, "type": "success", "title": "Backup Completed", "description": "Daily automated backup completed successfully", "time": "3 hours ago"},
-        {"id": 5, "type": "primary", "title": "System Update", "description": "NexaERP v2.1.0 engine active with JIT access", "time": "5 hours ago"}
-    ]
+    # Real Dynamic Alerts & Notifications
+    alerts = []
+    alert_id = 1
+    if total_products == 0:
+        alerts.append({
+            "id": alert_id,
+            "type": "info",
+            "title": "Welcome to Your Store",
+            "description": "Step 1: Add your items in the Product Catalog. Next: Manage quantities in Step 2.",
+            "time": "Just now"
+        })
+        alert_id += 1
+    else:
+        for ls in low_stock_items[:3]:
+            alerts.append({
+                "id": alert_id,
+                "type": "danger" if ls["status"] == "Out of Stock" else "warning",
+                "title": f"Stock Alert: {ls['name']}",
+                "description": f"Current stock is {ls['current_stock']} (Threshold: {ls['reorder_level']}). Manage quantity in Step 2.",
+                "time": "Active"
+            })
+            alert_id += 1
+
+    alerts.append({
+        "id": alert_id,
+        "type": "success",
+        "title": "System Active",
+        "description": "Store database and POS engine initialized and operational.",
+        "time": "Live"
+    })
 
     return {
         "kpis": {

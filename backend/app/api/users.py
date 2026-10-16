@@ -1,6 +1,6 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -95,6 +95,92 @@ async def create_user(
         roles=[ur.role.name for ur in r_user.roles if ur.role],
         effective_permissions=list(await get_user_effective_permissions(r_user, db))
     )
+
+@router.patch("/users/{user_id}", response_model=UserOut)
+async def update_user(
+    user_id: int,
+    data: UserUpdate,
+    current_user: User = Depends(require_permission("users.manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id)
+    res = await db.execute(stmt)
+    user = res.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Prevent admin from deactivating themselves
+    if data.is_active is False and user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Administrators cannot deactivate their own account")
+
+    if data.full_name is not None:
+        user.full_name = data.full_name
+    if data.is_active is not None:
+        user.is_active = data.is_active
+    if data.branch_id is not None:
+        user.branch_id = data.branch_id
+    if data.department_id is not None:
+        user.department_id = data.department_id
+
+    # Update role assignments if provided
+    if data.role_ids is not None:
+        await db.execute(delete(UserRole).where(UserRole.user_id == user.id))
+        for r_id in data.role_ids:
+            db.add(UserRole(user_id=user.id, role_id=r_id))
+
+    await record_audit_log(
+        db, action="USER_MODIFIED", entity_name="User",
+        entity_id=str(user.id), user_id=current_user.id,
+        user_email=current_user.email,
+        details={"status_active": user.is_active, "name": user.full_name}
+    )
+    await db.commit()
+
+    # Re-fetch updated user
+    res = await db.execute(stmt)
+    r_user = res.scalar_one()
+
+    return UserOut(
+        id=r_user.id,
+        email=r_user.email,
+        full_name=r_user.full_name,
+        is_active=r_user.is_active,
+        is_superuser=r_user.is_superuser,
+        branch_id=r_user.branch_id,
+        roles=[ur.role.name for ur in r_user.roles if ur.role],
+        effective_permissions=list(await get_user_effective_permissions(r_user, db))
+    )
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    current_user: User = Depends(require_permission("users.manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(User).where(User.id == user_id)
+    res = await db.execute(stmt)
+    user = res.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+    # Remove user roles first
+    await db.execute(delete(UserRole).where(UserRole.user_id == user.id))
+    await db.delete(user)
+
+    await record_audit_log(
+        db, action="USER_DELETED", entity_name="User",
+        entity_id=str(user_id), user_id=current_user.id,
+        user_email=current_user.email,
+        details={"deleted_email": user.email}
+    )
+    await db.commit()
+
+    return {"success": True, "message": f"User {user.email} removed successfully"}
 
 @router.get("/roles", response_model=List[RoleOut])
 async def list_roles(

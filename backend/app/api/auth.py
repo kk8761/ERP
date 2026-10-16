@@ -129,7 +129,7 @@ async def login(
 
     return TokenResponse(
         access_token=token,
-        token_type="bearer",
+        token_type="bearer",  # nosec B106
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user=UserOut(
             id=user.id,

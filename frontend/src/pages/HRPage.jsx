@@ -6,9 +6,11 @@ import {
 import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function HRPage() {
+export default function HRPage({ initialTab = 'employees', initialAction = '' }) {
   const { hasPermission } = useAuth();
-  const [activeTab, setActiveTab] = useState('employees'); // 'employees', 'attendance', 'leaves', 'payroll'
+  const [activeTab, setActiveTab] = useState(
+    ['employees', 'attendance', 'leaves', 'payroll'].includes(initialTab) ? initialTab : 'employees'
+  ); // 'employees', 'attendance', 'leaves', 'payroll'
   const [employees, setEmployees] = useState([]);
   const [attendances, setAttendances] = useState([]);
   const [leaves, setLeaves] = useState([]);
@@ -16,10 +18,25 @@ export default function HRPage() {
   const [loading, setLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState('');
 
+  useEffect(() => {
+    if (['employees', 'attendance', 'leaves', 'payroll'].includes(initialTab)) {
+      setActiveTab(initialTab);
+    } else {
+      setActiveTab('employees');
+    }
+  }, [initialTab]);
+
   // Modals
-  const [showEmpModal, setShowEmpModal] = useState(false);
+  const [showEmpModal, setShowEmpModal] = useState(initialAction === 'create');
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [showPayrollModal, setShowPayrollModal] = useState(false);
+
+  useEffect(() => {
+    if (initialAction === 'create') {
+      setActiveTab('employees');
+      setShowEmpModal(true);
+    }
+  }, [initialAction]);
 
   // New Employee form
   const [newEmp, setNewEmp] = useState({

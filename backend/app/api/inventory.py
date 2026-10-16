@@ -1,4 +1,5 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -167,3 +168,133 @@ async def create_category(
     await db.commit()
     await db.refresh(new_cat)
     return new_cat
+
+@router.get("/stock-exhaustion-predictions")
+async def get_stock_exhaustion_predictions(
+    consumer_segment: str = Query("all", description="Consumer profile: all, retail_b2c, wholesale_b2b, enterprise_contract, surge_promo"),
+    current_user: User = Depends(require_permission("inventory.view")),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Predicts in how many days current stock will be exhausted,
+    tailored across different consumer demand profiles.
+    """
+    segment_profiles = {
+        "all": {
+            "name": "All Consumers (Blended Average)",
+            "multiplier": 1.0,
+            "description": "Blended store-wide average consumer demand across retail, walk-in, and routine orders."
+        },
+        "retail_b2c": {
+            "name": "Retail Direct (Walk-in & Consumer)",
+            "multiplier": 1.25,
+            "description": "High frequency, small basket consumer orders with weekend acceleration."
+        },
+        "wholesale_b2b": {
+            "name": "Wholesale & Bulk B2B Buyers",
+            "multiplier": 2.20,
+            "description": "Lumpy bulk order quantities triggering rapid single-day batch depletion."
+        },
+        "enterprise_contract": {
+            "name": "Enterprise & Institutional Contracts",
+            "multiplier": 0.85,
+            "description": "Stable, scheduled contractual deliveries with strict safety SLA requirements."
+        },
+        "surge_promo": {
+            "name": "Peak Promotional & Surge Demand",
+            "multiplier": 3.50,
+            "description": "Maximum flash-sale velocity and holiday seasonal spike consumption."
+        }
+    }
+
+    selected_segment = segment_profiles.get(consumer_segment, segment_profiles["all"])
+    multiplier = selected_segment["multiplier"]
+
+    stmt = select(Product).options(selectinload(Product.category)).order_by(Product.current_stock.asc())
+    result = await db.execute(stmt)
+    products = result.scalars().all()
+
+    now = datetime.now(timezone.utc)
+    predictions = []
+    critical_count = 0
+    urgent_count = 0
+    total_reorder_recommended_units = 0
+
+    for p in products:
+        # Base daily consumption rate derived from item reorder level and minimum turnover
+        base_rate = max(0.5, float(p.reorder_level or 10) / 7.0)
+        daily_burn = round(base_rate * multiplier, 2)
+
+        stock = p.current_stock
+        if stock <= 0:
+            days_left = 0.0
+            urgency = "OUT_OF_STOCK"
+            stockout_risk = 100
+        else:
+            days_left = round(stock / daily_burn, 1)
+            if days_left <= 4.0:
+                urgency = "CRITICAL"
+                stockout_risk = 95
+            elif days_left <= 8.0:
+                urgency = "URGENT"
+                stockout_risk = 75
+            elif days_left <= 15.0:
+                urgency = "MODERATE"
+                stockout_risk = 45
+            elif days_left <= 45.0:
+                urgency = "SAFE"
+                stockout_risk = 15
+            else:
+                urgency = "OVERSTOCKED"
+                stockout_risk = 5
+
+        exhaust_date = (now + timedelta(days=days_left)).strftime("%b %d, %Y")
+        reorder_qty = max(10, int((daily_burn * 30) - max(0, stock)))
+
+        if urgency in ("OUT_OF_STOCK", "CRITICAL"):
+            critical_count += 1
+        elif urgency == "URGENT":
+            urgent_count += 1
+
+        total_reorder_recommended_units += reorder_qty
+
+        predictions.append({
+            "product_id": p.id,
+            "name": p.name,
+            "sku": p.sku,
+            "category_name": p.category.name if p.category else "General",
+            "unit_of_measure": p.unit_of_measure,
+            "current_stock": stock,
+            "reorder_level": p.reorder_level,
+            "daily_burn_rate": daily_burn,
+            "days_until_exhaustion": days_left,
+            "projected_exhaustion_date": exhaust_date,
+            "urgency": urgency,
+            "stockout_risk_percent": stockout_risk,
+            "recommended_reorder_qty": reorder_qty,
+            "estimated_reorder_cost": round(reorder_qty * float(p.cost_price or 0), 2)
+        })
+
+    # Sort so most critical (fewest days remaining) appear first
+    predictions.sort(key=lambda x: x["days_until_exhaustion"])
+
+    avg_days = round(sum(p["days_until_exhaustion"] for p in predictions) / max(1, len(predictions)), 1)
+
+    return {
+        "consumer_segment": consumer_segment,
+        "consumer_segment_name": selected_segment["name"],
+        "consumer_segment_description": selected_segment["description"],
+        "consumer_segment_multiplier": multiplier,
+        "available_segments": [
+            {"id": k, "name": v["name"], "description": v["description"], "multiplier": v["multiplier"]}
+            for k, v in segment_profiles.items()
+        ],
+        "summary": {
+            "total_skus_analyzed": len(predictions),
+            "critical_stockouts_count": critical_count,
+            "urgent_reorders_count": urgent_count,
+            "average_days_inventory_remaining": avg_days,
+            "total_recommended_replenishment_units": total_reorder_recommended_units
+        },
+        "predictions": predictions
+    }

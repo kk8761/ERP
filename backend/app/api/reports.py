@@ -1,5 +1,6 @@
 import io
 import csv
+from typing import Any
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,16 @@ from app.models.inventory import Product
 from app.services.audit_service import record_audit_log
 
 router = APIRouter(prefix="/api/reports", tags=["Reports and Exports"])
+
+def sanitize_csv_cell(val: Any) -> Any:
+    """
+    Prevents CSV Formula Injection (CWE-1236).
+    If a string cell starts with '=', '+', '-', '@', '\t', or '\r',
+    it is prepended with a single quote to prevent spreadsheet code execution.
+    """
+    if isinstance(val, str) and val and val[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return f"'{val}"
+    return val
 
 @router.get("/sales/csv")
 async def export_sales_csv(
@@ -28,15 +39,16 @@ async def export_sales_csv(
     writer.writerow(["Invoice Number", "Customer", "Subtotal", "Discount", "Tax", "Total Amount", "Payment Method", "Status", "Date"])
 
     for o in orders:
+        cust_name = o.customer.name if o.customer else "Walk-in Customer"
         writer.writerow([
-            o.invoice_number,
-            o.customer.name if o.customer else "Walk-in Customer",
+            sanitize_csv_cell(o.invoice_number),
+            sanitize_csv_cell(cust_name),
             float(o.subtotal),
             float(o.discount_amount),
             float(o.tax_amount),
             float(o.total_amount),
-            o.payment_method,
-            o.order_status,
+            sanitize_csv_cell(o.payment_method),
+            sanitize_csv_cell(o.order_status),
             o.created_at.strftime("%Y-%m-%d %H:%M:%S")
         ])
 
@@ -68,12 +80,13 @@ async def export_inventory_csv(
 
     for p in products:
         valuation = float(p.cost_price or 0) * p.current_stock
+        cat_name = p.category.name if p.category else ""
         writer.writerow([
-            p.sku,
-            p.name,
-            p.barcode or "",
-            p.category.name if p.category else "",
-            p.unit_of_measure,
+            sanitize_csv_cell(p.sku),
+            sanitize_csv_cell(p.name),
+            sanitize_csv_cell(p.barcode or ""),
+            sanitize_csv_cell(cat_name),
+            sanitize_csv_cell(p.unit_of_measure),
             float(p.selling_price),
             float(p.cost_price),
             p.current_stock,

@@ -1,0 +1,15 @@
+node_modules/
+.env
+*.log
+dist/
+*.tsbuildinfo
+coverage/
+.DS_Store
+.DS_Store
+
+/src/generated/prisma
+
+# Encryption keys (NEVER commit these!)
+keys/
+*.key
+test-keys/

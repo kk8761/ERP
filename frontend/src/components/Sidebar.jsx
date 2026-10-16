@@ -3,7 +3,9 @@ import {
   Home, ShoppingCart, Package, DollarSign, Users, Wrench,
   ChevronDown, ChevronRight, FileText, UserCheck, RotateCcw,
   Boxes, Truck, ScanLine, Wallet, BookOpen, Clock, Calendar,
-  ShieldAlert, Sparkles, BarChart3, Sliders, ArrowLeftRight
+  ShieldAlert, Sparkles, BarChart3, Sliders, ArrowLeftRight,
+  Factory, Layers, Cpu, ShieldCheck, Award, TrendingDown,
+  Database, KeyRound
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -14,6 +16,8 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
   const [expanded, setExpanded] = useState({
     sales: true,
     inventory: true,
+    manufacturing: false,
+    grc: false,
     finance: false,
     people: false,
     tools: false
@@ -45,7 +49,27 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
         { id: 'procurement', label: 'Purchase Orders', icon: FileText, perm: 'procurement.view' },
         { id: 'suppliers', label: 'Suppliers', icon: Truck, perm: 'procurement.view' },
         { id: 'stock_movements', label: 'Stock Movements', icon: ArrowLeftRight, perm: 'inventory.adjust' },
-        { id: 'barcode_scanner', label: 'Barcode Scanner', icon: ScanLine, perm: 'sales.create' }
+        { id: 'barcode_scanner', label: 'Barcode Scanner', icon: ScanLine, perm: 'sales.create' },
+        { id: 'stock_depletion', label: 'Stock Exhaustion Predictor', icon: TrendingDown, perm: 'inventory.view' }
+      ]
+    },
+    {
+      id: 'manufacturing',
+      title: 'Manufacturing',
+      icon: Factory,
+      items: [
+        { id: 'manufacturing', label: 'Work Orders & OEE', icon: Factory, perm: 'inventory.view' },
+        { id: 'boms', label: 'Bill of Materials', icon: Layers, perm: 'inventory.view' },
+        { id: 'work_centers', label: 'IoT Work Centers', icon: Cpu, perm: 'inventory.view' }
+      ]
+    },
+    {
+      id: 'grc',
+      title: 'GRC & Risk',
+      icon: ShieldCheck,
+      items: [
+        { id: 'grc', label: '5×5 Risk Heatmap', icon: ShieldAlert, perm: 'audit_logs.view' },
+        { id: 'compliance', label: 'Compliance & Frameworks', icon: Award, perm: 'audit_logs.view' }
       ]
     },
     {
@@ -69,7 +93,8 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
         { id: 'employees', label: 'Employees', icon: Users, perm: 'hr.view' },
         { id: 'attendance', label: 'Attendance', icon: Clock, perm: 'attendance.record' },
         { id: 'leaves', label: 'Leave Management', icon: Calendar, perm: 'hr.view' },
-        { id: 'elevation', label: 'Roles & Permissions', icon: ShieldAlert, perm: 'roles.manage' }
+        { id: 'users', label: 'User Directory & Roles', icon: UserCheck, perm: 'users.view' },
+        { id: 'elevation', label: 'JIT Privilege Elevation', icon: KeyRound, perm: 'roles.manage' }
       ]
     },
     {
@@ -77,10 +102,12 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
       title: 'Tools',
       icon: Wrench,
       items: [
+        { id: 'predictive_ai', label: 'Predictive AI & What-If', icon: Sparkles, perm: 'ai.use' },
         { id: 'ai_tool', label: 'AI Assistant', icon: Sparkles, action: onToggleAI, perm: 'ai.use' },
         { id: 'reports', label: 'Analytics & Reports', icon: BarChart3, perm: 'reports.view' },
-        { id: 'admin', label: 'Security & Audit', icon: ShieldAlert, perm: 'audit_logs.view' },
-        { id: 'settings', label: 'Settings', icon: Sliders, perm: 'settings.manage' }
+        { id: 'admin', label: 'Security & Audit', icon: ShieldCheck, perm: 'audit_logs.view' },
+        { id: 'disaster_recovery', label: 'Disaster Recovery & PITR', icon: Database, perm: 'settings.manage' },
+        { id: 'settings', label: 'System Settings', icon: Sliders, perm: 'settings.manage' }
       ]
     }
   ];
@@ -151,48 +178,50 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
               {/* Category Items */}
               {isExp && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '6px' }}>
-                  {sec.items.map((item) => {
-                    const isActive = currentTab === item.id;
-                    const Icon = item.icon;
+                  {sec.items
+                    .filter((item) => !item.perm || hasPermission(item.perm))
+                    .map((item) => {
+                      const isActive = currentTab === item.id;
+                      const Icon = item.icon;
 
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          if (item.action) {
-                            item.action();
-                          } else {
-                            onNavigate(item.id);
-                          }
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          width: '100%',
-                          padding: '8px 12px',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: '13px',
-                          fontWeight: isActive ? 600 : 400,
-                          border: 'none',
-                          cursor: 'pointer',
-                          backgroundColor: isActive ? 'var(--primary-light)' : 'transparent',
-                          color: isActive ? 'var(--primary)' : 'var(--text-main)',
-                          textAlign: 'left',
-                          transition: 'all 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
-                        }}
-                      >
-                        <Icon size={16} color={isActive ? 'var(--primary)' : 'var(--text-secondary)'} />
-                        <span>{item.label}</span>
-                      </button>
-                    );
-                  })}
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            if (item.action) {
+                              item.action();
+                            } else {
+                              onNavigate(item.id);
+                            }
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            width: '100%',
+                            padding: '8px 12px',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '13px',
+                            fontWeight: isActive ? 600 : 400,
+                            border: 'none',
+                            cursor: 'pointer',
+                            backgroundColor: isActive ? 'var(--primary-light)' : 'transparent',
+                            color: isActive ? 'var(--primary)' : 'var(--text-main)',
+                            textAlign: 'left',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                        >
+                          <Icon size={16} color={isActive ? 'var(--primary)' : 'var(--text-secondary)'} />
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
                 </div>
               )}
             </div>

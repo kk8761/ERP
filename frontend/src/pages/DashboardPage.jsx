@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   ShoppingCart, FileText, Package, Users, TrendingUp,
   ArrowUpRight, AlertTriangle, ChevronRight, Store, Calendar,
-  CreditCard, ShieldAlert, CheckCircle2, Info, Bell, RefreshCw
+  CreditCard, ShieldAlert, CheckCircle2, Info, Bell, RefreshCw, Clock, BookOpen,
+  PlusCircle, Plus
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../services/api';
@@ -32,14 +33,14 @@ export default function DashboardPage({ onNavigate }) {
   }, []);
 
   const kpis = data?.kpis || {
-    total_sales: 24850,
-    total_orders: 48,
-    inventory_items: 1247,
-    low_stock_items: 12,
-    out_of_stock_items: 3,
-    total_customers: 892,
-    monthly_profit: 145600,
-    total_expenses: 85400
+    total_sales: 0,
+    total_orders: 0,
+    inventory_items: 0,
+    low_stock_items: 0,
+    out_of_stock_items: 0,
+    total_customers: 0,
+    monthly_profit: 0,
+    total_expenses: 0
   };
 
   return (
@@ -109,14 +110,89 @@ export default function DashboardPage({ onNavigate }) {
         </div>
       </div>
 
-      {/* 5 KPI Cards Row matching screenshot */}
+      {/* Shopkeeper 2-Step Workflow Guide Banner */}
+      {kpis.inventory_items === 0 && (
+        <div className="nexa-card animate-fade-in" style={{
+          padding: '22px 24px',
+          background: 'linear-gradient(135deg, rgba(0, 100, 210, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%)',
+          border: '1.5px solid var(--primary-border)',
+          borderRadius: 'var(--radius-md)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <span className="badge badge-primary" style={{ fontSize: '11.5px', padding: '3px 8px' }}>Store Setup Guide</span>
+                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)' }}>
+                  Set Up Your Shop in 2 Simple Steps
+                </span>
+              </div>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
+                First add all your items into the product catalog. Later, you can manage stock quantities and receive shipments!
+              </p>
+            </div>
+            <button
+              onClick={() => onNavigate('add_product')}
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', fontSize: '13px', fontWeight: 700 }}
+            >
+              <PlusCircle size={16} />
+              <span>Step 1: Add Your First Item</span>
+            </button>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: '12px'
+          }}>
+            <div style={{ padding: '12px 14px', backgroundColor: 'var(--bg-surface)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--primary)', marginBottom: '3px' }}>
+                1. Add Products First
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Register item names, barcodes, and selling prices into your store catalog first.
+              </div>
+            </div>
+
+            <div style={{ padding: '12px 14px', backgroundColor: 'var(--bg-surface)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontWeight: 700, fontSize: '13px', color: '#10b981', marginBottom: '3px' }}>
+                2. Manage Quantities Later
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Receive stock shipments, adjust quantities, set reorder levels, and track movements.
+              </div>
+            </div>
+
+            <div style={{ padding: '12px 14px', backgroundColor: 'var(--bg-surface)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontWeight: 700, fontSize: '13px', color: '#8b5cf6', marginBottom: '3px' }}>
+                3. Fast POS Billing
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Scan barcodes, issue instant thermal invoices, and auto-deduct sold inventory.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5 KPI Cards Row */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
         gap: '16px'
       }}>
         {/* Card 1: Total Sales */}
-        <div className="nexa-card" style={{ padding: '18px 20px', position: 'relative', overflow: 'hidden' }}>
+        <div
+          onClick={() => onNavigate('sales_orders')}
+          className="nexa-card"
+          title="Click to view Sales Orders ledger"
+          style={{ padding: '18px 20px', position: 'relative', overflow: 'hidden', cursor: 'pointer', transition: 'transform 0.15s ease' }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Total Sales</span>
             <div style={{
@@ -144,7 +220,14 @@ export default function DashboardPage({ onNavigate }) {
         </div>
 
         {/* Card 2: Total Orders */}
-        <div className="nexa-card" style={{ padding: '18px 20px' }}>
+        <div
+          onClick={() => onNavigate('invoices')}
+          className="nexa-card"
+          title="Click to view Tax Invoices & Billing"
+          style={{ padding: '18px 20px', cursor: 'pointer', transition: 'transform 0.15s ease' }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Total Orders</span>
             <div style={{
@@ -175,7 +258,14 @@ export default function DashboardPage({ onNavigate }) {
         </div>
 
         {/* Card 3: Inventory Items */}
-        <div className="nexa-card" style={{ padding: '18px 20px' }}>
+        <div
+          onClick={() => onNavigate('inventory')}
+          className="nexa-card"
+          title="Click to view Inventory Stock Overview"
+          style={{ padding: '18px 20px', cursor: 'pointer', transition: 'transform 0.15s ease' }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Inventory Items</span>
             <div style={{
@@ -196,7 +286,14 @@ export default function DashboardPage({ onNavigate }) {
         </div>
 
         {/* Card 4: Total Customers */}
-        <div className="nexa-card" style={{ padding: '18px 20px' }}>
+        <div
+          onClick={() => onNavigate('customers')}
+          className="nexa-card"
+          title="Click to view Customer CRM Directory"
+          style={{ padding: '18px 20px', cursor: 'pointer', transition: 'transform 0.15s ease' }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Total Customers</span>
             <div style={{
@@ -226,7 +323,14 @@ export default function DashboardPage({ onNavigate }) {
         </div>
 
         {/* Card 5: Monthly Profit */}
-        <div className="nexa-card" style={{ padding: '18px 20px' }}>
+        <div
+          onClick={() => onNavigate('financial_reports')}
+          className="nexa-card"
+          title="Click to view Financial Reports & Profit Statements"
+          style={{ padding: '18px 20px', cursor: 'pointer', transition: 'transform 0.15s ease' }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Monthly Profit</span>
             <div style={{
@@ -401,11 +505,17 @@ export default function DashboardPage({ onNavigate }) {
             {/* SVG Donut */}
             <div style={{ position: 'relative', width: '150px', height: '150px' }}>
               <svg width="150" height="150" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#0064d2" strokeWidth="16" strokeDasharray="95 156" strokeDashoffset="0" />
-                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#10b981" strokeWidth="16" strokeDasharray="55 196" strokeDashoffset="-95" />
-                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f59e0b" strokeWidth="16" strokeDasharray="38 213" strokeDashoffset="-150" />
-                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#ec4899" strokeWidth="16" strokeDasharray="20 231" strokeDashoffset="-188" />
-                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#8b5cf6" strokeWidth="16" strokeDasharray="43 208" strokeDashoffset="-208" />
+                {kpis.total_expenses === 0 ? (
+                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="var(--border-color)" strokeWidth="12" />
+                ) : (
+                  <>
+                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#0064d2" strokeWidth="16" strokeDasharray="95 156" strokeDashoffset="0" />
+                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#10b981" strokeWidth="16" strokeDasharray="55 196" strokeDashoffset="-95" />
+                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f59e0b" strokeWidth="16" strokeDasharray="38 213" strokeDashoffset="-150" />
+                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#ec4899" strokeWidth="16" strokeDasharray="20 231" strokeDashoffset="-188" />
+                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#8b5cf6" strokeWidth="16" strokeDasharray="43 208" strokeDashoffset="-208" />
+                  </>
+                )}
               </svg>
               <div style={{
                 position: 'absolute', inset: 0,
@@ -419,44 +529,50 @@ export default function DashboardPage({ onNavigate }) {
               </div>
             </div>
 
-            {/* Legend matching screenshot */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0064d2' }}></span>
-                  <span>Inventory</span>
-                </span>
-                <span style={{ fontWeight: 600 }}>38%</span>
+            {/* Legend */}
+            {kpis.total_expenses === 0 ? (
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '140px', lineHeight: 1.5 }}>
+                No store expenses booked yet for this period.
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
-                  <span>Staff & Payroll</span>
-                </span>
-                <span style={{ fontWeight: 600 }}>22%</span>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0064d2' }}></span>
+                    <span>Inventory</span>
+                  </span>
+                  <span style={{ fontWeight: 600 }}>38%</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
+                    <span>Staff & Payroll</span>
+                  </span>
+                  <span style={{ fontWeight: 600 }}>22%</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }}></span>
+                    <span>Rent & Utilities</span>
+                  </span>
+                  <span style={{ fontWeight: 600 }}>15%</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ec4899' }}></span>
+                    <span>Marketing</span>
+                  </span>
+                  <span style={{ fontWeight: 600 }}>8%</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#8b5cf6' }}></span>
+                    <span>Other</span>
+                  </span>
+                  <span style={{ fontWeight: 600 }}>17%</span>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }}></span>
-                  <span>Rent & Utilities</span>
-                </span>
-                <span style={{ fontWeight: 600 }}>15%</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ec4899' }}></span>
-                  <span>Marketing</span>
-                </span>
-                <span style={{ fontWeight: 600 }}>8%</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#8b5cf6' }}></span>
-                  <span>Other</span>
-                </span>
-                <span style={{ fontWeight: 600 }}>17%</span>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -474,8 +590,8 @@ export default function DashboardPage({ onNavigate }) {
         <div className="nexa-card" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
             <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-main)' }}>Low Stock Items</span>
-            <button onClick={() => onNavigate('products')} className="btn btn-ghost" style={{ fontSize: '12px', color: 'var(--primary)', padding: '4px 8px' }}>
-              View All
+            <button onClick={() => onNavigate('stock_depletion')} className="btn btn-ghost" style={{ fontSize: '12px', color: 'var(--primary)', padding: '4px 8px' }} title="View predictive stock exhaustion analysis">
+              Forecast Depletion
             </button>
           </div>
 
@@ -490,26 +606,28 @@ export default function DashboardPage({ onNavigate }) {
                 </tr>
               </thead>
               <tbody>
-                {(data?.low_stock_table || [
-                  { name: 'Basmati Rice (5kg)', current_stock: 2, reorder_level: 10, status: 'Out of Stock' },
-                  { name: 'Sunflower Oil (1L)', current_stock: 8, reorder_level: 25, status: 'Low Stock' },
-                  { name: 'Amul Milk (1L)', current_stock: 5, reorder_level: 20, status: 'Low Stock' },
-                  { name: 'Atta (5kg)', current_stock: 12, reorder_level: 30, status: 'Low Stock' },
-                  { name: 'Sugar (1kg)', current_stock: 3, reorder_level: 15, status: 'Out of Stock' }
-                ]).map((item, idx) => (
-                  <tr key={idx}>
-                    <td style={{ fontWeight: 600 }}>{item.name}</td>
-                    <td style={{ fontWeight: 700, color: item.status === 'Out of Stock' ? 'var(--danger)' : 'var(--warning-text)' }}>
-                      {item.current_stock}
-                    </td>
-                    <td>{item.reorder_level}</td>
-                    <td>
-                      <span className={`badge ${item.status === 'Out of Stock' ? 'badge-danger' : 'badge-warning'}`}>
-                        {item.status}
-                      </span>
+                {(data?.low_stock_table && data.low_stock_table.length > 0) ? (
+                  data.low_stock_table.map((item, idx) => (
+                    <tr key={idx}>
+                      <td style={{ fontWeight: 600 }}>{item.name}</td>
+                      <td style={{ fontWeight: 700, color: item.status === 'Out of Stock' ? 'var(--danger)' : 'var(--warning-text)' }}>
+                        {item.current_stock}
+                      </td>
+                      <td>{item.reorder_level}</td>
+                      <td>
+                        <span className={`badge ${item.status === 'Out of Stock' ? 'badge-danger' : 'badge-warning'}`}>
+                          {item.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="4" style={{ textAlign: 'center', padding: '24px 12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                      No low-stock items detected. All store inventory is at healthy operational levels.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -536,21 +654,23 @@ export default function DashboardPage({ onNavigate }) {
                 </tr>
               </thead>
               <tbody>
-                {(data?.recent_sales || [
-                  { invoice: '#INV-001245', customer: 'Walk-in Customer', items_count: 3, amount: 450, time: '10:28 AM' },
-                  { invoice: '#INV-001244', customer: 'Rajesh Kumar', items_count: 5, amount: 1250, time: '10:15 AM' },
-                  { invoice: '#INV-001243', customer: 'Priya Sharma', items_count: 2, amount: 380, time: '09:45 AM' },
-                  { invoice: '#INV-001242', customer: 'Walk-in Customer', items_count: 7, amount: 2180, time: '09:30 AM' },
-                  { invoice: '#INV-001241', customer: 'Amit Singh', items_count: 4, amount: 890, time: '09:12 AM' }
-                ]).map((sale, idx) => (
-                  <tr key={idx}>
-                    <td style={{ color: 'var(--primary)', fontWeight: 600 }}>{sale.invoice}</td>
-                    <td>{sale.customer}</td>
-                    <td>{sale.items_count}</td>
-                    <td style={{ fontWeight: 700 }}>₹ {sale.amount.toLocaleString('en-IN')}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{sale.time}</td>
+                {(data?.recent_sales && data.recent_sales.length > 0) ? (
+                  data.recent_sales.map((sale, idx) => (
+                    <tr key={idx}>
+                      <td style={{ color: 'var(--primary)', fontWeight: 600 }}>{sale.invoice}</td>
+                      <td>{sale.customer}</td>
+                      <td>{sale.items_count}</td>
+                      <td style={{ fontWeight: 700 }}>₹ {sale.amount.toLocaleString('en-IN')}</td>
+                      <td style={{ color: 'var(--text-secondary)' }}>{sale.time}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="5" style={{ textAlign: 'center', padding: '24px 12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                      No sales recorded yet. Register items in Step 1, manage stock in Step 2, and checkout via POS.
+                    </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -566,12 +686,8 @@ export default function DashboardPage({ onNavigate }) {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {(data?.alerts || [
-              { id: 1, type: 'danger', title: 'Low Stock Alert', description: 'Basmati Rice (5kg) is out of stock', time: '5 minutes ago' },
-              { id: 2, type: 'warning', title: 'Payment Due', description: 'Supplier payment of ₹ 25,000 due tomorrow', time: '1 hour ago' },
-              { id: 3, type: 'info', title: 'New Customer', description: 'Rahul Verma registered as new customer', time: '2 hours ago' },
-              { id: 4, type: 'success', title: 'Backup Completed', description: 'Daily automated backup completed successfully', time: '3 hours ago' },
-              { id: 5, type: 'primary', title: 'System Update', description: 'New features available in version 2.1.0', time: '5 hours ago' }
+            {((data?.alerts && data.alerts.length > 0) ? data.alerts : [
+              { id: 1, type: 'info', title: 'Store System Ready', description: 'Step 1: Add products in the Product Catalog. Step 2: Manage stock quantities.', time: 'Active' }
             ]).map((alert) => {
               const bgColors = {
                 danger: '#fef2f2',

@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -43,5 +43,11 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.ENVIRONMENT.lower() == "production" and "dev_super_secret" in self.SECRET_KEY:
+            import secrets
+            # Generate cryptographic 256-bit entropy key to prevent insecure default in production
+            self.SECRET_KEY = secrets.token_hex(32)
 
 settings = Settings()

@@ -9,6 +9,7 @@ from app.models.sales import Customer, SalesOrder, SalesOrderItem
 from app.models.procurement import Supplier, PurchaseOrder, PurchaseOrderItem
 from app.models.finance import Account, JournalEntry, JournalEntryLine, Expense
 from app.models.hr import Employee, Attendance, LeaveRequest, PayrollRecord
+from app.models.disaster_recovery import BackupRecord, TransactionLogEntry, DRDrillExecution, BackupAlert
 
 __all__ = [
     "Base",
@@ -42,4 +43,8 @@ __all__ = [
     "Attendance",
     "LeaveRequest",
     "PayrollRecord",
+    "BackupRecord",
+    "TransactionLogEntry",
+    "DRDrillExecution",
+    "BackupAlert",
 ]

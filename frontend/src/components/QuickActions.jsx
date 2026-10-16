@@ -20,7 +20,7 @@ export default function QuickActions({ onNavigate, onOpenActionModal }) {
       icon: PlusCircle,
       color: '#0064d2', // blue
       bg: '#e8f3ff',
-      action: () => onNavigate('products')
+      action: () => onNavigate('add_product')
     },
     {
       id: 'add_customer',
@@ -28,7 +28,7 @@ export default function QuickActions({ onNavigate, onOpenActionModal }) {
       icon: UserPlus,
       color: '#8b5cf6', // purple
       bg: '#f5f3ff',
-      action: () => onNavigate('customers')
+      action: () => onNavigate('add_customer')
     },
     {
       id: 'new_purchase',
@@ -36,7 +36,7 @@ export default function QuickActions({ onNavigate, onOpenActionModal }) {
       icon: Truck,
       color: '#f97316', // orange
       bg: '#fff7ed',
-      action: () => onNavigate('procurement')
+      action: () => onNavigate('new_purchase')
     },
     {
       id: 'scan_barcode',
@@ -44,7 +44,7 @@ export default function QuickActions({ onNavigate, onOpenActionModal }) {
       icon: ScanLine,
       color: '#06b6d4', // cyan
       bg: '#ecfeff',
-      action: () => onNavigate('pos')
+      action: () => onNavigate('barcode_scanner')
     },
     {
       id: 'generate_report',
@@ -60,7 +60,7 @@ export default function QuickActions({ onNavigate, onOpenActionModal }) {
       icon: Wallet,
       color: '#a855f7', // violet
       bg: '#faf5ff',
-      action: () => onNavigate('expenses')
+      action: () => onNavigate('record_expense')
     },
     {
       id: 'add_staff',
@@ -68,7 +68,7 @@ export default function QuickActions({ onNavigate, onOpenActionModal }) {
       icon: UserCheck,
       color: '#14b8a6', // emerald
       bg: '#f0fdfa',
-      action: () => onNavigate('employees')
+      action: () => onNavigate('add_employee')
     },
     {
       id: 'more',

@@ -13,18 +13,41 @@ import ProcurementPage from './pages/ProcurementPage';
 import FinancePage from './pages/FinancePage';
 import HRPage from './pages/HRPage';
 import SecurityElevationPage from './pages/SecurityElevationPage';
+import ReportsPage from './pages/ReportsPage';
+import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
+import ManufacturingPage from './pages/ManufacturingPage';
+import GRCPage from './pages/GRCPage';
+import PredictiveAIPage from './pages/PredictiveAIPage';
+import BarcodeScannerModal from './components/BarcodeScannerModal';
+import SignatureCaptureModal from './components/SignatureCaptureModal';
+import ActionNotAllowedModal from './components/ActionNotAllowedModal';
 
 function MainApp() {
   const { user, loading } = useAuth();
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [isAIOpen, setIsAIOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isSignatureOpen, setIsSignatureOpen] = useState(false);
+  const [isRightClickBlocked, setIsRightClickBlocked] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('nexaerp_theme') || 'light');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('nexaerp_theme', theme);
   }, [theme]);
+
+  // Enterprise Security: Intercept right-click and display safety warning
+  useEffect(() => {
+    const handleContextMenu = (e) => {
+      e.preventDefault();
+      setIsRightClickBlocked(true);
+    };
+    document.addEventListener('contextmenu', handleContextMenu);
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -63,38 +86,120 @@ function MainApp() {
 
   const renderContent = () => {
     switch (currentTab) {
+      // Dashboard Home
       case 'dashboard':
         return <DashboardPage onNavigate={setCurrentTab} />;
+
+      // Point of Sale Register
       case 'pos':
-      case 'barcode_scanner':
-        return <POSTerminalPage />;
-      case 'products':
-      case 'inventory':
-      case 'stock_movements':
-        return <InventoryPage />;
+        return <POSTerminalPage onNavigate={setCurrentTab} />;
+
+      // Sales Sub-Modules
       case 'sales_orders':
+        return <SalesPage initialTab="orders" onNavigate={setCurrentTab} />;
       case 'invoices':
+        return <SalesPage initialTab="invoices" onNavigate={setCurrentTab} />;
       case 'customers':
+        return <SalesPage initialTab="customers" onNavigate={setCurrentTab} />;
+      case 'add_customer':
+        return <SalesPage initialTab="customers" initialAction="create" onNavigate={setCurrentTab} />;
       case 'returns':
-        return <SalesPage />;
+        return <SalesPage initialTab="returns" onNavigate={setCurrentTab} />;
+
+      // Inventory Sub-Modules
+      case 'products':
+        return <InventoryPage initialTab="products" onNavigate={setCurrentTab} />;
+      case 'add_product':
+        return <InventoryPage initialTab="products" initialAction="create" onNavigate={setCurrentTab} />;
+      case 'inventory':
+        return <InventoryPage initialTab="overview" onNavigate={setCurrentTab} />;
+      case 'stock_movements':
+        return <InventoryPage initialTab="movements" onNavigate={setCurrentTab} />;
+      case 'barcode_scanner':
+        return <InventoryPage initialTab="scanner" onNavigate={setCurrentTab} />;
+      case 'stock_depletion':
+        return <InventoryPage initialTab="predictions" onNavigate={setCurrentTab} />;
+
+      // Manufacturing & Industry 4.0 Sub-Modules (From NexaERP)
+      case 'manufacturing':
+        return <ManufacturingPage initialTab="orders" />;
+      case 'boms':
+        return <ManufacturingPage initialTab="boms" />;
+      case 'work_centers':
+        return <ManufacturingPage initialTab="work_centers" />;
+      case 'oee':
+        return <ManufacturingPage initialTab="oee" />;
+
+      // Governance, Risk & Compliance (From NexaERP)
+      case 'grc':
+        return <GRCPage initialTab="heatmap" />;
+      case 'compliance':
+        return <GRCPage initialTab="frameworks" />;
+      case 'risk_register':
+        return <GRCPage initialTab="register" />;
+      case 'audits':
+        return <GRCPage initialTab="audits" />;
+
+      // Predictive AI & What-If Simulation (From NexaERP)
+      case 'predictive_ai':
+        return <PredictiveAIPage />;
+
+      // Procurement & Vendor Master
       case 'procurement':
+        return <ProcurementPage initialTab="orders" />;
+      case 'new_purchase':
+        return <ProcurementPage initialTab="orders" initialAction="create" />;
       case 'suppliers':
-        return <ProcurementPage />;
+        return <ProcurementPage initialTab="suppliers" />;
+
+      // Finance & General Ledger Sub-Modules
       case 'accounting':
-      case 'expenses':
+        return <FinancePage initialTab="overview" />;
       case 'chart_of_accounts':
+        return <FinancePage initialTab="accounts" />;
+      case 'expenses':
+        return <FinancePage initialTab="expenses" />;
+      case 'record_expense':
+        return <FinancePage initialTab="expenses" initialAction="create" />;
       case 'financial_reports':
-        return <FinancePage />;
+        return <FinancePage initialTab="reports" />;
+
+      // Human Resources Sub-Modules
       case 'employees':
+        return <HRPage initialTab="employees" />;
+      case 'add_employee':
+        return <HRPage initialTab="employees" initialAction="create" />;
       case 'attendance':
+        return <HRPage initialTab="attendance" />;
       case 'leaves':
+        return <HRPage initialTab="leaves" />;
       case 'payroll':
-        return <HRPage />;
-      case 'elevation':
-      case 'admin':
-      case 'settings':
+        return <HRPage initialTab="payroll" />;
+
+      // Analytics & Executive Reports
       case 'reports':
-        return <SecurityElevationPage />;
+        return <ReportsPage />;
+
+      // System Settings & Outlets
+      case 'settings':
+        return <SettingsPage initialTab="org" />;
+      case 'branches':
+        return <SettingsPage initialTab="branches" />;
+      case 'pos_settings':
+        return <SettingsPage initialTab="pos" />;
+      case 'security_policies':
+        return <SettingsPage initialTab="security" />;
+      case 'disaster_recovery':
+        return <SettingsPage initialTab="db" />;
+
+      // Security, JIT Elevation & User Administration
+      case 'users':
+        return <SecurityElevationPage initialTab="users" />;
+      case 'elevation':
+        return <SecurityElevationPage initialTab="elevation" />;
+      case 'admin':
+        return <SecurityElevationPage initialTab="audit" />;
+
       default:
         return <DashboardPage onNavigate={setCurrentTab} />;
     }
@@ -107,6 +212,8 @@ function MainApp() {
         currentTab={currentTab}
         onNavigate={setCurrentTab}
         onToggleAI={() => setIsAIOpen(prev => !prev)}
+        onOpenScanner={() => setIsScannerOpen(true)}
+        onOpenSignature={() => setIsSignatureOpen(true)}
         theme={theme}
         setTheme={setTheme}
       />
@@ -133,6 +240,31 @@ function MainApp() {
           onClose={() => setIsAIOpen(false)}
         />
       </div>
+
+      {/* Universal Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onBarcodeDetected={(prod) => {
+          setCurrentTab('products');
+        }}
+      />
+
+      {/* Digital E-Signature Capture Modal */}
+      <SignatureCaptureModal
+        isOpen={isSignatureOpen}
+        onClose={() => setIsSignatureOpen(false)}
+        signerName={user?.full_name || "Authorized Officer"}
+        onConfirm={(sig) => {
+          console.log('Digital signature captured:', sig);
+        }}
+      />
+
+      {/* Enterprise Right-Click Restriction Modal */}
+      <ActionNotAllowedModal
+        isOpen={isRightClickBlocked}
+        onClose={() => setIsRightClickBlocked(false)}
+      />
     </div>
   );
 }

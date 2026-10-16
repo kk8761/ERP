@@ -21,6 +21,13 @@ from app.api.users import router as users_router
 from app.api.audit import router as audit_router
 from app.api.reports import router as reports_router
 from app.api.ai_assistant import router as ai_router
+from app.api.manufacturing import router as manufacturing_router
+from app.api.grc import router as grc_router
+from app.api.predictive import router as predictive_router
+from app.api.disaster_recovery import router as disaster_recovery_router
+from app.api.forum import router as forum_router
+from app.api.system_admin import router as system_admin_router
+from app.api.vision import router as vision_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,7 +44,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Middleware with strict origin allowlist
+# OWASP Security Headers Middleware (Inner)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS Middleware (Outer - handles browser preflight requests)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -46,9 +56,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition"]
 )
-
-# OWASP Security Headers Middleware
-app.add_middleware(SecurityHeadersMiddleware)
 
 # Mount API Routers
 app.include_router(auth_router)
@@ -64,6 +71,13 @@ app.include_router(users_router)
 app.include_router(audit_router)
 app.include_router(reports_router)
 app.include_router(ai_router)
+app.include_router(manufacturing_router)
+app.include_router(grc_router)
+app.include_router(predictive_router)
+app.include_router(disaster_recovery_router)
+app.include_router(forum_router)
+app.include_router(system_admin_router)
+app.include_router(vision_router)
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():

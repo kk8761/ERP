@@ -4,6 +4,7 @@ export async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('nexaerp_token');
   const headers = {
     'Content-Type': 'application/json',
+    'x-nexa-timestamp': Date.now().toString(),
     ...(options.headers || {})
   };
 
@@ -47,6 +48,7 @@ export async function downloadCsv(endpoint, filename) {
   const token = localStorage.getItem('nexaerp_token');
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     headers: {
+      'x-nexa-timestamp': Date.now().toString(),
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
     credentials: 'include'
