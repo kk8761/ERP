@@ -108,7 +108,7 @@ class SystemAdminService:
     @staticmethod
     async def bulk_create_users(db: AsyncSession, users_data: List[Dict[str, Any]], created_by: str) -> Dict[str, Any]:
         created_count = 0
-        from app.auth.security import get_password_hash
+        from app.auth.security import hash_password
 
         for u in users_data:
             existing = await db.execute(select(User).where(User.email == u["email"]))
@@ -116,9 +116,8 @@ class SystemAdminService:
                 continue
             new_user = User(
                 email=u["email"],
-                username=u.get("username", u["email"].split("@")[0]),
-                hashed_password=get_password_hash(u.get("password", "Welcome@12345")),
-                full_name=u.get("full_name", ""),
+                full_name=u.get("full_name", u["email"].split("@")[0]),
+                password_hash=hash_password(u.get("password", "Welcome@12345")),
                 is_active=True,
                 is_superuser=False,
                 branch_id=u.get("branch_id", 1)

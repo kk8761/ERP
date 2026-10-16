@@ -7,9 +7,16 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 
-import cv2
-import numpy as np
-from PIL import Image
+try:
+    import cv2
+    import numpy as np
+    from PIL import Image
+    CV2_AVAILABLE = True
+except ImportError:
+    cv2 = None
+    np = None
+    Image = None
+    CV2_AVAILABLE = False
 
 from app.database import get_db
 from app.models.inventory import Product, ProductCategory
@@ -40,8 +47,10 @@ class VisionAnalyzeResponse(BaseModel):
     guidance: str
 
 
-def decode_base64_image(b64_str: str) -> Optional[np.ndarray]:
+def decode_base64_image(b64_str: str) -> Optional[Any]:
     """Decodes a base64 string (with or without data URI prefix) to an OpenCV BGR image."""
+    if not CV2_AVAILABLE:
+        return None
     try:
         # Strip header if present (e.g. data:image/jpeg;base64,...)
         if "," in b64_str:
@@ -55,8 +64,10 @@ def decode_base64_image(b64_str: str) -> Optional[np.ndarray]:
         return None
 
 
-def detect_qr_code(img: np.ndarray) -> Optional[Dict[str, Any]]:
+def detect_qr_code(img: Any) -> Optional[Dict[str, Any]]:
     """Detects and decodes QR codes using OpenCV's QRCodeDetector."""
+    if not CV2_AVAILABLE or img is None:
+        return None
     try:
         qr_detector = cv2.QRCodeDetector()
         data, points, _ = qr_detector.detectAndDecode(img)
@@ -77,11 +88,25 @@ def detect_qr_code(img: np.ndarray) -> Optional[Dict[str, Any]]:
     return None
 
 
-def classify_visual_item(img: np.ndarray) -> Dict[str, Any]:
+def classify_visual_item(img: Any) -> Dict[str, Any]:
     """
     Computer Vision & ML Feature Classifier for identifying retail items without QR/barcode.
     Analyzes contour geometry, circularity, aspect ratio, HSV color distribution, and edge density.
     """
+    if not CV2_AVAILABLE or img is None:
+        return {
+            "label": "Unknown Item",
+            "confidence": 0.0,
+            "category": "General",
+            "is_circular": False,
+            "circularity": 0.0,
+            "aspect_ratio": 1.0,
+            "edge_density": 0.0,
+            "predominant_color": "Unknown",
+            "hsv_mean": [0, 0, 0],
+            "bbox": [0, 0, 100, 100],
+            "attributes": {"dominant_color": "Unknown"}
+        }
     h, w = img.shape[:2]
     # Resize to standard analysis size if large
     if max(h, w) > 480:

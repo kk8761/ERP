@@ -28,6 +28,24 @@ async def test_end_to_end_enterprise_flow(client: AsyncClient, admin_auth_token:
     res = await client.get("/api/inventory/products", headers=headers)
     assert res.status_code == 200
     products = res.json()
+    if not products:
+        create_res = await client.post(
+            "/api/inventory/products",
+            headers=headers,
+            json={
+                "name": "Basmati Rice (5kg)",
+                "sku": "RIC-BAS-5K",
+                "barcode": "890123456701",
+                "selling_price": "450.00",
+                "cost_price": "380.00",
+                "tax_rate_percent": "5.00",
+                "reorder_level": 10,
+                "current_stock": 25
+            }
+        )
+        assert create_res.status_code == 201
+        res = await client.get("/api/inventory/products", headers=headers)
+        products = res.json()
     assert len(products) >= 1
     sample_product = products[0]
 
@@ -41,6 +59,21 @@ async def test_end_to_end_enterprise_flow(client: AsyncClient, admin_auth_token:
     res = await client.get("/api/finance/accounts", headers=headers)
     assert res.status_code == 200
     accounts = res.json()
+    if not accounts:
+        acc_res = await client.post(
+            "/api/finance/accounts",
+            headers=headers,
+            json={
+                "account_code": "1010",
+                "name": "Operating Cash Account",
+                "type": "ASSET",
+                "currency": "INR",
+                "balance": "50000.00"
+            }
+        )
+        assert acc_res.status_code == 201
+        res = await client.get("/api/finance/accounts", headers=headers)
+        accounts = res.json()
     assert len(accounts) >= 1
 
     # 4. Disaster Recovery & Monthly Drill SLA Verification (Task 43 / 48)

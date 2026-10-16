@@ -10,6 +10,8 @@ jobs:
   backend-test:
     name: Backend Tests & Security Checks
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: backend:.
     steps:
       - name: Check out code
         uses: actions/checkout@v4
