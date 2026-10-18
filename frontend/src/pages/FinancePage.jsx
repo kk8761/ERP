@@ -238,7 +238,7 @@ export default function FinancePage({ initialTab = 'overview', initialAction = '
           style={{ padding: '7px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           <FileSpreadsheet size={16} className={activeTab === 'spreadsheet' ? 'text-white' : 'text-emerald-400'} />
-          <span>Excel Spreadsheet Grid</span>
+          <span>ACDOCA Universal Journal (Spreadsheet)</span>
           <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', fontWeight: 600 }}>Fast Entry</span>
         </button>
 

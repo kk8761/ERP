@@ -1,0 +1,495 @@
+/* ==========================================================================
+   ACDOCA Enterprise Universal Journal Spreadsheet Grid
+   Exact SAP GUI / ALV Grid Table Browser Reproduction
+   ========================================================================== */
+
+.acdoca-grid-container {
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  border: 1px solid #c9d2dc;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  color: #1e293b;
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+[data-theme="dark"] .acdoca-grid-container {
+  background-color: #0f172a;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+/* 1. Header Section (Search in Table, Hits, Runtime) */
+.acdoca-header {
+  background: linear-gradient(180deg, #f8fafc 0%, #edf2f7 100%);
+  border-bottom: 1px solid #cbd5e1;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+[data-theme="dark"] .acdoca-header {
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  border-color: #334155;
+}
+
+.acdoca-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.acdoca-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.2px;
+}
+
+[data-theme="dark"] .acdoca-title {
+  color: #f8fafc;
+}
+
+.acdoca-quick-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.acdoca-quick-search input {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  outline: none;
+  width: 180px;
+}
+
+[data-theme="dark"] .acdoca-quick-search input {
+  background: #1e293b;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+
+/* Parameter Grid */
+.acdoca-param-grid {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  gap: 16px;
+  padding-top: 6px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 11px;
+}
+
+[data-theme="dark"] .acdoca-param-grid {
+  border-top-color: #334155;
+}
+
+.acdoca-param-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acdoca-param-label {
+  color: #475569;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .acdoca-param-label {
+  color: #94a3b8;
+}
+
+.acdoca-param-box {
+  background: #ffffff;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  color: #0f172a;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);
+}
+
+[data-theme="dark"] .acdoca-param-box {
+  background: #1e293b;
+  border-color: #475569;
+  color: #38bdf8;
+}
+
+.acdoca-param-active-box {
+  background: #ffffff;
+  border: 2px solid #0284c7;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  color: #0f172a;
+  text-align: center;
+  width: 56px;
+  outline: none;
+}
+
+[data-theme="dark"] .acdoca-param-active-box {
+  background: #0f172a;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+/* 2. ALV Action Toolbar */
+.acdoca-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #e9ecef;
+  border-bottom: 1px solid #cbd5e1;
+  padding: 4px 8px;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+[data-theme="dark"] .acdoca-toolbar {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.acdoca-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.acdoca-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.acdoca-icon-btn:hover {
+  background: #dde2e6;
+  border-color: #b0bcc8;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-icon-btn {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .acdoca-icon-btn:hover {
+  background: #334155;
+  border-color: #475569;
+  color: #ffffff;
+}
+
+.acdoca-alv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  height: 24px;
+  background: #ffffff;
+  border: 1px solid #b0bcc8;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.acdoca-alv-btn:hover {
+  background: #f1f5f9;
+  border-color: #64748b;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-alv-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+[data-theme="dark"] .acdoca-alv-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.acdoca-alv-btn-primary {
+  background: #10b981;
+  color: #ffffff;
+  border-color: #059669;
+}
+
+.acdoca-alv-btn-primary:hover {
+  background: #059669;
+  color: #ffffff;
+}
+
+.acdoca-separator {
+  width: 1px;
+  height: 18px;
+  background: #cbd5e1;
+  margin: 0 4px;
+}
+
+[data-theme="dark"] .acdoca-separator {
+  background: #475569;
+}
+
+.acdoca-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.acdoca-badge-balanced {
+  padding: 2px 6px;
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+  border-radius: 3px;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+[data-theme="dark"] .acdoca-badge-balanced {
+  background: #052e16;
+  color: #4ade80;
+  border-color: #166534;
+}
+
+.acdoca-badge-diff {
+  padding: 2px 6px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  border-radius: 3px;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* 3. Table Data Grid */
+.acdoca-table-scroll {
+  overflow-x: auto;
+  max-height: 520px;
+  overflow-y: auto;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+[data-theme="dark"] .acdoca-table-scroll {
+  border-color: #334155;
+}
+
+.acdoca-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.acdoca-thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.acdoca-th {
+  padding: 4px 6px;
+  border-right: 1px solid #b8c4d0;
+  border-bottom: 2px solid #a3b2c2;
+  font-weight: 700;
+  font-size: 11px;
+  color: #0f172a;
+  white-space: nowrap;
+  user-select: none;
+}
+
+[data-theme="dark"] .acdoca-th {
+  border-right-color: #475569;
+  border-bottom-color: #64748b;
+  color: #f8fafc;
+}
+
+/* Distinctive Authentic Column Colors matching screenshot */
+.acdoca-th-cyan {
+  background-color: #d8edf8;
+  color: #034460;
+}
+
+[data-theme="dark"] .acdoca-th-cyan {
+  background-color: #0c4a6e;
+  color: #bae6fd;
+}
+
+.acdoca-th-yellow {
+  background-color: #fdf8cf;
+  color: #634f03;
+}
+
+[data-theme="dark"] .acdoca-th-yellow {
+  background-color: #713f12;
+  color: #fef08a;
+}
+
+.acdoca-th-white {
+  background-color: #eaeff4;
+  color: #334155;
+}
+
+[data-theme="dark"] .acdoca-th-white {
+  background-color: #1e293b;
+  color: #cbd5e1;
+}
+
+.acdoca-th-posting {
+  background-color: #e0e7ff;
+  color: #3730a3;
+}
+
+[data-theme="dark"] .acdoca-th-posting {
+  background-color: #312e81;
+  color: #c7d2fe;
+}
+
+/* Cells */
+.acdoca-tr {
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.acdoca-tr:hover {
+  filter: brightness(0.96);
+}
+
+.acdoca-tr.selected {
+  outline: 2px solid #0284c7;
+  outline-offset: -2px;
+}
+
+.acdoca-td {
+  padding: 0;
+  border-right: 1px solid #d0dbe5;
+  border-bottom: 1px solid #e2e8f0;
+  height: 24px;
+}
+
+[data-theme="dark"] .acdoca-td {
+  border-right-color: #334155;
+  border-bottom-color: #1e293b;
+}
+
+.acdoca-td-cyan {
+  background-color: #e2f4fb;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-td-cyan {
+  background-color: #082f49;
+  color: #f0f9ff;
+}
+
+.acdoca-td-yellow {
+  background-color: #fffbcf;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-td-yellow {
+  background-color: #422006;
+  color: #fefce8;
+}
+
+.acdoca-td-white {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-td-white {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
+.acdoca-td-posting {
+  background-color: #f5f7ff;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-td-posting {
+  background-color: #1e1b4b;
+  color: #e0e7ff;
+}
+
+.acdoca-cell-input {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: 11px;
+  color: inherit;
+  outline: none;
+}
+
+.acdoca-cell-input:focus {
+  background-color: #ffffff;
+  box-shadow: inset 0 0 0 1px #0284c7;
+}
+
+[data-theme="dark"] .acdoca-cell-input:focus {
+  background-color: #1e293b;
+  box-shadow: inset 0 0 0 1px #38bdf8;
+}
+
+/* 4. Footer Status Bar */
+.acdoca-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #e9ecef;
+  padding: 6px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #334155;
+  border-top: 1px solid #cbd5e1;
+}
+
+[data-theme="dark"] .acdoca-footer {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+.acdoca-footer-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.acdoca-footer-totals {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
