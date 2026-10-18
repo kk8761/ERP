@@ -8,7 +8,12 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.auth.dependencies import get_current_user, require_permission
 from app.models.auth import User, Role, UserRole
-from app.models.security_incident import ScreenshotIncident
+from app.models.security_incident import ScreenshotIncident, IntrusionEvent, QuarantinedIP
+from app.services.intrusion_defense_service import (
+    get_ids_metrics,
+    unquarantine_ip_memory,
+    quarantine_ip_address_db
+)
 from app.schemas.security import (
     ScreenshotIncidentCreate,
     ScreenshotIncidentOut,
@@ -243,3 +248,127 @@ async def get_screenshot_incident_stats(
             for inc in recent_incidents
         ]
     }
+
+
+# =====================================================================
+# NexaERP Intrusion Defense System (IDS/WAF) Endpoints
+# =====================================================================
+
+@router.get("/ids/metrics")
+async def get_ids_telemetry_metrics(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns real-time telemetry metrics from the Autonomous Intrusion Defense System.
+    Includes mitigated attack vectors, active quarantines, and incident logs.
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access restricted: Administrator privilege required to view IDS telemetry."
+        )
+    return await get_ids_metrics(db)
+
+
+@router.get("/ids/quarantine")
+async def get_active_quarantined_ips(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Lists all IP addresses currently isolated under active firewall quarantine.
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access restricted: Administrator privilege required."
+        )
+    stmt = (
+        select(QuarantinedIP)
+        .where(QuarantinedIP.is_active == True)
+        .order_by(desc(QuarantinedIP.created_at))
+    )
+    res = await db.execute(stmt)
+    quarantined = res.scalars().all()
+    return [
+        {
+            "id": q.id,
+            "ip_address": q.ip_address,
+            "reason": q.reason,
+            "threat_score": q.threat_score,
+            "quarantined_until": q.quarantined_until.isoformat() if q.quarantined_until else None,
+            "quarantined_by": q.quarantined_by,
+            "created_at": q.created_at.isoformat()
+        }
+        for q in quarantined
+    ]
+
+
+@router.post("/ids/quarantine/{ip}/unblock")
+async def unblock_quarantined_ip(
+    ip: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Administratively unbans an IP address from both database records and in-memory WAF cache.
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access restricted: Administrator privilege required."
+        )
+
+    # 1. Clear in-memory WAF quarantine cache
+    unquarantine_ip_memory(ip)
+
+    # 2. Deactivate in persistent database table
+    stmt = select(QuarantinedIP).where(QuarantinedIP.ip_address == ip)
+    res = await db.execute(stmt)
+    record = res.scalar_one_or_none()
+
+    if record:
+        record.is_active = False
+        await record_audit_log(
+            db,
+            action="IP_UNQUARANTINED_BY_ADMIN",
+            entity_name="QuarantinedIP",
+            user_id=current_user.id,
+            status="UNBLOCKED",
+            details={"ip_address": ip, "admin": current_user.email}
+        )
+        await db.commit()
+
+    return {"message": f"IP address {ip} has been successfully unblocked."}
+
+
+@router.post("/ids/quarantine/{ip}/block")
+async def manually_quarantine_ip(
+    ip: str,
+    reason: Optional[str] = Query("Administrative quarantine by SOC"),
+    duration_minutes: int = Query(60, ge=1, le=43200),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Manually quarantines a hostile or abusive IP address across the platform.
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access restricted: Administrator privilege required."
+        )
+
+    record = await quarantine_ip_address_db(
+        db,
+        ip_address=ip,
+        reason=reason,
+        threat_score=100,
+        duration_minutes=duration_minutes
+    )
+    return {
+        "message": f"IP address {ip} has been quarantined.",
+        "quarantined_until": record.quarantined_until.isoformat()
+    }
+

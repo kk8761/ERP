@@ -12,7 +12,7 @@ from app.models.hr import Employee, Attendance, LeaveRequest, PayrollRecord
 from app.models.disaster_recovery import BackupRecord, TransactionLogEntry, DRDrillExecution, BackupAlert
 from app.models.email_log import OutgoingEmailLog
 from app.models.rag import CompanyKnowledgeDoc
-from app.models.security_incident import ScreenshotIncident
+from app.models.security_incident import ScreenshotIncident, IntrusionEvent, QuarantinedIP
 
 __all__ = [
     "Base",
@@ -52,4 +52,6 @@ __all__ = [
     "BackupAlert",
     "CompanyKnowledgeDoc",
     "ScreenshotIncident",
+    "IntrusionEvent",
+    "QuarantinedIP",
 ]

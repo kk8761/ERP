@@ -7,6 +7,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
 
+from app.config import settings
+from app.services.intrusion_defense_service import (
+    is_ip_currently_quarantined,
+    analyze_request_for_threats,
+    record_threat_and_evaluate_quarantine
+)
+
 # Thread-safe in-memory sliding-window request tracker per IP
 _ip_request_history: Dict[str, List[float]] = defaultdict(list)
 _last_cleanup_time = time.time()
@@ -45,7 +52,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         raw_query = unquote(request.url.query or "")
 
-        # 1. Periodic cleanup of rate limiter history every 10 minutes
+        # 1. Enforce dynamic IP quarantine
+        if is_ip_currently_quarantined(client_ip):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "Access Denied: Your IP address has been quarantined by NexaERP Intrusion Defense System due to detected hostile activity."
+                },
+                headers={"X-NexaERP-Quarantine": "ACTIVE"}
+            )
+
+        # 2. Periodic cleanup of rate limiter history every 10 minutes
         if now - _last_cleanup_time > 600:
             for ip in list(_ip_request_history.keys()):
                 _ip_request_history[ip] = [t for t in _ip_request_history[ip] if now - t < 120]
@@ -53,31 +70,60 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                     _ip_request_history.pop(ip, None)
             _last_cleanup_time = now
 
-        # 2. Skip WAF and rate limiting on health check, docs, and test runners
+        # 3. Skip WAF and rate limiting on health check and docs
         is_api = path.startswith("/api/")
         is_health = path.startswith("/api/health")
         is_docs = path.startswith("/docs") or path.startswith("/openapi.json")
 
-        if is_api and not is_health and not is_docs:
-            # 2a. WAF Inspection for Path Traversal & Injection attacks
-            full_target = f"{path}?{raw_query}" if raw_query else path
-            if _PATH_TRAVERSAL_PATTERN.search(full_target):
-                return JSONResponse(
-                    status_code=400,
-                    content={"detail": "Path traversal pattern rejected by NexaERP Security Shield."}
+        if not is_health and not is_docs:
+            # 3a. Deep Inspection via Intrusion Defense System (IDS / WAF)
+            threat = analyze_request_for_threats(
+                path=path,
+                raw_query=raw_query,
+                user_agent=request.headers.get("user-agent", ""),
+                headers_sample=request.headers.get("x-custom-probe", "")
+            )
+            if threat:
+                is_quarantined, total_score = record_threat_and_evaluate_quarantine(
+                    client_ip, threat["threat_score"]
                 )
-            if _SQLI_PATTERN.search(raw_query):
+                status_code = 403 if is_quarantined else 400
+                action = "QUARANTINED" if is_quarantined else "BLOCKED"
                 return JSONResponse(
-                    status_code=400,
-                    content={"detail": "Malicious SQL injection pattern blocked by NexaERP Security Shield."}
-                )
-            if _XSS_PATTERN.search(raw_query):
-                return JSONResponse(
-                    status_code=400,
-                    content={"detail": "Cross-site scripting (XSS) probe blocked by NexaERP Security Shield."}
+                    status_code=status_code,
+                    content={
+                        "detail": f"Threat detected: {threat['attack_type']} pattern intercepted by NexaERP Intrusion Defense System.",
+                        "attack_type": threat["attack_type"],
+                        "action": action,
+                        "threat_score": threat["threat_score"],
+                        "cumulative_score": total_score,
+                        "location": threat["location"]
+                    },
+                    headers={
+                        "X-NexaERP-IDS": "TRIGGERED",
+                        "X-NexaERP-Attack-Vector": threat["attack_type"],
+                        "X-NexaERP-Quarantine": "ACTIVE" if is_quarantined else "INACTIVE"
+                    }
                 )
 
-            # 2b. Proxy Header Tampering Verification
+            # 3b. Cross-Site Request Forgery (CSRF) Origin Verification for state-changing calls
+            if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+                origin = request.headers.get("origin")
+                if origin:
+                    clean_origin = origin.lower().rstrip("/")
+                    is_allowed_origin = (
+                        "localhost" in clean_origin or
+                        "127.0.0.1" in clean_origin or
+                        "test" in clean_origin or
+                        clean_origin in [o.lower().rstrip("/") for o in settings.cors_origins_list]
+                    )
+                    if not is_allowed_origin:
+                        return JSONResponse(
+                            status_code=403,
+                            content={"detail": "CSRF verification rejected: Untrusted cross-site request origin."}
+                        )
+
+            # 3c. Proxy Header Tampering Verification
             suspicious_headers = ["x-forwarded-host", "x-host", "x-forwarded-server"]
             for h in suspicious_headers:
                 val = request.headers.get(h)
@@ -87,7 +133,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                         content={"detail": "Proxy tampering or untrusted forwarder detected. Request blocked."}
                     )
 
-            # 2c. Timestamp Skew Verification for signed requests
+            # 3d. Timestamp Skew Verification for signed requests
             ts = request.headers.get("x-nexa-timestamp")
             if ts:
                 try:
