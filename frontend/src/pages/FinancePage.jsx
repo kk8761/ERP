@@ -6,11 +6,12 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import FinancialSpreadsheetGrid from '../components/FinancialSpreadsheetGrid';
 
 export default function FinancePage({ initialTab = 'overview', initialAction = '' }) {
   const { hasPermission } = useAuth();
   const [activeTab, setActiveTab] = useState(
-    ['overview', 'accounts', 'expenses', 'journal', 'reports'].includes(initialTab) ? initialTab : 'overview'
+    ['overview', 'spreadsheet', 'accounts', 'expenses', 'journal', 'reports'].includes(initialTab) ? initialTab : 'overview'
   );
   const [accounts, setAccounts] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -19,12 +20,14 @@ export default function FinancePage({ initialTab = 'overview', initialAction = '
   const [statusMsg, setStatusMsg] = useState('');
 
   useEffect(() => {
-    if (['overview', 'accounts', 'expenses', 'journal', 'reports'].includes(initialTab)) {
+    if (['overview', 'spreadsheet', 'accounts', 'expenses', 'journal', 'reports'].includes(initialTab)) {
       setActiveTab(initialTab);
     } else if (initialTab === 'chart_of_accounts') {
       setActiveTab('accounts');
     } else if (initialTab === 'accounting') {
       setActiveTab('overview');
+    } else if (initialTab === 'spreadsheet' || initialTab === 'excel') {
+      setActiveTab('spreadsheet');
     } else if (initialTab === 'financial_reports') {
       setActiveTab('reports');
     } else {
@@ -230,6 +233,16 @@ export default function FinancePage({ initialTab = 'overview', initialAction = '
         </button>
 
         <button
+          onClick={() => setActiveTab('spreadsheet')}
+          className={`btn ${activeTab === 'spreadsheet' ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ padding: '7px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <FileSpreadsheet size={16} className={activeTab === 'spreadsheet' ? 'text-white' : 'text-emerald-400'} />
+          <span>Excel Spreadsheet Grid</span>
+          <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', fontWeight: 600 }}>Fast Entry</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('accounts')}
           className={`btn ${activeTab === 'accounts' ? 'btn-primary' : 'btn-ghost'}`}
           style={{ padding: '7px 16px', fontSize: '13px' }}
@@ -261,10 +274,21 @@ export default function FinancePage({ initialTab = 'overview', initialAction = '
           className={`btn ${activeTab === 'reports' ? 'btn-primary' : 'btn-ghost'}`}
           style={{ padding: '7px 16px', fontSize: '13px' }}
         >
-          <FileSpreadsheet size={16} />
+          <PieChart size={16} />
           <span>Financial Statements (P&L)</span>
         </button>
       </div>
+
+      {/* SUBTAB SPREADSHEET: EXCEL-STYLE FINANCIAL GRID */}
+      {activeTab === 'spreadsheet' && (
+        <FinancialSpreadsheetGrid
+          accounts={accounts}
+          onEntryPosted={() => {
+            loadFinanceData();
+            setStatusMsg('Journal Entry successfully posted from Spreadsheet Grid to General Ledger!');
+          }}
+        />
+      )}
 
       {/* SUBTAB 1: ACCOUNTING & TRIAL BALANCE OVERVIEW */}
       {activeTab === 'overview' && (
