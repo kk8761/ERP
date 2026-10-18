@@ -1,5 +1,5 @@
 import os
-from typing import List, Any
+from typing import List, Any, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -33,6 +33,19 @@ class Settings(BaseSettings):
     BOOTSTRAP_ADMIN_PASSWORD: str = "Admin@NexaERP2026!"
     BOOTSTRAP_ADMIN_BRANCH: str = "Main Store"
     BOOTSTRAP_ADMIN_ORG: str = "Nexa Global Enterprises"
+
+    # AI & Groq LLM
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+
+    # Enterprise SMTP & Mail Dispatch (RFC 5322 Compliant)
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_USE_TLS: bool = True
+    SMTP_FROM_EMAIL: str = "procurement@nexaerp.internal"
+    SMTP_FROM_NAME: str = "NexaERP Enterprise Mailer"
 
     model_config = SettingsConfigDict(
         env_file=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env")),

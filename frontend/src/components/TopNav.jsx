@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { 
   Search, Bell, HelpCircle, Sun, Moon, ChevronDown, 
   Store, User, Shield, LogOut, KeyRound, Sparkles,
-  ScanLine, PenTool, Wifi, WifiOff, Sliders
+  ScanLine, PenTool, Wifi, WifiOff, Sliders, ShieldAlert, Eye, Check
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ModuleSearchModal from './ModuleSearchModal';
+import ScreenshotIncidentModal from './ScreenshotIncidentModal';
 
 export default function TopNav({
   onToggleAI,
@@ -24,6 +25,11 @@ export default function TopNav({
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchCategory, setSearchCategory] = useState('all');
+  
+  // DLP Screenshot Security Incidents State
+  const [screenshotIncidents, setScreenshotIncidents] = useState([]);
+  const [unreviewedCount, setUnreviewedCount] = useState(0);
+  const [selectedIncident, setSelectedIncident] = useState(null);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -68,6 +74,38 @@ export default function TopNav({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Fetch DLP Screenshot Security Incidents for Admin notification badge & popover
+  const fetchSecurityIncidents = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const res = await fetch('/api/security/screenshot-incidents?limit=10', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setScreenshotIncidents(data);
+        const unread = data.filter(i => !i.is_reviewed).length;
+        setUnreviewedCount(unread);
+      }
+    } catch (err) {
+      // Non-critical background poll
+    }
+  };
+
+  useEffect(() => {
+    fetchSecurityIncidents();
+    const interval = setInterval(fetchSecurityIncidents, 15000);
+    const handleLiveIncident = () => {
+      fetchSecurityIncidents();
+    };
+    window.addEventListener('screenshot-incident-logged', handleLiveIncident);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('screenshot-incident-logged', handleLiveIncident);
+    };
   }, []);
 
   const initials = user?.full_name
@@ -330,33 +368,207 @@ export default function TopNav({
           <Sparkles size={17} />
         </button>
 
-        {/* Notifications Icon with Badge 3 */}
+        {/* Notifications Icon with Real-Time DLP Alert Badge */}
         <div style={{ position: 'relative' }}>
           <button 
             onClick={() => setNotifOpen(!notifOpen)}
             className="btn btn-ghost" 
-            style={{ padding: '8px', borderRadius: 'var(--radius-full)' }}
+            title="DLP Security & System Notifications"
+            style={{ 
+              padding: '8px', 
+              borderRadius: 'var(--radius-full)',
+              color: unreviewedCount > 0 ? '#ef4444' : 'var(--text-main)',
+              position: 'relative'
+            }}
           >
             <Bell size={18} />
-            <span style={{
-              position: 'absolute',
-              top: '4px',
-              right: '4px',
-              backgroundColor: 'var(--danger)',
-              color: '#ffffff',
-              fontSize: '10px',
-              fontWeight: 700,
-              width: '16px',
-              height: '16px',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '2px solid var(--bg-surface)'
-            }}>
-              3
-            </span>
+            {unreviewedCount > 0 && (
+              <span 
+                className="animate-pulse"
+                style={{
+                  position: 'absolute',
+                  top: '3px',
+                  right: '3px',
+                  backgroundColor: '#ef4444',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  minWidth: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 3px',
+                  border: '2px solid var(--bg-surface)',
+                  boxShadow: '0 0 8px rgba(239, 68, 68, 0.6)'
+                }}
+              >
+                {unreviewedCount}
+              </span>
+            )}
           </button>
+
+          {/* Notifications Dropdown Popover */}
+          {notifOpen && (
+            <div 
+              className="nexa-card animate-fade-in"
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: '46px',
+                width: '390px',
+                maxHeight: '480px',
+                zIndex: 250,
+                padding: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                backgroundColor: 'var(--bg-surface)',
+                borderRadius: '10px',
+                border: '1px solid var(--border-color)',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.25)',
+                overflow: 'hidden'
+              }}
+            >
+              {/* Header */}
+              <div style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border-color)',
+                backgroundColor: 'var(--bg-app)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ShieldAlert size={16} color="#ef4444" />
+                  <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-main)' }}>
+                    Security & DLP Alerts
+                  </span>
+                  {unreviewedCount > 0 && (
+                    <span style={{
+                      backgroundColor: '#ef4444',
+                      color: '#ffffff',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      padding: '1px 6px',
+                      borderRadius: '10px'
+                    }}>
+                      {unreviewedCount} new
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setNotifOpen(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Incidents List */}
+              <div style={{ overflowY: 'auto', maxHeight: '380px', padding: '8px' }}>
+                {screenshotIncidents.length === 0 ? (
+                  <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                    <Shield size={28} color="var(--primary)" style={{ opacity: 0.5, marginBottom: '8px' }} />
+                    <div style={{ fontSize: '13px', fontWeight: 600 }}>Zero DLP Incidents Detected</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      All workspace screenshot attempts are logged and alerted in real-time.
+                    </div>
+                  </div>
+                ) : (
+                  screenshotIncidents.map(inc => (
+                    <div
+                      key={inc.id}
+                      onClick={() => {
+                        setSelectedIncident(inc);
+                        setNotifOpen(false);
+                      }}
+                      style={{
+                        padding: '10px',
+                        borderRadius: '6px',
+                        marginBottom: '6px',
+                        backgroundColor: inc.is_reviewed ? 'var(--bg-app)' : 'rgba(239, 68, 68, 0.07)',
+                        border: inc.is_reviewed ? '1px solid var(--border-color)' : '1px solid rgba(239, 68, 68, 0.35)',
+                        cursor: 'pointer',
+                        transition: 'all var(--transition-fast)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        {/* Thumbnail of WHAT was captured */}
+                        <div style={{
+                          width: '60px',
+                          height: '46px',
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                          backgroundColor: '#000000',
+                          flexShrink: 0,
+                          border: '1px solid rgba(239, 68, 68, 0.5)',
+                          position: 'relative'
+                        }}>
+                          <img 
+                            src={inc.image_data} 
+                            alt="capture thumbnail" 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                          />
+                        </div>
+
+                        {/* Details: WHO did it, Date & Time, Page */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#ef4444' }}>
+                              Screen Capture Attempt
+                            </span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                              {new Date(inc.captured_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <div style={{
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: 'var(--text-main)',
+                            marginTop: '1px',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}>
+                            {inc.user_name}
+                          </div>
+                          <div style={{
+                            fontSize: '10px',
+                            color: 'var(--primary)',
+                            fontFamily: 'monospace',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}>
+                            {inc.user_email}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                            <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                              {inc.page_url.substring(0, 26)}
+                            </span>
+                            <span style={{
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              color: inc.is_reviewed ? '#16a34a' : '#ef4444'
+                            }}>
+                              {inc.is_reviewed ? '✓ Reviewed' : '● Needs Review'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Theme Switcher */}
@@ -482,6 +694,15 @@ export default function TopNav({
         initialQuery={searchQuery}
         initialCategory={searchCategory}
       />
+
+      {/* DLP Screenshot Incident Detail & Evidence Modal */}
+      {selectedIncident && (
+        <ScreenshotIncidentModal
+          incident={selectedIncident}
+          onClose={() => setSelectedIncident(null)}
+          onReviewed={() => fetchSecurityIncidents()}
+        />
+      )}
     </header>
   );
 }

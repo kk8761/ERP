@@ -30,6 +30,7 @@ class Product(Base, TimestampMixin):
     reorder_level: Mapped[int] = mapped_column(Integer, default=10)
     current_stock: Mapped[int] = mapped_column(Integer, default=0)
     image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    vision_features: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     category: Mapped[Optional["ProductCategory"]] = relationship("ProductCategory", back_populates="products")

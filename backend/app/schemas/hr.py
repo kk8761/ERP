@@ -1,7 +1,7 @@
 from typing import Optional, List
 from decimal import Decimal
 from datetime import date, datetime
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 class EmployeeCreate(BaseModel):
     employee_code: str
@@ -33,8 +33,7 @@ class EmployeeOut(BaseModel):
     basic_salary: Optional[Decimal] = None # Masked if unauthorized
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class AttendanceIn(BaseModel):
     employee_id: int
@@ -49,8 +48,7 @@ class AttendanceOut(BaseModel):
     check_out: Optional[datetime] = None
     status: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class LeaveCreate(BaseModel):
     employee_id: int
@@ -71,8 +69,7 @@ class LeaveOut(BaseModel):
     reason: str
     status: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class PayrollCreate(BaseModel):
     employee_id: int
@@ -94,5 +91,4 @@ class PayrollOut(BaseModel):
     status: str
     payment_date: Optional[date] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

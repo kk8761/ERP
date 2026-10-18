@@ -1,6 +1,6 @@
 from typing import Optional
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class CategoryCreate(BaseModel):
     name: str = Field(..., min_length=2)
@@ -13,8 +13,7 @@ class CategoryOut(BaseModel):
     code: str
     description: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProductCreate(BaseModel):
     name: str = Field(..., min_length=2)
@@ -28,6 +27,7 @@ class ProductCreate(BaseModel):
     reorder_level: int = Field(10, ge=0)
     current_stock: int = Field(0, ge=0)
     image_url: Optional[str] = None
+    vision_features: Optional[str] = None
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
@@ -38,6 +38,8 @@ class ProductUpdate(BaseModel):
     cost_price: Optional[Decimal] = None
     tax_rate_percent: Optional[Decimal] = None
     reorder_level: Optional[int] = None
+    image_url: Optional[str] = None
+    vision_features: Optional[str] = None
     is_active: Optional[bool] = None
 
 class ProductOut(BaseModel):
@@ -54,11 +56,11 @@ class ProductOut(BaseModel):
     reorder_level: int
     current_stock: int
     image_url: Optional[str] = None
+    vision_features: Optional[str] = None
     is_active: bool
     status: str = "Normal" # "Out of Stock", "Low Stock", "In Stock"
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class StockAdjustmentIn(BaseModel):
     product_id: int

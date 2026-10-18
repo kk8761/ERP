@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   Package, Plus, Search, Filter, Download, ArrowUpDown,
   AlertTriangle, CheckCircle2, SlidersHorizontal, X, ArrowLeftRight, Clock,
-  ScanLine, Layers, Building, Barcode, TrendingDown, RefreshCw, Camera, Eye, Sparkles
+  ScanLine, Layers, Building, Barcode, TrendingDown, RefreshCw, Camera, Eye, Sparkles,
+  Upload, Image as ImageIcon, Check, CheckCircle
 } from 'lucide-react';
 import { apiRequest, downloadCsv } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -65,7 +66,7 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
   const [adjustQty, setAdjustQty] = useState(1);
   const [adjustNotes, setAdjustNotes] = useState('');
 
-  // New product form
+  // New product form with Computer Vision image mapping
   const [newProd, setNewProd] = useState({
     name: '',
     sku: '',
@@ -76,9 +77,47 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
     cost_price: '',
     tax_rate_percent: '5.00',
     reorder_level: 10,
-    current_stock: 0
+    current_stock: 0,
+    image_url: '',
+    vision_features: ''
   });
+  const [imagePreview, setImagePreview] = useState('');
+  const [extractingCV, setExtractingCV] = useState(false);
+  const [cvMappedSuccess, setCvMappedSuccess] = useState(false);
   const [formError, setFormError] = useState('');
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64Data = event.target.result;
+      setImagePreview(base64Data);
+      setNewProd(prev => ({ ...prev, image_url: base64Data }));
+      
+      // Auto-extract and map Computer Vision visual features
+      try {
+        setExtractingCV(true);
+        const featRes = await apiRequest('/api/vision/extract-features', {
+          method: 'POST',
+          body: JSON.stringify({ image_base64: base64Data })
+        });
+        if (featRes && featRes.features_json) {
+          setNewProd(prev => ({
+            ...prev,
+            vision_features: featRes.features_json
+          }));
+          setCvMappedSuccess(true);
+        }
+      } catch (err) {
+        console.warn('Auto CV feature mapping warning:', err);
+      } finally {
+        setExtractingCV(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const loadInventory = async () => {
     try {
@@ -145,8 +184,11 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
       setNewProd({
         name: '', sku: '', barcode: '', category_id: '',
         unit_of_measure: 'kg', selling_price: '', cost_price: '',
-        tax_rate_percent: '5.00', reorder_level: 10, current_stock: 0
+        tax_rate_percent: '5.00', reorder_level: 10, current_stock: 0,
+        image_url: '', vision_features: ''
       });
+      setImagePreview('');
+      setCvMappedSuccess(false);
       loadInventory();
     } catch (err) {
       setFormError(err.message);
@@ -212,7 +254,7 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
             Inventory & Stock Master
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            Manage warehouse inventory, SAP MMBE stock overviews, goods movements, and barcode lookup
+            Manage warehouse inventory, real-time stock overviews, goods movements, and barcode lookup
           </p>
         </div>
 
@@ -415,8 +457,35 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
                             {p.sku}
                           </td>
                           <td>
-                            <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{p.name}</div>
-                            {p.barcode && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Barcode: {p.barcode}</div>}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              {p.image_url ? (
+                                <img
+                                  src={p.image_url}
+                                  alt={p.name}
+                                  style={{ width: '36px', height: '36px', borderRadius: '6px', objectFit: 'cover', border: '1px solid var(--border-color)', flexShrink: 0 }}
+                                />
+                              ) : (
+                                <div style={{
+                                  width: '36px', height: '36px', borderRadius: '6px',
+                                  backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border-color)',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  color: 'var(--text-muted)', flexShrink: 0
+                                }}>
+                                  <Package size={18} />
+                                </div>
+                              )}
+                              <div>
+                                <div style={{ fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span>{p.name}</span>
+                                  {p.vision_features && (
+                                    <span title="Computer Vision feature mapped for exit recognition" style={{ color: '#10b981', display: 'inline-flex', alignItems: 'center' }}>
+                                      <Eye size={13} />
+                                    </span>
+                                  )}
+                                </div>
+                                {p.barcode && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Barcode: {p.barcode}</div>}
+                              </div>
+                            </div>
                           </td>
                           <td>{p.category_name || 'General'}</td>
                           <td style={{ fontWeight: 700, fontSize: '14px' }}>
@@ -963,6 +1032,92 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
                   onChange={(e) => setNewProd({ ...newProd, name: e.target.value })}
                   className="form-input"
                 />
+              </div>
+
+              {/* Product Photo & Computer Vision Feature Mapping */}
+              <div style={{
+                gridColumn: 'span 2',
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1.5px dashed var(--border-color)',
+                backgroundColor: 'var(--bg-subtle)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)' }}>
+                    <Camera size={15} color="var(--primary)" />
+                    <span>Product Image & Computer Vision Mapping</span>
+                  </label>
+                  {cvMappedSuccess && (
+                    <span className="badge badge-success" style={{ fontSize: '10.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Check size={12} />
+                      <span>CV Features Mapped</span>
+                    </span>
+                  )}
+                  {extractingCV && (
+                    <span className="badge badge-primary" style={{ fontSize: '10.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <RefreshCw size={12} className="animate-spin" />
+                      <span>Extracting CV Matrix...</span>
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+                  {imagePreview ? (
+                    <div style={{ position: 'relative', width: '68px', height: '68px', borderRadius: '8px', overflow: 'hidden', border: '2px solid var(--primary)', flexShrink: 0 }}>
+                      <img src={imagePreview} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImagePreview('');
+                          setNewProd(prev => ({ ...prev, image_url: '', vision_features: '' }));
+                          setCvMappedSuccess(false);
+                        }}
+                        style={{
+                          position: 'absolute', top: '2px', right: '2px',
+                          background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none',
+                          borderRadius: '50%', width: '18px', height: '18px',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          cursor: 'pointer', padding: 0
+                        }}
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{
+                      width: '68px', height: '68px', borderRadius: '8px',
+                      backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-color)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'var(--text-secondary)', flexShrink: 0
+                    }}>
+                      <ImageIcon size={26} />
+                    </div>
+                  )}
+
+                  <div style={{ flex: 1 }}>
+                    <input
+                      type="file"
+                      id="product-image-upload"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      style={{ display: 'none' }}
+                    />
+                    <label
+                      htmlFor="product-image-upload"
+                      className="btn btn-secondary"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '6px 14px', fontSize: '12px' }}
+                    >
+                      <Upload size={13} />
+                      <span>{imagePreview ? 'Change Image Photo' : 'Upload Product Photo'}</span>
+                    </label>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>
+                      Upload product packaging image. OpenCV maps visual 2D color histograms, texture, and aspect ratio so the shopkeeper can simply show the item to the exit camera for automatic recognition and stock deduction.
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div>

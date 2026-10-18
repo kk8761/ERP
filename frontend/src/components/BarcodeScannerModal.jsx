@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   ScanLine, X, Search, CheckCircle2, AlertCircle, Camera,
   Sparkles, Volume2, VolumeX, Eye, QrCode, RefreshCw, Upload,
-  Plus, ShoppingCart, Layers, ArrowRight, Zap
+  Plus, ShoppingCart, Layers, ArrowRight, Zap, MinusCircle, Check
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 
@@ -11,6 +11,7 @@ export default function BarcodeScannerModal({
   onClose,
   onBarcodeDetected,
   onNavigateToRegister,
+  onStockDeducted,
   title = "AI Computer Vision & QR Scanner"
 }) {
   // Detection mode: 'auto' (QR first, then visual ML), 'visual_only' (no QR needed), 'qr_only'
@@ -25,6 +26,9 @@ export default function BarcodeScannerModal({
   const [visionResult, setVisionResult] = useState(null);
   const [manualCode, setManualCode] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
+  const [deductQty, setDeductQty] = useState(1);
+  const [isDeducting, setIsDeducting] = useState(false);
+  const [deductSuccessMsg, setDeductSuccessMsg] = useState('');
 
   const videoRef = useRef(null);
   const overlayCanvasRef = useRef(null);
@@ -342,6 +346,42 @@ export default function BarcodeScannerModal({
     if (visionResult?.product && onBarcodeDetected) {
       onBarcodeDetected(visionResult.product);
       onClose();
+    }
+  };
+
+  // Computer Vision Item Exit Deduction
+  const handleDeductStock = async () => {
+    if (!visionResult?.product) return;
+    setIsDeducting(true);
+    setDeductSuccessMsg('');
+    try {
+      const deductRes = await apiRequest('/api/vision/deduct', {
+        method: 'POST',
+        body: JSON.stringify({
+          product_id: visionResult.product.id,
+          quantity: parseInt(deductQty) || 1,
+          notes: `Computer Vision item exit scan: shopkeeper presented ${visionResult.product.name} to camera.`
+        })
+      });
+      playBeep(2400, 'triangle');
+      setDeductSuccessMsg(`Deducted ${deductRes.quantity_deducted} ${visionResult.product.unit_of_measure} of ${deductRes.product_name}. Remaining stock: ${deductRes.new_stock}`);
+      // Update local product stock
+      setVisionResult(prev => ({
+        ...prev,
+        product: {
+          ...prev.product,
+          current_stock: deductRes.new_stock
+        }
+      }));
+      speakText(`Stock deducted. Remaining stock: ${deductRes.new_stock}`);
+      window.dispatchEvent(new CustomEvent('inventory-updated'));
+      if (onStockDeducted) {
+        onStockDeducted(deductRes);
+      }
+    } catch (err) {
+      alert(`Deduction failed: ${err.message}`);
+    } finally {
+      setIsDeducting(false);
     }
   };
 
@@ -724,33 +764,93 @@ export default function BarcodeScannerModal({
                 </div>
               )}
 
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
+              {/* Action Buttons & Direct Exit Stock Deduction */}
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap' }}>
                 {visionResult.product ? (
-                  <button
-                    onClick={handleConfirmProduct}
-                    className="btn btn-primary"
-                    style={{ padding: '8px 18px', fontSize: '13px' }}
-                  >
-                    <CheckCircle2 size={15} />
-                    <span>Confirm & Select Item</span>
-                  </button>
-                ) : (
-                  onNavigateToRegister && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'var(--bg-surface)', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 600 }}>Qty:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max={visionResult.product.current_stock || 999}
+                        value={deductQty}
+                        onChange={(e) => setDeductQty(Math.max(1, parseInt(e.target.value) || 1))}
+                        style={{ width: '48px', padding: '2px 4px', fontSize: '12px', border: '1px solid var(--border-color)', borderRadius: '4px', textAlign: 'center' }}
+                      />
+                    </div>
                     <button
-                      onClick={() => {
-                        onClose();
-                        onNavigateToRegister(visionResult.detected_label);
+                      type="button"
+                      onClick={handleDeductStock}
+                      disabled={isDeducting || visionResult.product.current_stock <= 0}
+                      className="btn"
+                      style={{
+                        padding: '8px 16px',
+                        fontSize: '12.5px',
+                        fontWeight: 700,
+                        backgroundColor: '#dc2626',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 2px 6px rgba(220, 38, 38, 0.3)',
+                        cursor: isDeducting ? 'not-allowed' : 'pointer'
                       }}
-                      className="btn btn-secondary"
-                      style={{ padding: '8px 16px', fontSize: '13px' }}
+                      title="Item is moving out of the store - Deduct directly from warehouse inventory stock"
                     >
-                      <Plus size={15} />
-                      <span>Register Item in Step 1</span>
+                      <MinusCircle size={15} />
+                      <span>{isDeducting ? 'Deducting...' : 'Item Leaving Store - Deduct Stock'}</span>
                     </button>
-                  )
-                )}
+                  </div>
+                ) : <div />}
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {visionResult.product ? (
+                    <button
+                      onClick={handleConfirmProduct}
+                      className="btn btn-primary"
+                      style={{ padding: '8px 18px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <CheckCircle2 size={15} />
+                      <span>Add to POS Cart</span>
+                    </button>
+                  ) : (
+                    onNavigateToRegister && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          onNavigateToRegister(visionResult.detected_label);
+                        }}
+                        className="btn btn-secondary"
+                        style={{ padding: '8px 16px', fontSize: '13px' }}
+                      >
+                        <Plus size={15} />
+                        <span>Register Item in Step 1</span>
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
+
+              {deductSuccessMsg && (
+                <div style={{
+                  padding: '8px 12px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  border: '1px solid #10b981',
+                  color: '#065f46',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <Check size={14} color="#10b981" />
+                  <span>{deductSuccessMsg}</span>
+                </div>
+              )}
             </div>
           )}
 

@@ -1,7 +1,7 @@
 from typing import Optional, List
 from decimal import Decimal
 from datetime import date
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class AccountCreate(BaseModel):
     code: str
@@ -17,8 +17,7 @@ class AccountOut(BaseModel):
     balance: Decimal
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class JournalLineIn(BaseModel):
     account_id: int
@@ -41,8 +40,7 @@ class JournalLineOut(BaseModel):
     credit: Decimal
     description: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class JournalEntryOut(BaseModel):
     id: int
@@ -55,8 +53,7 @@ class JournalEntryOut(BaseModel):
     is_posted: bool
     lines: List[JournalLineOut] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ExpenseCreate(BaseModel):
     category: str = Field(..., pattern="^(Inventory|Staff & Payroll|Rent & Utilities|Marketing|Other)$")
@@ -77,5 +74,4 @@ class ExpenseOut(BaseModel):
     description: str
     receipt_reference: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

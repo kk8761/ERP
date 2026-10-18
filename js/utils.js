@@ -585,8 +585,8 @@ function exportCSV(data, filename = 'export.csv') {
   }, 100);
 }
 
-// ─── SAP UI COMPONENTS ────────────────────────────────────
-const SAP_UI = {
+// ─── NEXA UI COMPONENTS ────────────────────────────────────
+const NEXA_UI = {
   renderTabs(tabs, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -595,7 +595,7 @@ const SAP_UI = {
       <div class="sap-tabs">
         <div class="sap-tab-header">
           ${tabs.map((t, i) => `
-            <button class="sap-tab-btn ${i===0?'active':''}" onclick="SAP_UI.switchTab(this, '${t.id}')">
+            <button class="sap-tab-btn ${i===0?'active':''}" onclick="NEXA_UI.switchTab(this, '${t.id}')">
               ${t.label}
             </button>
           `).join('')}

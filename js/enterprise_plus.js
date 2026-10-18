@@ -4,7 +4,7 @@
  */
 
 // ══════════════════════════════════════════════════════════════════
-// SECTION 1: CRM & SALES PIPELINE (SAP CRM)
+// SECTION 1: CRM & SALES PIPELINE (Enterprise CRM)
 // ══════════════════════════════════════════════════════════════════
 
 function renderCRM() {
@@ -159,7 +159,7 @@ const DemoCRM = {
 };
 
 // ══════════════════════════════════════════════════════════════════
-// SECTION 2: HRMS - ATTENDANCE & LEAVE (SAP HCM-TM)
+// SECTION 2: HRMS - ATTENDANCE & LEAVE (HRMS Time & Attendance)
 // ══════════════════════════════════════════════════════════════════
 
 function renderHRMS() {
@@ -311,7 +311,7 @@ const DemoHRMS = {
 };
 
 // ══════════════════════════════════════════════════════════════════
-// SECTION 3: MANUFACTURING - BOM & PRODUCTION (SAP PP)
+// SECTION 3: MANUFACTURING - BOM & PRODUCTION (Production Planning)
 // ══════════════════════════════════════════════════════════════════
 
 function renderManufacturing() {

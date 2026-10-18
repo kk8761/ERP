@@ -1,5 +1,8 @@
+import uuid
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -28,6 +31,7 @@ from app.api.disaster_recovery import router as disaster_recovery_router
 from app.api.forum import router as forum_router
 from app.api.system_admin import router as system_admin_router
 from app.api.vision import router as vision_router
+from app.api.security import router as security_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,7 +43,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="NexaERP Enterprise API",
-    description="Enterprise ERP backend supporting SAP Fiori-inspired NexaERP with RBAC and JIT Role Elevation.",
+    description="Enterprise ERP backend supporting modern NexaERP with RBAC, Just-In-Time Role Elevation, and Intelligent Copilot.",
     version="2.1.0",
     lifespan=lifespan
 )
@@ -56,6 +60,34 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition"]
 )
+
+# Enterprise Global Security Exception Shield (Prevents stack trace / internal path exposure)
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors()}
+    )
+
+@app.exception_handler(Exception)
+async def global_unhandled_exception_shield(request: Request, exc: Exception):
+    incident_id = str(uuid.uuid4())
+    logging.error(f"[SECURITY SHIELD - INCIDENT {incident_id}] Unhandled error at {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": "An internal system exception occurred. It has been securely logged.",
+            "incident_id": incident_id
+        }
+    )
 
 # Mount API Routers
 app.include_router(auth_router)
@@ -78,6 +110,7 @@ app.include_router(disaster_recovery_router)
 app.include_router(forum_router)
 app.include_router(system_admin_router)
 app.include_router(vision_router)
+app.include_router(security_router)
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():

@@ -31,3 +31,8 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Android / Gradle
+.gradle/
+build/
+*.lock

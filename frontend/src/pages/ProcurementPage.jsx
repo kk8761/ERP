@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Truck, Plus, FileText, CheckCircle2, ArrowDownToLine,
-  Eye, X, Building, ShieldCheck, AlertTriangle, Star, RefreshCw, Ban, Award
+  Eye, X, Building, ShieldCheck, AlertTriangle, Star, RefreshCw, Ban, Award, Mail
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,7 +11,9 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
-  const [activeTab, setActiveTab] = useState(initialTab === 'orders' ? 'orders' : 'suppliers'); // 'suppliers' (SAP Vendor Master) or 'orders' (ME21N POs)
+  const [outgoingEmails, setOutgoingEmails] = useState([]);
+  const [selectedEmailPreview, setSelectedEmailPreview] = useState(null);
+  const [activeTab, setActiveTab] = useState(initialTab === 'orders' ? 'orders' : 'suppliers'); // 'suppliers' (Vendor Master) or 'orders' (POs)
   const [loading, setLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState('');
 
@@ -23,7 +25,7 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
     }
   }, [initialTab]);
 
-  // SAP Create Vendor Modal (XK01)
+  // Create Vendor Modal
   const [showSupplierModal, setShowSupplierModal] = useState(false);
   const [newVendor, setNewVendor] = useState({
     name: '',
@@ -42,7 +44,7 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
     rating_score: 95.0
   });
 
-  // SAP Create PO Modal (ME21N)
+  // Create PO Modal
   const [showPOModal, setShowPOModal] = useState(initialAction === 'create');
 
   useEffect(() => {
@@ -57,14 +59,16 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
   const loadData = async () => {
     try {
       setLoading(true);
-      const [pos, sups, prods] = await Promise.all([
+      const [pos, sups, prods, emails] = await Promise.all([
         apiRequest('/api/procurement/purchase-orders'),
         apiRequest('/api/procurement/suppliers'),
-        apiRequest('/api/inventory/products')
+        apiRequest('/api/inventory/products'),
+        apiRequest('/api/procurement/emails').catch(() => [])
       ]);
       setPurchaseOrders(pos);
       setSuppliers(sups);
       setProducts(prods);
+      setOutgoingEmails(emails || []);
     } catch (e) {
       console.error('Failed to load procurement data:', e);
     } finally {
@@ -87,7 +91,7 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
   };
 
   const handleReceiveGoods = async (poId) => {
-    if (!window.confirm("Perform Goods Receipt (MIGO 101 Movement) and stock in products to inventory?")) return;
+    if (!window.confirm("Perform Goods Receipt and post inventory replenishment?")) return;
     try {
       const res = await apiRequest(`/api/procurement/purchase-orders/${poId}/receive`, { method: 'POST' });
       setStatusMsg(res.message);
@@ -121,7 +125,7 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
         body: JSON.stringify(newVendor)
       });
       setShowSupplierModal(false);
-      setStatusMsg(`Vendor ${newVendor.name} registered in SAP Vendor Master.`);
+      setStatusMsg(`Vendor ${newVendor.name} registered in Vendor Master.`);
       loadData();
     } catch (err) {
       alert(`Vendor creation failed: ${err.message}`);
@@ -156,10 +160,10 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-main)', fontFamily: 'var(--font-brand)' }}>
-            SAP Materials Management & Vendor Lifecycle (MM-PUR)
+            Procurement & Vendor Lifecycle Management
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            Vendor Master Database (XK01/XK03), Purchase Orders (ME21N), Goods Receipts (MIGO), and Vendor Quality Scoring.
+            Vendor Master Database, Purchase Orders, Goods Receipts, and Vendor Performance Scoring.
           </p>
         </div>
 
@@ -171,12 +175,12 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
 
           <button onClick={() => setShowSupplierModal(true)} className="btn btn-ghost" style={{ backgroundColor: 'var(--bg-subtle)' }}>
             <Building size={16} />
-            <span>Create Vendor (XK01)</span>
+            <span>Add New Vendor</span>
           </button>
 
           <button onClick={() => setShowPOModal(true)} className="btn btn-primary">
             <Plus size={16} />
-            <span>Create Purchase Order (ME21N)</span>
+            <span>Create Purchase Order</span>
           </button>
         </div>
       </div>
@@ -206,13 +210,22 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
           <FileText size={16} />
           <span>Purchase Orders & Deliveries ({purchaseOrders.length})</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('emails')}
+          className={`btn ${activeTab === 'emails' ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ padding: '7px 16px', fontSize: '13px' }}
+        >
+          <Mail size={16} />
+          <span>B2B Mail Dispatch ({outgoingEmails.length})</span>
+        </button>
       </div>
 
-      {/* Tab 1: SAP Vendor Master Database */}
+      {/* Tab 1: Vendor Master Database */}
       {activeTab === 'suppliers' && (
         <div className="nexa-card" style={{ overflow: 'hidden' }}>
           <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700, fontSize: '15px' }}>Approved Vendor Master Catalog (LFA1 / LFB1)</span>
+            <span style={{ fontWeight: 700, fontSize: '15px' }}>Approved Vendor Master Catalog</span>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
               Evaluated on delivery timeliness, quality assurance scores, and payment term compliance.
             </span>
@@ -285,9 +298,9 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
       {activeTab === 'orders' && (
         <div className="nexa-card" style={{ overflow: 'hidden' }}>
           <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700, fontSize: '15px' }}>Purchase Orders Ledger (ME21N / ME22N)</span>
+            <span style={{ fontWeight: 700, fontSize: '15px' }}>Purchase Orders & Deliveries Ledger</span>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              Two-Way &amp; Three-Way Matching: PO &rarr; Goods Receipt (MIGO 101) &rarr; Invoice Verification (MIRO)
+              Two-Way &amp; Three-Way Matching: Purchase Order &rarr; Goods Receipt &rarr; Invoice Verification
             </span>
           </div>
 
@@ -348,7 +361,7 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
                             style={{ padding: '4px 10px', fontSize: '12px', backgroundColor: '#10b981', borderColor: '#10b981' }}
                           >
                             <ArrowDownToLine size={13} />
-                            <span>Post Goods Receipt (MIGO)</span>
+                            <span>Post Goods Receipt</span>
                           </button>
                         )}
                         {po.status === 'RECEIVED' && (
@@ -366,14 +379,96 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
         </div>
       )}
 
-      {/* Modal: Create SAP Vendor Master (XK01) */}
+      {/* Tab 3: B2B Outbound Communications & External Counterparty Mail Dispatch */}
+      {activeTab === 'emails' && (
+        <div className="nexa-card" style={{ overflow: 'hidden' }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: '15px' }}>Outbound B2B Communications & Supplier Dispatch</span>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Enterprise mail dispatch engine: Counterparties without this ERP receive automated RFC-compliant emails with PO confirmations and RFQ requisitions.
+              </p>
+            </div>
+            <button onClick={loadData} className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: '12px' }}>
+              <RefreshCw size={14} />
+              <span>Refresh Logs</span>
+            </button>
+          </div>
+
+          <div className="nexa-table-wrapper">
+            <table className="nexa-table">
+              <thead>
+                <tr>
+                  <th>Date & Time</th>
+                  <th>Doc Type</th>
+                  <th>Reference ID</th>
+                  <th>External Counterparty</th>
+                  <th>Subject Line</th>
+                  <th>Delivery Status</th>
+                  <th style={{ textAlign: 'right' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {outgoingEmails.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
+                      No outbound B2B emails dispatched yet. Create a Purchase Order or instruct the AI Assistant to trigger vendor emails.
+                    </td>
+                  </tr>
+                ) : (
+                  outgoingEmails.map((mail) => (
+                    <tr key={mail.id}>
+                      <td style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {mail.created_at ? new Date(mail.created_at).toLocaleString() : 'Just now'}
+                      </td>
+                      <td>
+                        <span className={`badge ${mail.document_type === 'PURCHASE_ORDER' ? 'badge-primary' : 'badge-warning'}`}>
+                          {mail.document_type}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 700, fontFamily: 'monospace', color: 'var(--primary)' }}>
+                        {mail.document_reference}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{mail.recipient_name || 'Vendor Contact'}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{mail.recipient_email}</div>
+                      </td>
+                      <td style={{ maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {mail.subject}
+                      </td>
+                      <td>
+                        <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <CheckCircle2 size={12} />
+                          <span>{mail.status || 'SENT'}</span>
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          onClick={() => setSelectedEmailPreview(mail)}
+                          className="btn btn-ghost"
+                          style={{ padding: '4px 8px', fontSize: '12px', color: 'var(--primary)' }}
+                        >
+                          <Eye size={13} />
+                          <span>Preview Email</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Create Vendor Master */}
       {showSupplierModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
           <div className="nexa-card" style={{ width: '100%', maxWidth: '540px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Building size={20} color="var(--primary)" />
-                <h3 style={{ fontSize: '16px', fontWeight: 700 }}>SAP Vendor Master Onboarding (XK01)</h3>
+                <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Vendor Onboarding & Registration</h3>
               </div>
               <button onClick={() => setShowSupplierModal(false)} className="btn btn-ghost" style={{ padding: '4px' }}>
                 <X size={18} />
@@ -477,14 +572,14 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
         </div>
       )}
 
-      {/* Modal: Create Purchase Order (ME21N) */}
+      {/* Modal: Create Purchase Order */}
       {showPOModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
           <div className="nexa-card" style={{ width: '100%', maxWidth: '580px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <FileText size={20} color="var(--primary)" />
-                <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Issue Purchase Order (ME21N)</h3>
+                <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Issue Purchase Order</h3>
               </div>
               <button onClick={() => setShowPOModal(false)} className="btn btn-ghost" style={{ padding: '4px' }}>
                 <X size={18} />
@@ -552,6 +647,41 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Email Preview */}
+      {selectedEmailPreview && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="nexa-card" style={{ width: '100%', maxWidth: '640px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>Outbound B2B Email Transmission Preview</h3>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  To: {selectedEmailPreview.recipient_name} &lt;{selectedEmailPreview.recipient_email}&gt;
+                </p>
+              </div>
+              <button onClick={() => setSelectedEmailPreview(null)} className="btn btn-ghost" style={{ padding: '4px' }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '20px', overflowY: 'auto', flex: 1, backgroundColor: '#ffffff' }}>
+              <div style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '6px', marginBottom: '16px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
+                <div><strong>Subject:</strong> {selectedEmailPreview.subject}</div>
+                <div><strong>Reference:</strong> {selectedEmailPreview.document_reference}</div>
+                <div><strong>Status:</strong> <span style={{ color: '#059669', fontWeight: 600 }}>{selectedEmailPreview.status}</span></div>
+              </div>
+              <div
+                dangerouslySetInnerHTML={{ __html: selectedEmailPreview.body_html }}
+                style={{ border: '1px solid #e2e8f0', borderRadius: '6px', overflow: 'hidden' }}
+              />
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setSelectedEmailPreview(null)} className="btn btn-primary" style={{ padding: '6px 18px', fontSize: '13px' }}>
+                Close Preview
+              </button>
+            </div>
           </div>
         </div>
       )}

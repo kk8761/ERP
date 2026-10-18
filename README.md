@@ -1,6 +1,6 @@
 # NexaERP - Enterprise Resource Planning System
 
-> **Grow Your Business** with an enterprise-grade ERP designed with modern web architecture and an enterprise visual interface inspired by SAP Fiori Horizon.
+> **Grow Your Business** with an enterprise-grade ERP designed with modern web architecture and an enterprise visual interface inspired by NexaUI Enterprise Design.
 
 ---
 
@@ -20,7 +20,7 @@ NexaERP is a complete, secure, full-stack ERP application built from scratch to 
 ## 2. Technology Stack & Constraints
 
 - **Zero TypeScript**: All frontend and backend code is written strictly in JavaScript/JSX and Python 3.14 to eliminate transpile and typing complexity while ensuring rapid execution.
-- **Frontend**: React 19, Vite, Lucide React icons, and a custom SAP Fiori Horizon design system (`src/index.css`) supporting both Light and Dark modes.
+- **Frontend**: React 19, Vite, Lucide React icons, and a custom NexaUI Enterprise Design design system (`src/index.css`) supporting both Light and Dark modes.
 - **Backend**: Python 3.14 + FastAPI + Pydantic v2 + SQLAlchemy 2.0 (asyncio with `aiosqlite` and `asyncpg`).
 - **Database**: Persistent SQLite (`nexaerp.db`) for development; PostgreSQL 16 ready for production.
 - **Security**: Argon2id/Bcrypt password hashing, PyJWT signed tokens, token revocation blacklist, account lockouts on consecutive failed logins, and OWASP security headers.

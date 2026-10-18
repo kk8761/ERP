@@ -17,6 +17,13 @@ from app.schemas.procurement import (
 )
 from app.services.inventory_service import adjust_product_stock
 from app.services.audit_service import record_audit_log
+from app.models.email_log import OutgoingEmailLog
+from app.services.email_service import (
+    send_business_email,
+    generate_po_email_template,
+    generate_pr_email_template,
+    get_email_system_status
+)
 
 router = APIRouter(prefix="/api/procurement", tags=["Procurement"])
 
@@ -175,6 +182,36 @@ async def create_purchase_order(
     res = await db.execute(stmt)
     full_po = res.scalar_one()
 
+    # Automatically dispatch B2B procurement email to external vendor
+    if full_po.supplier and full_po.supplier.email:
+        items_payload = [
+            {
+                "product_name": i.product_name,
+                "quantity": i.quantity_ordered,
+                "unit_cost": float(i.unit_cost),
+                "line_total": float(i.line_total)
+            }
+            for i in full_po.items
+        ]
+        template = generate_po_email_template(
+            po_number=full_po.po_number,
+            vendor_name=full_po.supplier.name,
+            items=items_payload,
+            total_amount=float(full_po.total_amount),
+            notes=full_po.notes
+        )
+        await send_business_email(
+            db=db,
+            recipient_email=full_po.supplier.email,
+            recipient_name=full_po.supplier.contact_person or full_po.supplier.name,
+            document_type="PURCHASE_ORDER",
+            document_reference=full_po.po_number,
+            subject=template["subject"],
+            body_html=template["body_html"],
+            sent_by_user_id=current_user.id
+        )
+        await db.commit()
+
     return PurchaseOrderOut(
         id=full_po.id,
         po_number=full_po.po_number,
@@ -251,3 +288,68 @@ async def receive_goods(
     )
     await db.commit()
     return {"message": f"Goods received for {po.po_number} and inventory stocks replenished"}
+
+@router.get("/emails")
+async def list_outgoing_emails(
+    current_user: User = Depends(require_permission("procurement.view")),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(OutgoingEmailLog).order_by(desc(OutgoingEmailLog.created_at)).limit(50)
+    res = await db.execute(stmt)
+    logs = res.scalars().all()
+    return [
+        {
+            "id": log.id,
+            "recipient_email": log.recipient_email,
+            "recipient_name": log.recipient_name,
+            "document_type": log.document_type,
+            "document_reference": log.document_reference,
+            "subject": log.subject,
+            "body_html": log.body_html,
+            "status": log.status,
+            "created_at": log.created_at.isoformat() if log.created_at else None
+        }
+        for log in logs
+    ]
+
+@router.get("/emails/status")
+async def email_system_status(
+    current_user: User = Depends(require_permission("procurement.view")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Returns enterprise email dispatch subsystem configuration and health status."""
+    return await get_email_system_status(db)
+
+@router.post("/emails/test-dispatch")
+async def send_test_email(
+    target_email: str = Query("vendor.test@nexaerp.internal"),
+    current_user: User = Depends(require_permission("procurement.create")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Sends a verified test email using the enterprise SMTP dispatcher."""
+    sample_items = [{"product_name": "Industrial Basmati Rice", "quantity": 10, "unit_cost": 450.0, "line_total": 4500.0}]
+    template = generate_po_email_template(
+        po_number=f"TEST-PO-{uuid.uuid4().hex[:4].upper()}",
+        vendor_name="Global Test Supplier Ltd.",
+        items=sample_items,
+        total_amount=4500.0,
+        notes="Automated test dispatch to verify enterprise SMTP delivery."
+    )
+    log_entry = await send_business_email(
+        db=db,
+        recipient_email=target_email,
+        recipient_name="Global Test Supplier Ltd.",
+        document_type="PURCHASE_ORDER",
+        document_reference="TEST-DISPATCH",
+        subject=template["subject"],
+        body_html=template["body_html"],
+        sent_by_user_id=current_user.id
+    )
+    await db.commit()
+    return {
+        "status": "DISPATCHED",
+        "delivery_status": log_entry.status,
+        "recipient": target_email,
+        "log_id": log_entry.id
+    }
+

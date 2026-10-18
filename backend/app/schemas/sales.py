@@ -1,7 +1,7 @@
 from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class CustomerCreate(BaseModel):
     name: str = Field(..., min_length=2)
@@ -17,8 +17,7 @@ class CustomerOut(BaseModel):
     address: Optional[str] = None
     total_spend: Decimal
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SalesOrderItemIn(BaseModel):
     product_id: int
@@ -40,8 +39,7 @@ class SalesOrderItemOut(BaseModel):
     unit_price: Decimal
     line_total: Decimal
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SalesOrderOut(BaseModel):
     id: int
@@ -62,5 +60,4 @@ class SalesOrderOut(BaseModel):
     created_at: datetime
     items: List[SalesOrderItemOut] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

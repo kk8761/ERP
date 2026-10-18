@@ -9,7 +9,7 @@ class Supplier(Base, TimestampMixin):
     __tablename__ = "suppliers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    # SAP Vendor Master Fields (LFA1)
+    # Vendor Master Fields
     vendor_code: Mapped[Optional[str]] = mapped_column(String(50), unique=True, index=True, nullable=True) # e.g. VEND-10042
     name: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
     vendor_account_group: Mapped[Optional[str]] = mapped_column(String(50), default="Standard Vendor") # Standard, One-Time, Intercompany
@@ -21,7 +21,7 @@ class Supplier(Base, TimestampMixin):
     country: Mapped[Optional[str]] = mapped_column(String(10), default="IN")
     gst_tax_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     
-    # Financial & Purchasing Data (LFB1 / LFM1)
+    # Financial & Purchasing Data
     payment_terms: Mapped[Optional[str]] = mapped_column(String(50), default="Net 30 Days") # Net 30, Net 15, 2/10 Net 30
     incoterms: Mapped[Optional[str]] = mapped_column(String(50), default="FOB - Free on Board")
     currency: Mapped[Optional[str]] = mapped_column(String(10), default="INR")
@@ -38,7 +38,7 @@ class PurchaseOrder(Base, TimestampMixin):
     po_number: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False) # e.g. 4500001024
     supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=False)
     branch_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("branches.id"), nullable=True)
-    purchasing_org: Mapped[Optional[str]] = mapped_column(String(50), default="PORG-1000") # SAP Purchasing Org
+    purchasing_org: Mapped[Optional[str]] = mapped_column(String(50), default="PORG-1000") # Purchasing Organization
     purchasing_group: Mapped[Optional[str]] = mapped_column(String(50), default="PGRP-001 (Raw Materials)")
     created_by_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     approved_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
@@ -57,7 +57,7 @@ class PurchaseOrderItem(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     purchase_order_id: Mapped[int] = mapped_column(Integer, ForeignKey("purchase_orders.id"), nullable=False)
     product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=False)
-    material_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True) # SAP Material Number
+    material_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True) # Material Code
     product_name: Mapped[str] = mapped_column(String(200), nullable=False)
     quantity_ordered: Mapped[int] = mapped_column(Integer, nullable=False)
     quantity_received: Mapped[int] = mapped_column(Integer, default=0)

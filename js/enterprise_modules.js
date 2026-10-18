@@ -5,7 +5,7 @@
  */
 
 // ══════════════════════════════════════════════════════════════════
-// SECTION 1: PROCUREMENT WORKFLOW (SAP MM-PUR)
+// SECTION 1: PROCUREMENT WORKFLOW (ENTERPRISE PROCUREMENT)
 // ══════════════════════════════════════════════════════════════════
 
 function renderProcurement() {

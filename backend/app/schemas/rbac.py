@@ -1,5 +1,5 @@
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 class PermissionOut(BaseModel):
     id: int
@@ -7,8 +7,7 @@ class PermissionOut(BaseModel):
     module: str
     description: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class RoleOut(BaseModel):
     id: int
@@ -17,8 +16,7 @@ class RoleOut(BaseModel):
     is_system_role: bool
     permissions: List[str] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class RoleCreate(BaseModel):
     name: str

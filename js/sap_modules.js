@@ -1,9 +1,9 @@
 /**
- * NexaERP — SAP Parity Modules
+ * NexaERP — NexaERP Core Modules
  * GST, Purchase Orders, Payroll+HR, Cost Centers, Assets
  */
 
-// ─── ENHANCED ANALYTICS (SAP BI) ─────────────────────────────
+// ─── ENHANCED ANALYTICS (Business Intelligence) ─────────────────────────────
 function renderAnalytics() {
   const totalRev = 142800, totalProfit = 28600;
   const dailyRev = [18200,22450,19800,24100,21300,28500,8420,19100,22300,25400,18900,21700,23400,26100,24500];
@@ -386,7 +386,7 @@ function downloadReport(type) {
 
 function generateReport(type) { previewReport(type); }
 
-// ─── GST MODULE (SAP FI-TX) ──────────────────────────────────
+// ─── GST MODULE (Tax Compliance) ──────────────────────────────────
 function renderGST() {
   const gstData = {
     outward: { taxable:142800, cgst:10710, sgst:10710, igst:0, total:21420 },
@@ -527,7 +527,7 @@ function renderGST() {
   `;
 }
 
-// ─── COST CENTER & BUDGET MODULE (SAP CO) ────────────────────
+// ─── COST CENTER & BUDGET MODULE (Cost Center Accounting) ────────────────────
 function renderCostCenter() {
   const departments = [
     { name:'Purchasing',   budget:80000, actual:74200, icon:'🛒', color:'#6366f1' },
@@ -545,7 +545,7 @@ function renderCostCenter() {
 
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
-      <div><div class="page-heading">Cost Centers & Budget</div><div class="page-meta">SAP CO — Budget vs Actual Tracking</div></div>
+      <div><div class="page-heading">Cost Centers & Budget</div><div class="page-meta">Departmental Budget vs Actual Tracking</div></div>
       <div style="display:flex;gap:var(--space-3)">
         <select class="form-select" style="width:auto"><option>April 2026</option><option>March 2026</option><option>FY 2025-26</option></select>
         <button class="btn btn-primary" onclick="openBudgetModal()">✏️ Edit Budgets</button>
@@ -656,7 +656,7 @@ function saveBudgets() {
   renderCostCenter();
 }
 
-// ─── ASSET MANAGEMENT MODULE (SAP FI-AA) ─────────────────────
+// ─── ASSET MANAGEMENT MODULE (Asset Accounting) ─────────────────────
 function renderAssets() {
   const assets = [
     { id:'FA001', name:'Commercial Freezer (Samsung)', category:'Equipment', purchaseDate:'2023-03-15', cost:48000, life:10, method:'SLM', status:'active' },
@@ -688,7 +688,7 @@ function renderAssets() {
 
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
-      <div><div class="page-heading">Asset Management</div><div class="page-meta">SAP FI-AA — Fixed Asset Register</div></div>
+      <div><div class="page-heading">Asset Management</div><div class="page-meta">Fixed Asset Register</div></div>
       <div style="display:flex;gap:var(--space-3)">
         <button class="btn btn-secondary" onclick="exportCSV([], 'assets.csv');Toast.success('Asset register exported!')">⬇️ Export</button>
         <button class="btn btn-primary" onclick="openAddAssetModal()">+ Add Asset</button>
@@ -805,7 +805,7 @@ function saveAsset() {
   renderAssets();
 }
 
-// ─── ENHANCED PAYROLL MODULE (SAP HCM) ───────────────────────
+// ─── ENHANCED PAYROLL MODULE (HRMS Payroll) ───────────────────────
 function renderPayroll() {
   const body = document.getElementById('page-body');
   body.innerHTML = `
@@ -848,7 +848,7 @@ function showPayrollUI() {
 
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
-      <div><div class="page-heading">Payroll Management (SAP HCM)</div><div class="page-meta">Statutory Reports · Employee Payouts · TDS Compliance</div></div>
+      <div><div class="page-heading">Payroll Management (HRMS Payroll)</div><div class="page-meta">Statutory Reports · Employee Payouts · TDS Compliance</div></div>
       <div style="display:flex;gap:var(--space-3)">
         <select class="form-select" id="payroll-month" style="width:auto"><option>April 2026</option><option>March 2026</option></select>
         <button class="btn btn-secondary" onclick="exportCSV(DemoData.staff, 'payroll_master_report.csv')">📦 Local File...</button>
@@ -972,7 +972,7 @@ function viewPayslip(name, basic, hra, da, pf, esi, tds, net, worked) {
   });
 }
 
-// ─── PURCHASE ORDERS (SAP MM) ────────────────────────────────
+// ─── PURCHASE ORDERS (Materials Management) ────────────────────────────────
 function renderPurchaseOrders() {
   const pos = [
     { id: '4500017777', vendor: 'HUL Suppliers', date: '2026-04-20', total: 42800, status: 'Confirmed', approval: 'Released', branch: 'main' },
@@ -988,7 +988,7 @@ function renderPurchaseOrders() {
       <div><div class="page-heading">Purchasing Documents (MM-PUR)</div><div class="page-meta">Materials Management · Procurement Workflow</div></div>
       <div style="display:flex;gap:var(--space-3)">
         <button class="btn btn-secondary" onclick="exportCSV(pos, 'po_master.csv')">📦 Local File...</button>
-        <button class="btn btn-primary" onclick="openPOSAPModal()">+ Create Purchase Order</button>
+        <button class="btn btn-primary" onclick="openPOModal()">+ Create Purchase Order</button>
       </div>
     </div>
 
@@ -1035,7 +1035,7 @@ function renderPurchaseOrders() {
   `;
 }
 
-function openPOSAPModal() {
+function openPOModal() {
   const modal = Modal.create({
     title: 'Create Standard Purchase Order (ME21N)',
     size: 'lg',
@@ -1091,7 +1091,7 @@ function openPOSAPModal() {
     `}
   ];
 
-  SAP_UI.renderTabs(tabs, 'po-sap-container');
+  NEXA_UI.renderTabs(tabs, 'po-sap-container');
 }
 
 // ─── PERSONNEL & ROLES ────────────────────────────────────────
@@ -1145,7 +1145,7 @@ function renderPersonnel() {
   `;
 }
 
-// ─── APPROVAL WORKFLOW (SAP RELEASE STRATEGY) ────────────────
+// ─── APPROVAL WORKFLOW (MULTI-TIER RELEASE STRATEGY) ────────────────
 function renderApprovals() {
   const requests = [
     { id: 'REL-001', type: 'Purchase Order', document: '4500017778', requester: 'Sita Devi', amount: 15400, priority: 'High', date: '2026-04-24' },
@@ -1219,7 +1219,7 @@ function renderApprovals() {
 function renderExport() {
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
-      <div><div class="page-heading">Export & Data Exchange</div><div class="page-meta">Unified Governance · SAP S/4HANA Compatibility</div></div>
+      <div><div class="page-heading">Export & Data Exchange</div><div class="page-meta">Unified Governance · Enterprise Data Interchange</div></div>
     </div>
 
     <div class="grid grid-3col">

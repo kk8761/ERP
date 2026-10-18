@@ -10,6 +10,9 @@ from app.models.procurement import Supplier, PurchaseOrder, PurchaseOrderItem
 from app.models.finance import Account, JournalEntry, JournalEntryLine, Expense
 from app.models.hr import Employee, Attendance, LeaveRequest, PayrollRecord
 from app.models.disaster_recovery import BackupRecord, TransactionLogEntry, DRDrillExecution, BackupAlert
+from app.models.email_log import OutgoingEmailLog
+from app.models.rag import CompanyKnowledgeDoc
+from app.models.security_incident import ScreenshotIncident
 
 __all__ = [
     "Base",
@@ -47,4 +50,6 @@ __all__ = [
     "TransactionLogEntry",
     "DRDrillExecution",
     "BackupAlert",
+    "CompanyKnowledgeDoc",
+    "ScreenshotIncident",
 ]

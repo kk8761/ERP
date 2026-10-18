@@ -60,6 +60,7 @@ async def list_products(
             reorder_level=p.reorder_level,
             current_stock=p.current_stock,
             image_url=p.image_url,
+            vision_features=p.vision_features,
             is_active=p.is_active,
             status=status_text
         ))
@@ -117,6 +118,7 @@ async def create_product(
         reorder_level=product.reorder_level,
         current_stock=product.current_stock,
         image_url=product.image_url,
+        vision_features=product.vision_features,
         is_active=product.is_active,
         status="In Stock" if product.current_stock > product.reorder_level else "Low Stock"
     )

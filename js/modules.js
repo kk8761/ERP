@@ -20,7 +20,7 @@
       </div>
     </div>
 
-    <!-- SAP Tool Bar -->
+    <!-- Universal Toolbar -->
     <div style="background:var(--color-bg-tertiary); padding: 8px 16px; border-radius: 8px 8px 0 0; border: 1px solid var(--color-border-default); border-bottom: none; display: flex; gap: 20px; align-items: center;">
       <div style="display:flex; gap: 8px; align-items: center;">
         <span class="sap-field-label" style="margin:0">Search:</span>
@@ -480,7 +480,7 @@ function renderSuppliers() {
 
 function openSupplierModal() { Toast.info('Supplier form opening...'); }
 
-// â”€â”€â”€ ACCOUNTING MODULE (SAP-style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€â”€ ACCOUNTING MODULE (Enterprise Standard) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderAccounting() {
   // Compute from DemoData as fallback
   const income  = DemoData.transactions.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
@@ -488,7 +488,7 @@ function renderAccounting() {
 
   document.getElementById('page-body').innerHTML = `
     <div class="page-header">
-      <div><div class="page-heading">Accounting & Ledger</div><div class="page-meta">SAP-style AR/AP Management</div></div>
+      <div><div class="page-heading">Accounting & Ledger</div><div class="page-meta">Enterprise AR/AP Management</div></div>
       <div style="display:flex;gap:var(--space-3)">
         <button class="btn btn-secondary" onclick="exportCSV(DemoData.transactions,'transactions.csv');Toast.success('Exported!')">Export</button>
         <button class="btn btn-primary" onclick="openTransactionModal()">+ Add Transaction</button>

@@ -22,6 +22,8 @@ import PredictiveAIPage from './pages/PredictiveAIPage';
 import BarcodeScannerModal from './components/BarcodeScannerModal';
 import SignatureCaptureModal from './components/SignatureCaptureModal';
 import ActionNotAllowedModal from './components/ActionNotAllowedModal';
+import { initScreenshotGuard } from './services/screenshotGuard';
+import { ShieldAlert, X } from 'lucide-react';
 
 function MainApp() {
   const { user, loading } = useAuth();
@@ -30,6 +32,7 @@ function MainApp() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isSignatureOpen, setIsSignatureOpen] = useState(false);
   const [isRightClickBlocked, setIsRightClickBlocked] = useState(false);
+  const [dlpAlert, setDlpAlert] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('nexaerp_theme') || 'light');
 
   useEffect(() => {
@@ -43,11 +46,53 @@ function MainApp() {
       e.preventDefault();
       setIsRightClickBlocked(true);
     };
+    
+    // Enterprise Security: Intercept DevTools shortcuts (F12, Ctrl+Shift+I/J, Ctrl+U)
+    const handleKeySecurity = (e) => {
+      // F12
+      if (e.key === 'F12' || e.keyCode === 123) {
+        e.preventDefault();
+        setIsRightClickBlocked(true);
+        return;
+      }
+      // Ctrl+Shift+I or Ctrl+Shift+J or Cmd+Alt+I (DevTools Inspect)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j')) {
+        e.preventDefault();
+        setIsRightClickBlocked(true);
+        return;
+      }
+      // Ctrl+U / Cmd+U (View Source)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'U' || e.key === 'u')) {
+        e.preventDefault();
+        setIsRightClickBlocked(true);
+        return;
+      }
+    };
+
     document.addEventListener('contextmenu', handleContextMenu);
+    window.addEventListener('keydown', handleKeySecurity);
     return () => {
       document.removeEventListener('contextmenu', handleContextMenu);
+      window.removeEventListener('keydown', handleKeySecurity);
     };
   }, []);
+
+  // Enterprise Security: Intercept screenshot attempts (PrintScreen, Snipping tool, etc.)
+  useEffect(() => {
+    if (!user) return;
+    const cleanup = initScreenshotGuard((alertData) => {
+      setDlpAlert({
+        actionType: alertData.actionType,
+        timestamp: alertData.timestamp,
+        userName: user?.full_name || 'Employee',
+        userEmail: user?.email || ''
+      });
+      setTimeout(() => {
+        setDlpAlert(null);
+      }, 8000);
+    });
+    return cleanup;
+  }, [user]);
 
   if (loading) {
     return (
@@ -265,6 +310,70 @@ function MainApp() {
         isOpen={isRightClickBlocked}
         onClose={() => setIsRightClickBlocked(false)}
       />
+
+      {/* Floating Real-Time DLP Security Alert Banner */}
+      {dlpAlert && (
+        <div 
+          className="animate-slide-down"
+          style={{
+            position: 'fixed',
+            top: '16px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            backgroundColor: '#0f172a',
+            color: '#ffffff',
+            border: '2px solid #ef4444',
+            borderRadius: '10px',
+            padding: '14px 20px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 0 15px rgba(239, 68, 68, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '14px',
+            maxWidth: '620px',
+            width: '92%'
+          }}
+        >
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '50%',
+            backgroundColor: '#ef4444',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <ShieldAlert size={20} color="#ffffff" />
+          </div>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>DLP SECURITY ALERT: SCREEN CAPTURE DETECTED</span>
+              <span style={{ fontSize: '10px', backgroundColor: 'rgba(239, 68, 68, 0.3)', padding: '1px 6px', borderRadius: '4px' }}>
+                {dlpAlert.actionType}
+              </span>
+            </div>
+            <div style={{ fontSize: '12px', color: '#e2e8f0', marginTop: '2px', lineHeight: 1.4 }}>
+              User <strong>{dlpAlert.userName}</strong> attempted a screen capture at <strong>{dlpAlert.timestamp}</strong>. Evidence image & audit logs have been dispatched to the Administrator.
+            </div>
+          </div>
+
+          <button
+            onClick={() => setDlpAlert(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#94a3b8',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '4px'
+            }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

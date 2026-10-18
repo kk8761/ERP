@@ -1,7 +1,7 @@
 # NexaERP System Architecture
 
 ## 1. Architectural Philosophy & Overview
-NexaERP is engineered as a high-integrity, modular monolith built for enterprise resource planning. It couples a modern asynchronous backend (Python FastAPI + SQLAlchemy 2.0 async + Pydantic v2) with an enterprise frontend designed around the SAP Fiori Horizon visual language (pure React + Vite + Vanilla CSS design tokens).
+NexaERP is engineered as a high-integrity, modular monolith built for enterprise resource planning. It couples a modern asynchronous backend (Python FastAPI + SQLAlchemy 2.0 async + Pydantic v2) with an enterprise frontend designed around the NexaUI Enterprise Design visual language (pure React + Vite + Vanilla CSS design tokens).
 
 Key architectural tenets:
 - **Zero TypeScript Policy**: Built purely in modern JavaScript/JSX and Python 3.14 to eliminate transpile overhead, complex typing artifacts, and compilation mismatches while maintaining strict runtime domain validation with Pydantic.
@@ -16,7 +16,7 @@ Key architectural tenets:
 +--------------------------------------------------------------------------------------------------+
 |                                     Client Browser (React 19)                                    |
 |  - TopNav (Global Search, Branch Switcher, Realtime Clock, Notifications, Profile)               |
-|  - SAP Fiori Dashboard (5 KPIs, Multi-Wave Sales SVG, Expense Donut, Quick Actions Ribbon)     |
+|  - NexaUI Dashboard (5 KPIs, Multi-Wave Sales SVG, Expense Donut, Quick Actions Ribbon)     |
 |  - Modules: POS, Sales, Inventory & Barcodes, Procurement, Finance Ledger, HR & Payroll        |
 |  - Nexa AI Natural Language Assistant (Integrated Drawer)                                        |
 +--------------------------------------------------------------------------------------------------+

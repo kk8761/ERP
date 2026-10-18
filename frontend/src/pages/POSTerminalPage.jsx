@@ -574,15 +574,7 @@ export default function POSTerminalPage({ onNavigate }) {
         </div>
       </div>
 
-      {/* Optical Camera Barcode Scanner Modal */}
-      <BarcodeScannerModal
-        isOpen={showBarcodeModal}
-        onClose={() => setShowBarcodeModal(false)}
-        onBarcodeDetected={(prod) => {
-          addToCart(prod);
-          setShowBarcodeModal(false);
-        }}
-      />
+
 
       {/* POS Customer / Cashier E-Signature Modal */}
       <SignatureCaptureModal
