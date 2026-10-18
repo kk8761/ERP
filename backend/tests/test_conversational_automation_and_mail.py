@@ -61,6 +61,7 @@ async def test_ai_executes_automation_when_details_provided_and_sends_b2b_email(
             db=db,
             prompt=prompt,
             user_name="Karthik",
+            user_email="karthik.reddy@nexaerp.internal",
             organization_id=1,
             organization_name="Nexa Global Enterprises"
         )
@@ -77,12 +78,13 @@ async def test_ai_executes_automation_when_details_provided_and_sends_b2b_email(
         assert po_obj is not None
         assert po_obj.status == "APPROVED"
 
-        # Verify B2B email logged in OutgoingEmailLog
+        # Verify B2B email logged in OutgoingEmailLog with user's login email as sender
         email_res = await db.execute(select(OutgoingEmailLog).where(OutgoingEmailLog.document_reference == po_num))
         email_entry = email_res.scalar_one_or_none()
         assert email_entry is not None
         assert email_entry.document_type == "PURCHASE_ORDER"
         assert email_entry.status in ("SENT", "DELIVERED_SIMULATED")
+        assert email_entry.sender_email == "karthik.reddy@nexaerp.internal"
 
 @pytest.mark.asyncio
 async def test_email_system_status_and_test_dispatch_endpoints(client: AsyncClient, admin_auth_token: str):
@@ -106,10 +108,35 @@ async def test_email_system_status_and_test_dispatch_endpoints(client: AsyncClie
     assert test_data["status"] == "DISPATCHED"
     assert test_data["log_id"] > 0
     assert test_data["recipient"] == "partner.vendor@nexaerp.internal"
+    assert test_data["sender"] is not None
 
-    # 3. List recent emails
+    # 3. List recent emails and confirm sender fields
     list_res = await client.get("/api/procurement/emails", headers=headers)
     assert list_res.status_code == 200
     emails = list_res.json()
     assert len(emails) >= 1
-    assert any(e["recipient_email"] == "partner.vendor@nexaerp.internal" for e in emails)
+    matched = [e for e in emails if e["recipient_email"] == "partner.vendor@nexaerp.internal"]
+    assert len(matched) >= 1
+    assert "sender_email" in matched[0]
+
+@pytest.mark.asyncio
+async def test_user_login_email_is_used_as_sender_for_po_and_pr_emails():
+    """Verify send_business_email sets From/Reply-To to the logged-in user's email."""
+    async with AsyncSessionLocal() as db:
+        test_user_email = "buyer.jane@nexaerp.internal"
+        log = await send_business_email(
+            db=db,
+            recipient_email="supplier.acme@vendor.com",
+            recipient_name="Acme Supplies",
+            document_type="PURCHASE_ORDER",
+            document_reference="PO-TEST-SENDER",
+            subject="Test Sender PO",
+            body_html="<p>Test body</p>",
+            sender_email=test_user_email,
+            sender_name="Jane Buyer"
+        )
+        await db.commit()
+
+        assert log.sender_email == test_user_email
+        assert log.sender_name == "Jane Buyer"
+        assert log.status == "SENT"

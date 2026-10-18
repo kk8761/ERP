@@ -17,6 +17,7 @@ from sqlalchemy import select, func
 from datetime import datetime, timezone
 
 from app.config import settings
+from app.models.auth import User
 from app.models.email_log import OutgoingEmailLog
 from app.services.audit_service import record_audit_log
 
@@ -27,7 +28,8 @@ def _send_smtp_sync(
     from_email: str,
     from_name: str,
     document_type: str,
-    document_reference: str
+    document_reference: str,
+    reply_to: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Synchronous SMTP transmission executed in background thread.
@@ -42,6 +44,7 @@ def _send_smtp_sync(
     msg["X-Mailer"] = "NexaERP Enterprise Mailer v2.1"
     msg["X-ERP-Document-Type"] = document_type
     msg["X-ERP-Document-Ref"] = document_reference
+    msg["Reply-To"] = reply_to or from_email
 
     # Plaintext fallback from HTML
     plain_text = re.sub(r'<[^>]+>', '', body_html).strip()
@@ -66,7 +69,9 @@ def _send_smtp_sync(
         if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
             server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
 
-        server.sendmail(from_email, [recipient_email], msg.as_string())
+        # Use authenticated relay from_email if configured, otherwise sender from_email
+        envelope_from = settings.SMTP_FROM_EMAIL or from_email
+        server.sendmail(envelope_from, [recipient_email], msg.as_string())
         server.quit()
         return {"success": True, "mode": "SMTP_RELAY", "message": f"Successfully delivered via {settings.SMTP_HOST}:{settings.SMTP_PORT}"}
     except Exception as exc:
@@ -81,16 +86,31 @@ async def send_business_email(
     document_reference: str,
     subject: str,
     body_html: str,
-    sent_by_user_id: Optional[int] = None
+    sent_by_user_id: Optional[int] = None,
+    sender_email: Optional[str] = None,
+    sender_name: Optional[str] = None
 ) -> OutgoingEmailLog:
     """
     Enterprise Email Dispatcher:
-    - Transmits real MIME email via configured SMTP relay.
+    - Transmits real MIME email from the logged-in user who created the PO/PR.
+    - Sets Reply-To and From header to the user's login email and name.
     - If in development or unconfigured, performs seamless simulated dispatch.
     - Persists audit record in outgoing_email_logs and security audit trail.
     """
-    from_email = settings.SMTP_FROM_EMAIL
-    from_name = settings.SMTP_FROM_NAME
+    # 1. Resolve sender user identity if sent_by_user_id is provided and sender_email is not specified
+    if not sender_email and sent_by_user_id:
+        try:
+            u_stmt = select(User).where(User.id == sent_by_user_id)
+            u_res = await db.execute(u_stmt)
+            user_obj = u_res.scalar_one_or_none()
+            if user_obj:
+                sender_email = user_obj.email
+                sender_name = user_obj.full_name or user_obj.email
+        except Exception:
+            pass
+
+    from_email = sender_email or settings.SMTP_FROM_EMAIL
+    from_name = sender_name or settings.SMTP_FROM_NAME
 
     # Execute SMTP transmission in background thread
     smtp_result = await asyncio.to_thread(
@@ -101,7 +121,8 @@ async def send_business_email(
         from_email=from_email,
         from_name=from_name,
         document_type=document_type,
-        document_reference=document_reference
+        document_reference=document_reference,
+        reply_to=from_email
     )
 
     delivery_status = "SENT" if smtp_result.get("success") else "FAILED"
@@ -109,6 +130,8 @@ async def send_business_email(
     log_entry = OutgoingEmailLog(
         recipient_email=recipient_email,
         recipient_name=recipient_name or recipient_email,
+        sender_email=from_email,
+        sender_name=from_name,
         document_type=document_type,
         document_reference=document_reference,
         subject=subject,
@@ -127,6 +150,7 @@ async def send_business_email(
         status="SUCCESS" if delivery_status == "SENT" else "FAILURE",
         details={
             "recipient": recipient_email,
+            "sender": from_email,
             "document_type": document_type,
             "reference": document_reference,
             "subject": subject,
@@ -142,10 +166,14 @@ def generate_po_email_template(
     items: List[Dict[str, Any]],
     total_amount: float,
     notes: Optional[str] = None,
-    company_name: str = "Nexa Global Enterprises"
+    company_name: str = "Nexa Global Enterprises",
+    buyer_name: Optional[str] = None,
+    buyer_email: Optional[str] = None
 ) -> Dict[str, str]:
     """Generates standardized professional B2B email template for Purchase Orders."""
     subject = f"[PURCHASE ORDER {po_number}] New Order from {company_name}"
+    contact_email = buyer_email or settings.SMTP_FROM_EMAIL
+    contact_name = buyer_name or "Procurement Officer"
     
     items_rows = "".join([
         f"<tr>"
@@ -173,6 +201,7 @@ def generate_po_email_template(
             <div style="background: #f8fafc; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 16px 0;">
                 <p style="margin: 0; font-size: 13px;"><strong>PO Reference:</strong> {po_number}</p>
                 <p style="margin: 4px 0 0; font-size: 13px;"><strong>Issue Date:</strong> {datetime.now(timezone.utc).strftime('%d %b %Y, %H:%M UTC')}</p>
+                <p style="margin: 4px 0 0; font-size: 13px;"><strong>Authorized Buyer / Requisitioner:</strong> {contact_name} (&lt;a href="mailto:{contact_email}" style="color:#2563eb;"&gt;{contact_email}&lt;/a&gt;)</p>
                 <p style="margin: 4px 0 0; font-size: 13px;"><strong>Payment Terms:</strong> Net 30 Days (Direct NEFT/RTGS)</p>
             </div>
 
@@ -200,8 +229,8 @@ def generate_po_email_template(
             {f"<p style='margin-top: 16px; font-size: 13px; color: #475569;'><strong>Fulfillment Instructions / Memo:</strong> {notes}</p>" if notes else ""}
 
             <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
-                <p style="margin: 0;">Please reply directly with order acknowledgment and shipment tracking details.</p>
-                <p style="margin: 4px 0 0;">Authorized by Procurement Division • {company_name}</p>
+                <p style="margin: 0;">Please reply directly to <strong>{contact_email}</strong> with order acknowledgment and shipment tracking details.</p>
+                <p style="margin: 4px 0 0;">Authorized by {contact_name} • {company_name}</p>
             </div>
         </div>
     </body>
@@ -216,10 +245,15 @@ def generate_pr_email_template(
     quantity: int,
     unit: str = "units",
     urgency_notes: Optional[str] = None,
-    company_name: str = "Nexa Global Enterprises"
+    company_name: str = "Nexa Global Enterprises",
+    requisitioner_name: Optional[str] = None,
+    requisitioner_email: Optional[str] = None
 ) -> Dict[str, str]:
     """Generates standardized professional B2B email template for Purchase Requisitions."""
     subject = f"[PURCHASE REQUISITION {pr_number}] Quotation Request (RFQ) from {company_name}"
+    contact_email = requisitioner_email or settings.SMTP_FROM_EMAIL
+    contact_name = requisitioner_name or "Procurement Officer"
+    
     body_html = f"""
     <!DOCTYPE html>
     <html>
@@ -237,11 +271,12 @@ def generate_pr_email_template(
                 <p style="margin: 0; font-size: 13px;"><strong>Requisition Number:</strong> {pr_number}</p>
                 <p style="margin: 4px 0 0; font-size: 13px;"><strong>Material Description:</strong> {product_name}</p>
                 <p style="margin: 4px 0 0; font-size: 13px;"><strong>Requested Quantity:</strong> {quantity} {unit}</p>
+                <p style="margin: 4px 0 0; font-size: 13px;"><strong>Requisitioner:</strong> {contact_name} (&lt;a href="mailto:{contact_email}" style="color:#2563eb;"&gt;{contact_email}&lt;/a&gt;)</p>
                 {f"<p style='margin: 4px 0 0; font-size: 13px;'><strong>Priority / Notes:</strong> {urgency_notes}</p>" if urgency_notes else ""}
             </div>
 
             <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
-                <p style="margin: 0;">Please reply with your quotation and availability.</p>
+                <p style="margin: 0;">Please reply directly to <strong>{contact_email}</strong> with your quotation and availability.</p>
                 <p style="margin: 4px 0 0;">Procurement & Replenishment Division • {company_name}</p>
             </div>
         </div>

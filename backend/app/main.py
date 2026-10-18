@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from sqlalchemy import text
 from app.config import settings
 from app.database import engine, Base
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -38,6 +39,12 @@ async def lifespan(app: FastAPI):
     # Initialize DB tables automatically on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Safe schema sync for newly added columns in SQLite
+        for col, col_type in [("sender_email", "VARCHAR(150)"), ("sender_name", "VARCHAR(150)")]:
+            try:
+                await conn.execute(text(f"ALTER TABLE outgoing_email_logs ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass # column already exists
     yield
     await engine.dispose()
 

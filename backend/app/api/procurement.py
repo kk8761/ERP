@@ -198,7 +198,9 @@ async def create_purchase_order(
             vendor_name=full_po.supplier.name,
             items=items_payload,
             total_amount=float(full_po.total_amount),
-            notes=full_po.notes
+            notes=full_po.notes,
+            buyer_name=current_user.full_name or current_user.email,
+            buyer_email=current_user.email
         )
         await send_business_email(
             db=db,
@@ -208,7 +210,9 @@ async def create_purchase_order(
             document_reference=full_po.po_number,
             subject=template["subject"],
             body_html=template["body_html"],
-            sent_by_user_id=current_user.id
+            sent_by_user_id=current_user.id,
+            sender_email=current_user.email,
+            sender_name=current_user.full_name or current_user.email
         )
         await db.commit()
 
@@ -302,6 +306,8 @@ async def list_outgoing_emails(
             "id": log.id,
             "recipient_email": log.recipient_email,
             "recipient_name": log.recipient_name,
+            "sender_email": log.sender_email,
+            "sender_name": log.sender_name,
             "document_type": log.document_type,
             "document_reference": log.document_reference,
             "subject": log.subject,
@@ -333,7 +339,9 @@ async def send_test_email(
         vendor_name="Global Test Supplier Ltd.",
         items=sample_items,
         total_amount=4500.0,
-        notes="Automated test dispatch to verify enterprise SMTP delivery."
+        notes="Automated test dispatch to verify enterprise SMTP delivery.",
+        buyer_name=current_user.full_name or current_user.email,
+        buyer_email=current_user.email
     )
     log_entry = await send_business_email(
         db=db,
@@ -343,12 +351,15 @@ async def send_test_email(
         document_reference="TEST-DISPATCH",
         subject=template["subject"],
         body_html=template["body_html"],
-        sent_by_user_id=current_user.id
+        sent_by_user_id=current_user.id,
+        sender_email=current_user.email,
+        sender_name=current_user.full_name or current_user.email
     )
     await db.commit()
     return {
         "status": "DISPATCHED",
         "delivery_status": log_entry.status,
+        "sender": log_entry.sender_email,
         "recipient": target_email,
         "log_id": log_entry.id
     }

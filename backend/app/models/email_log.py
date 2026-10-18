@@ -15,6 +15,8 @@ class OutgoingEmailLog(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     recipient_email: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
     recipient_name: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    sender_email: Mapped[Optional[str]] = mapped_column(String(150), nullable=True, index=True)
+    sender_name: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
     document_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True) # "PURCHASE_ORDER", "PURCHASE_REQUISITION", "GOODS_RECEIPT", "INVOICE"
     document_reference: Mapped[str] = mapped_column(String(100), nullable=False, index=True) # e.g. PO-6C719B, PR-1004
     subject: Mapped[str] = mapped_column(String(255), nullable=False)

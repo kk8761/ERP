@@ -7,6 +7,7 @@ from httpx import AsyncClient, ASGITransport
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.main import app
+from sqlalchemy import text
 from app.database import AsyncSessionLocal, engine, Base
 from app.config import settings
 
@@ -14,6 +15,11 @@ from app.config import settings
 async def setup_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        for col, col_type in [("sender_email", "VARCHAR(150)"), ("sender_name", "VARCHAR(150)")]:
+            try:
+                await conn.execute(text(f"ALTER TABLE outgoing_email_logs ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
     yield
 
 @pytest_asyncio.fixture(scope="function")

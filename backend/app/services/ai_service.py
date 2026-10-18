@@ -308,7 +308,9 @@ async def _try_execute_action(
                     "line_total": float(line_total)
                 }],
                 total_amount=float(line_total),
-                notes=new_po.notes
+                notes=new_po.notes,
+                buyer_name=user_email,
+                buyer_email=user_email
             )
             await send_business_email(
                 db=db,
@@ -318,7 +320,9 @@ async def _try_execute_action(
                 document_reference=po_number,
                 subject=template["subject"],
                 body_html=template["body_html"],
-                sent_by_user_id=user_id
+                sent_by_user_id=user_id,
+                sender_email=user_email,
+                sender_name=user_email
             )
             email_sent = True
 
@@ -403,7 +407,9 @@ async def _try_execute_action(
                 vendor_name=target_supplier.name,
                 product_name=prod_name,
                 quantity=qty,
-                unit=target_prod.unit_of_measure or "units"
+                unit=target_prod.unit_of_measure or "units",
+                requisitioner_name=user_email,
+                requisitioner_email=user_email
             )
             await send_business_email(
                 db=db,
@@ -413,7 +419,9 @@ async def _try_execute_action(
                 document_reference=pr_number,
                 subject=template["subject"],
                 body_html=template["body_html"],
-                sent_by_user_id=user_id
+                sent_by_user_id=user_id,
+                sender_email=user_email,
+                sender_name=user_email
             )
             email_sent = True
 
