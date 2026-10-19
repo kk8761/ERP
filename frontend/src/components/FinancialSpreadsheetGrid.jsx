@@ -213,28 +213,6 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     return () => window.removeEventListener('nexaerp:sync_update', handleSyncUpdate);
   }, []);
 
-  // Register ACDOCA module with global 30-second sync engine
-  useEffect(() => {
-    const unregister = registerModuleSyncProvider('finance_acdoca_spreadsheet', () => {
-      return {
-        rows_count: rows.length,
-        total_debits: totalDebits,
-        total_credits: totalCredits,
-        is_balanced: isBalanced,
-        draft_journal_vouchers: rows.slice(0, 50).map(r => ({
-          id: r.id,
-          doc_no: r.doc_no,
-          gl_account: r.gl_account,
-          debit: r.debit,
-          credit: r.credit,
-          cost_center: r.cost_center,
-          text_memo: r.text_memo
-        }))
-      };
-    });
-    return () => unregister();
-  }, [rows, totalDebits, totalCredits, isBalanced]);
-
   // Column resize start
   const handleColResizeStart = (colId, e) => {
     e.preventDefault();
@@ -330,50 +308,21 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     });
   };
 
-  // Corner handle mouse down to extend selection
-  const handleCornerHandleMouseDown = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingCorner(true);
+  // Excel Engine Core State
+  const [formulaMode, setFormulaMode] = useState(false); // Active when typing/building a formula
+  const [formulaTarget, setFormulaTarget] = useState(null); // { rowIdx, colIdx, colId } target receiving formula
+  const [formulaRefRange, setFormulaRefRange] = useState(null); // { startRow, startCol, endRow, endCol } referenced cells
+  const [isDraggingFormula, setIsDraggingFormula] = useState(false);
+  const [prevCellValue, setPrevCellValue] = useState('');
+  const [editingValue, setEditingValue] = useState('');
 
-    const onMouseMove = (moveEvent) => {
-      const el = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
-      const cellTd = el?.closest('td[data-cell-row]');
-      if (cellTd) {
-        const r = parseInt(cellTd.getAttribute('data-cell-row'), 10);
-        const c = parseInt(cellTd.getAttribute('data-cell-col'), 10);
-        if (!isNaN(r) && !isNaN(c)) {
-          setSelectionRange(prev => ({
-            ...prev,
-            endRow: r,
-            endCol: c
-          }));
-        }
-      }
-    };
-
-    const onMouseUp = () => {
-      setIsDraggingCorner(false);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  };
-
-  // Sync formula input with selected cell
+  // Sync formula bar input with active cell when not actively in formula editing mode
   useEffect(() => {
-    if (selectedCell && rows[selectedCell.rowIdx]) {
+    if (!formulaMode && selectedCell && rows[selectedCell.rowIdx]) {
       const raw = rows[selectedCell.rowIdx][selectedCell.colId] ?? '';
       setFormulaInput(String(raw));
     }
-  }, [selectedCell, rows]);
-
-  // Formula point-and-click cell reference insertion state
-  const [formulaEditRefRange, setFormulaEditRefRange] = useState(null);
-  const [isFormulaPointAndClick, setIsFormulaPointAndClick] = useState(false);
-  const [editingValue, setEditingValue] = useState('');
+  }, [selectedCell, rows, formulaMode]);
 
   // Handle cell selection
   const selectCell = useCallback((rowIdx, colIdx, colId, isShift = false) => {
@@ -396,84 +345,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     }
   }, []);
 
-  // Mouse drag range selection & point-and-click formula cell referencing
-  const handleCellMouseDown = (rowIdx, colIdx, colId, e) => {
-    // Check if user is actively writing an Excel formula (begins with '=' and ends with operator/open parenthesis or is focused)
-    const isFormulaActive = formulaInput.startsWith('=') && (
-      formulaInput.trim() === '=' ||
-      formulaInput.endsWith('(') ||
-      formulaInput.endsWith(',') ||
-      formulaInput.endsWith('+') ||
-      formulaInput.endsWith('-') ||
-      formulaInput.endsWith('*') ||
-      formulaInput.endsWith('/') ||
-      formulaInput.endsWith(':') ||
-      isFormulaPointAndClick ||
-      document.activeElement === formulaInputRef.current
-    );
-
-    if (isFormulaActive) {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsFormulaPointAndClick(true);
-      const coord = `${getColLetter(colIdx)}${rowIdx + 1}`;
-      setFormulaEditRefRange({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
-      setFormulaInput(prev => {
-        const base = prev.replace(/[A-Z]+\d+(:[A-Z]+\d+)?$/, '');
-        return `${base}${coord}`;
-      });
-      return;
-    }
-
-    setIsFormulaPointAndClick(false);
-    setFormulaEditRefRange(null);
-    if (e.shiftKey) {
-      selectCell(rowIdx, colIdx, colId, true);
-    } else {
-      setIsMouseDown(true);
-      selectCell(rowIdx, colIdx, colId, false);
-    }
-  };
-
-  const handleCellMouseEnter = (rowIdx, colIdx) => {
-    if (isFormulaPointAndClick && formulaEditRefRange) {
-      const minR = Math.min(formulaEditRefRange.startRow, rowIdx);
-      const maxR = Math.max(formulaEditRefRange.startRow, rowIdx);
-      const minC = Math.min(formulaEditRefRange.startCol, colIdx);
-      const maxC = Math.max(formulaEditRefRange.startCol, colIdx);
-
-      setFormulaEditRefRange(prev => ({ ...prev, endRow: rowIdx, endCol: colIdx }));
-      const startCoord = `${getColLetter(minC)}${minR + 1}`;
-      const endCoord = `${getColLetter(maxC)}${maxR + 1}`;
-      const rangeStr = startCoord === endCoord ? startCoord : `${startCoord}:${endCoord}`;
-      setFormulaInput(prev => {
-        const base = prev.replace(/[A-Z]+\d+(:[A-Z]+\d+)?$/, '');
-        return `${base}${rangeStr}`;
-      });
-      return;
-    }
-
-    if (isMouseDown) {
-      setSelectionRange(prev => ({
-        ...prev,
-        endRow: rowIdx,
-        endCol: colIdx
-      }));
-    }
-  };
-
-  useEffect(() => {
-    const handleMouseUp = () => {
-      setIsMouseDown(false);
-      if (isFormulaPointAndClick) {
-        setIsFormulaPointAndClick(false);
-      }
-    };
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => window.removeEventListener('mouseup', handleMouseUp);
-  }, [isFormulaPointAndClick]);
-
-  // Cell editing & Formula evaluation
+  // Cell editing & Formula evaluation callback
   const handleCellChange = useCallback((rowIdx, colId, value) => {
     setRows(prev => {
       if (!prev[rowIdx]) return prev;
@@ -497,11 +369,13 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
   }, [accounts, selectedCell]);
 
   // Formula Bar submit / Enter commit
-  const handleFormulaCommit = () => {
-    if (!selectedCell) return;
+  const handleFormulaCommit = useCallback(() => {
+    const target = formulaTarget || selectedCell;
+    if (!target) return;
+
     let finalInput = formulaInput.trim();
 
-    // Auto-close missing parenthesis in Excel formulas e.g. =SUM(AD1:AD8 -> =SUM(AD1:AD8)
+    // Auto-close missing parentheses in formulas e.g. =SUM(AD1:AD8 -> =SUM(AD1:AD8)
     if (finalInput.startsWith('=') && finalInput.includes('(')) {
       const openCount = (finalInput.match(/\(/g) || []).length;
       const closeCount = (finalInput.match(/\)/g) || []).length;
@@ -510,19 +384,190 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
       }
     }
 
-    handleCellChange(selectedCell.rowIdx, selectedCell.colId, finalInput);
+    handleCellChange(target.rowIdx, target.colId, finalInput);
     setFormulaInput(finalInput);
+    setFormulaMode(false);
+    setFormulaTarget(null);
+    setFormulaRefRange(null);
+    setIsDraggingFormula(false);
     setEditingCell(null);
-    setFormulaEditRefRange(null);
-    setIsFormulaPointAndClick(false);
 
-    // Advance selection to row below (classic Excel behavior)
-    const nextRow = Math.min(rows.length - 1, selectedCell.rowIdx + 1);
-    selectCell(nextRow, selectedCell.colIdx, selectedCell.colId);
+    const evalVal = evaluateExcelFormula(finalInput, rows, columns);
+    const displayVal = typeof evalVal === 'number'
+      ? `₹ ${evalVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+      : evalVal;
+
+    setStatusMessage({
+      type: 'success',
+      text: `Formula applied to ${getColLetter(target.colIdx)}${target.rowIdx + 1}: ${finalInput} = ${displayVal}`
+    });
+
+    // Advance selection to row below (classic Excel Enter behavior)
+    const nextRow = Math.min(rows.length - 1, target.rowIdx + 1);
+    selectCell(nextRow, target.colIdx, target.colId);
+  }, [formulaTarget, selectedCell, formulaInput, handleCellChange, rows, columns, selectCell]);
+
+  // Formula Cancel / Escape revert
+  const handleFormulaCancel = useCallback(() => {
+    const target = formulaTarget || selectedCell;
+    if (target) {
+      handleCellChange(target.rowIdx, target.colId, prevCellValue);
+      setFormulaInput(String(prevCellValue));
+    }
+    setFormulaMode(false);
+    setFormulaTarget(null);
+    setFormulaRefRange(null);
+    setIsDraggingFormula(false);
+    setEditingCell(null);
+  }, [formulaTarget, selectedCell, prevCellValue, handleCellChange]);
+
+  // Mouse drag range selection & point-and-click formula cell referencing
+  const handleCellMouseDown = (rowIdx, colIdx, colId, e) => {
+    // If formula mode is active: clicking or dragging selects cell/range references
+    if (formulaMode && formulaTarget) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      setIsDraggingFormula(true);
+      setFormulaRefRange({ startRow: rowIdx, startCol: colIdx, endRow: rowIdx, endCol: colIdx });
+
+      const coord = `${getColLetter(colIdx)}${rowIdx + 1}`;
+      setFormulaInput(prev => {
+        let nextStr;
+        // Check if formula already ends with a cell reference or range e.g. "AD1" or "AD1:AD8"
+        const refRegex = /([A-Z]+\d+(:[A-Z]+\d+)?)$/i;
+        if (refRegex.test(prev)) {
+          // Replace last reference
+          nextStr = prev.replace(refRegex, coord);
+        } else {
+          // Append coordinate
+          nextStr = `${prev}${coord}`;
+        }
+        handleCellChange(formulaTarget.rowIdx, formulaTarget.colId, nextStr);
+        return nextStr;
+      });
+      return;
+    }
+
+    // Normal cell selection
+    if (e.shiftKey) {
+      selectCell(rowIdx, colIdx, colId, true);
+    } else {
+      setIsMouseDown(true);
+      selectCell(rowIdx, colIdx, colId, false);
+    }
+  };
+
+  const handleCellMouseEnter = (rowIdx, colIdx) => {
+    // If dragging formula reference range
+    if (formulaMode && isDraggingFormula && formulaRefRange && formulaTarget) {
+      const minR = Math.min(formulaRefRange.startRow, rowIdx);
+      const maxR = Math.max(formulaRefRange.startRow, rowIdx);
+      const minC = Math.min(formulaRefRange.startCol, colIdx);
+      const maxC = Math.max(formulaRefRange.startCol, colIdx);
+
+      setFormulaRefRange(prev => ({ ...prev, endRow: rowIdx, endCol: colIdx }));
+
+      const startCoord = `${getColLetter(minC)}${minR + 1}`;
+      const endCoord = `${getColLetter(maxC)}${maxR + 1}`;
+      const rangeCoord = startCoord === endCoord ? startCoord : `${startCoord}:${endCoord}`;
+
+      setFormulaInput(prev => {
+        const refRegex = /([A-Z]+\d+(:[A-Z]+\d+)?)$/i;
+        const nextStr = refRegex.test(prev)
+          ? prev.replace(refRegex, rangeCoord)
+          : `${prev}${rangeCoord}`;
+        handleCellChange(formulaTarget.rowIdx, formulaTarget.colId, nextStr);
+        return nextStr;
+      });
+      return;
+    }
+
+    // Normal multi-cell range drag
+    if (isMouseDown) {
+      setSelectionRange(prev => ({
+        ...prev,
+        endRow: rowIdx,
+        endCol: colIdx
+      }));
+    }
+  };
+
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      setIsMouseDown(false);
+      setIsDraggingFormula(false);
+    };
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
+
+  // Excel Corner AutoFill Handle (drag to fill values / formulas down)
+  const handleCornerHandleMouseDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingCorner(true);
+
+    const startRow = selectedCell.rowIdx;
+    const colId = selectedCell.colId;
+    const sourceVal = rows[startRow]?.[colId];
+    let lastRow = startRow;
+
+    const onMouseMove = (moveEvent) => {
+      const el = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+      const cellTd = el?.closest('td[data-cell-row]');
+      if (cellTd) {
+        const r = parseInt(cellTd.getAttribute('data-cell-row'), 10);
+        const c = parseInt(cellTd.getAttribute('data-cell-col'), 10);
+        if (!isNaN(r) && !isNaN(c)) {
+          lastRow = r;
+          setSelectionRange(prev => ({
+            ...prev,
+            endRow: r,
+            endCol: selectedCell.colIdx
+          }));
+        }
+      }
+    };
+
+    const onMouseUp = () => {
+      setIsDraggingCorner(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      if (lastRow > startRow) {
+        setRows(prev => {
+          const next = [...prev];
+          for (let r = startRow + 1; r <= lastRow; r++) {
+            if (next[r]) {
+              let fillVal = sourceVal;
+              // If source is formula, adjust row coordinate offset
+              if (typeof sourceVal === 'string' && sourceVal.startsWith('=')) {
+                const rowDiff = r - startRow;
+                fillVal = sourceVal.replace(/([A-Z]+)(\d+)/g, (_, colLetters, rowNum) => {
+                  const newRowNum = parseInt(rowNum, 10) + rowDiff;
+                  return `${colLetters}${newRowNum}`;
+                });
+              }
+              next[r] = { ...next[r], [colId]: fillVal };
+            }
+          }
+          return next;
+        });
+
+        setStatusMessage({
+          type: 'success',
+          text: `AutoFilled ${lastRow - startRow} cells down column "${selectedCell.colId}".`
+        });
+      }
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
   };
 
   // Smart Excel AutoSum Engine (SUM, AVERAGE, COUNT, MAX, MIN)
-  const applyAutoSum = (funcType = 'SUM') => {
+  const applyAutoSum = useCallback((funcType = 'SUM') => {
     setShowAutoSumMenu(false);
     if (!selectedCell) return;
 
@@ -539,13 +584,14 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     let targetColIdx = colIdx;
     let formulaStr = '';
 
-    if (minR !== maxR || minC !== maxC) {
+    const isMultiRow = minR !== maxR;
+    if (isMultiRow) {
       // Range is selected: e.g. user selected AD1:AD8
       const r1 = `${getColLetter(minC)}${minR + 1}`;
       const r2 = `${getColLetter(maxC)}${maxR + 1}`;
       formulaStr = `=${funcType}(${r1}:${r2})`;
 
-      // Put sum immediately below selected range
+      // Place sum immediately below selected range
       if (maxR + 1 < rows.length) {
         targetRow = maxR + 1;
         targetColId = columns[minC].id;
@@ -576,11 +622,20 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     handleCellChange(targetRow, targetColId, formulaStr);
     selectCell(targetRow, targetColIdx, targetColId);
     setFormulaInput(formulaStr);
+    setFormulaMode(false);
+    setFormulaTarget(null);
+    setFormulaRefRange(null);
+
+    const evalResult = evaluateExcelFormula(formulaStr, rows, columns);
+    const displayResult = typeof evalResult === 'number'
+      ? `₹ ${evalResult.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+      : evalResult;
+
     setStatusMessage({
       type: 'success',
-      text: `Calculated Excel formula ${formulaStr} in cell ${getColLetter(targetColIdx)}${targetRow + 1}.`
+      text: `Calculated Excel formula ${formulaStr} = ${displayResult} in cell ${getColLetter(targetColIdx)}${targetRow + 1}.`
     });
-  };
+  }, [selectedCell, selectionRange, rows, columns, handleCellChange, selectCell]);
 
   // Keyboard navigation & direct typing across cells (Excel behavior)
   const handleKeyDown = useCallback((e) => {
@@ -589,21 +644,40 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
       return;
     }
 
+    // Excel Shortcut: Alt + = triggers AutoSum
+    if (e.altKey && (e.key === '=' || e.key === '+')) {
+      e.preventDefault();
+      applyAutoSum('SUM');
+      return;
+    }
+
     // If currently editing inside inline cell input:
     if (editingCell) {
       if (e.key === 'Enter') {
         e.preventDefault();
-        handleCellChange(editingCell.rowIdx, editingCell.colId, editingValue);
-        setEditingCell(null);
-        selectCell(Math.min(rows.length - 1, selectedCell.rowIdx + 1), selectedCell.colIdx, selectedCell.colId);
+        if (formulaMode) {
+          handleFormulaCommit();
+        } else {
+          handleCellChange(editingCell.rowIdx, editingCell.colId, editingValue);
+          setEditingCell(null);
+          selectCell(Math.min(rows.length - 1, selectedCell.rowIdx + 1), selectedCell.colIdx, selectedCell.colId);
+        }
       } else if (e.key === 'Tab') {
         e.preventDefault();
-        handleCellChange(editingCell.rowIdx, editingCell.colId, editingValue);
-        setEditingCell(null);
-        const nextCol = e.shiftKey ? Math.max(0, selectedCell.colIdx - 1) : Math.min(columns.length - 1, selectedCell.colIdx + 1);
-        selectCell(selectedCell.rowIdx, nextCol, columns[nextCol].id);
+        if (formulaMode) {
+          handleFormulaCommit();
+        } else {
+          handleCellChange(editingCell.rowIdx, editingCell.colId, editingValue);
+          setEditingCell(null);
+          const nextCol = e.shiftKey ? Math.max(0, selectedCell.colIdx - 1) : Math.min(columns.length - 1, selectedCell.colIdx + 1);
+          selectCell(selectedCell.rowIdx, nextCol, columns[nextCol].id);
+        }
       } else if (e.key === 'Escape') {
-        setEditingCell(null);
+        if (formulaMode) {
+          handleFormulaCancel();
+        } else {
+          setEditingCell(null);
+        }
       }
       return;
     }
@@ -630,23 +704,47 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
       newCol = e.shiftKey ? Math.max(0, newCol - 1) : Math.min(numCols - 1, newCol + 1);
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      if (formulaMode) {
+        handleFormulaCommit();
+        return;
+      }
       newRow = e.shiftKey ? Math.max(0, newRow - 1) : Math.min(numRows - 1, newRow + 1);
+    } else if (e.key === 'Escape') {
+      if (formulaMode) {
+        handleFormulaCancel();
+        return;
+      }
     } else if (e.key === 'F2') {
       e.preventDefault();
       const currentVal = rows[selectedCell.rowIdx]?.[selectedCell.colId] ?? '';
+      setPrevCellValue(currentVal);
       setEditingValue(String(currentVal));
       setEditingCell({ rowIdx: selectedCell.rowIdx, colId: selectedCell.colId });
+      if (String(currentVal).startsWith('=')) {
+        setFormulaMode(true);
+        setFormulaTarget(selectedCell);
+      }
       return;
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       handleCellChange(selectedCell.rowIdx, selectedCell.colId, '');
+      setFormulaInput('');
       return;
     } else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
       // Excel Direct Typing: Start typing immediately into selected cell
+      const currentVal = rows[selectedCell.rowIdx]?.[selectedCell.colId] ?? '';
+      setPrevCellValue(currentVal);
       setEditingValue(e.key);
       setEditingCell({ rowIdx: selectedCell.rowIdx, colId: selectedCell.colId });
       handleCellChange(selectedCell.rowIdx, selectedCell.colId, e.key);
       setFormulaInput(e.key);
+
+      // If user typed '=', activate formula mode immediately
+      if (e.key === '=') {
+        setFormulaMode(true);
+        setFormulaTarget({ ...selectedCell });
+        setFormulaRefRange(null);
+      }
       return;
     } else {
       return;
@@ -654,12 +752,12 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
     const nextColId = columns[newCol]?.id || 'debit';
     selectCell(newRow, newCol, nextColId, e.shiftKey && e.key.startsWith('Arrow'));
-  }, [editingCell, editingValue, selectedCell, rows, columns, selectCell, handleCellChange]);
+  }, [editingCell, editingValue, selectedCell, rows, columns, selectCell, handleCellChange, formulaMode, handleFormulaCommit, handleFormulaCancel, applyAutoSum]);
 
   // Global window keyboard listener for Excel shortcuts
   useEffect(() => {
     const onWindowKeyDown = (e) => {
-      // Ignore if focus is in non-grid text input
+      // Ignore if focus is in search input or parameters
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
         if (!e.target.classList.contains('acdoca-cell-input') && !e.target.classList.contains('excel-formula-input')) {
           return;
@@ -840,6 +938,28 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     const colLetter = getColLetter(selectedCell.colIdx);
     return `${colLetter}${selectedCell.rowIdx + 1}`;
   }, [selectedCell]);
+
+  // Register ACDOCA module with global 30-second sync engine
+  useEffect(() => {
+    const unregister = registerModuleSyncProvider('finance_acdoca_spreadsheet', () => {
+      return {
+        rows_count: rows.length,
+        total_debits: totalDebits,
+        total_credits: totalCredits,
+        is_balanced: isBalanced,
+        draft_journal_vouchers: rows.slice(0, 50).map(r => ({
+          id: r.id,
+          doc_no: r.doc_no,
+          gl_account: r.gl_account,
+          debit: r.debit,
+          credit: r.credit,
+          cost_center: r.cost_center,
+          text_memo: r.text_memo
+        }))
+      };
+    });
+    return () => unregister();
+  }, [rows, totalDebits, totalCredits, isBalanced]);
 
   // Post to General Ledger
   const handlePostGeneralLedger = async () => {
@@ -1288,18 +1408,27 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
       {/* 3. MICROSOFT EXCEL FORMULA BAR (fx Bar) */}
       <div className="excel-formula-bar">
-        {/* Name Box: shows active cell reference coordinate e.g. "AD1" */}
-        <div className="excel-name-box" title={`Active Cell: ${activeCellCoord} (${columns[selectedCell.colIdx]?.name || ''})`}>
-          {activeCellCoord}
+        {/* Name Box: shows active cell or range reference coordinate e.g. "AD1" or "AD1:AD8" */}
+        <div
+          className="excel-name-box"
+          title={formulaMode && formulaTarget ? `Formula Target: ${getColLetter(formulaTarget.colIdx)}${formulaTarget.rowIdx + 1}` : `Active Cell: ${activeCellCoord}`}
+        >
+          {formulaMode && formulaTarget
+            ? `${getColLetter(formulaTarget.colIdx)}${formulaTarget.rowIdx + 1}`
+            : (selectionRange.startRow !== selectionRange.endRow || selectionRange.startCol !== selectionRange.endCol)
+              ? `${getColLetter(Math.min(selectionRange.startCol, selectionRange.endCol))}${Math.min(selectionRange.startRow, selectionRange.endRow) + 1}:${getColLetter(Math.max(selectionRange.startCol, selectionRange.endCol))}${Math.max(selectionRange.startRow, selectionRange.endRow) + 1}`
+              : activeCellCoord}
         </div>
 
         {/* Function Button (fx) */}
         <button
           onClick={() => {
-            if (!formulaInput.startsWith('=')) {
-              setFormulaInput('=SUM(');
-              formulaInputRef.current?.focus();
-            }
+            if (!selectedCell) return;
+            setFormulaMode(true);
+            setFormulaTarget({ ...selectedCell });
+            setFormulaInput('=SUM(');
+            handleCellChange(selectedCell.rowIdx, selectedCell.colId, '=SUM(');
+            formulaInputRef.current?.focus();
           }}
           className="excel-fx-btn"
           title="Insert Function (fx)"
@@ -1314,15 +1443,33 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
             type="text"
             value={formulaInput}
             placeholder="Type value or formula (e.g. =SUM(AD1:AD12), =AD1*0.18, =AVERAGE(AD1:AD8))..."
+            onFocus={() => {
+              if (formulaInput.startsWith('=')) {
+                setFormulaMode(true);
+                setFormulaTarget({ ...selectedCell });
+              }
+            }}
             onChange={(e) => {
-              setFormulaInput(e.target.value);
-              if (selectedCell) {
-                handleCellChange(selectedCell.rowIdx, selectedCell.colId, e.target.value);
+              const val = e.target.value;
+              setFormulaInput(val);
+              if (val.startsWith('=')) {
+                setFormulaMode(true);
+                setFormulaTarget({ ...selectedCell });
+              } else {
+                setFormulaMode(false);
+                setFormulaRefRange(null);
+              }
+              const target = formulaTarget || selectedCell;
+              if (target) {
+                handleCellChange(target.rowIdx, target.colId, val);
               }
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 handleFormulaCommit();
+                e.currentTarget.blur();
+              } else if (e.key === 'Escape') {
+                handleFormulaCancel();
                 e.currentTarget.blur();
               }
             }}
@@ -1330,16 +1477,23 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
           />
 
           {formulaInput.startsWith('=') && (
-            <div style={{ position: 'absolute', right: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <div style={{ position: 'absolute', right: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span className="excel-formula-preview">
                 = {evaluateExcelFormula(formulaInput, rows, columns)}
               </span>
               <button
                 onClick={handleFormulaCommit}
                 style={{ background: 'none', border: 'none', color: '#107c41', cursor: 'pointer', padding: '1px' }}
-                title="Commit Formula"
+                title="Commit Formula (Enter)"
               >
                 <Check size={14} />
+              </button>
+              <button
+                onClick={handleFormulaCancel}
+                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '1px' }}
+                title="Cancel Formula (Esc)"
+              >
+                <X size={14} />
               </button>
             </div>
           )}
@@ -1368,7 +1522,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
       {/* 4. DENSE ENTERPRISE ACDOCA MATRIX TABLE WITH EXCEL CELL SELECTION & RESIZABLE CELLS */}
       <div className="acdoca-table-scroll">
-        <table className="acdoca-table">
+        <table className={`acdoca-table ${isMouseDown ? 'is-selecting' : ''}`}>
           <thead className="acdoca-thead">
             <tr>
               {/* Row Selector Header */}
@@ -1513,28 +1667,29 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
               const minC = Math.min(selectionRange.startCol, selectionRange.endCol);
               const maxC = Math.max(selectionRange.startCol, selectionRange.endCol);
 
-              const isRowSelected = (rIdx >= minR && rIdx <= maxR) || selectedCell.rowIdx === rIdx;
+              const isFullRowSelected = selectionRange.startCol === 0 && selectionRange.endCol === columns.length - 1 && rIdx >= minR && rIdx <= maxR;
+              const isRowHeaderSelected = (rIdx >= minR && rIdx <= maxR) || selectedCell.rowIdx === rIdx;
               const rowHeight = rowHeights[rIdx] || 28;
 
               return (
                 <tr
                   key={row.id || rIdx}
-                  className={`acdoca-tr ${isRowSelected ? 'selected' : ''}`}
+                  className={`acdoca-tr ${isFullRowSelected ? 'row-header-selected' : ''}`}
                   style={{ height: `${rowHeight}px` }}
                 >
                   {/* Row Number Header (Excel 1, 2, 3...) with Highlight and Height Resizer */}
                   <td
-                    className={`acdoca-td ${isRowSelected ? 'excel-row-num-selected' : ''}`}
+                    className={`acdoca-td ${isRowHeaderSelected ? 'excel-row-num-selected' : ''}`}
                     style={{
                       textAlign: 'center',
-                      background: isRowSelected ? '#dcfce7' : '#f1f5f9',
+                      background: isRowHeaderSelected ? '#dcfce7' : '#f1f5f9',
                       width: '36px',
                       minWidth: '36px',
                       maxWidth: '36px',
                       height: `${rowHeight}px`,
                       userSelect: 'none',
                       fontWeight: 700,
-                      color: isRowSelected ? '#166534' : '#64748b',
+                      color: isRowHeaderSelected ? '#166534' : '#64748b',
                       position: 'relative'
                     }}
                     onClick={() => {
@@ -1570,6 +1725,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                     const isCellSelected = selectedCell.rowIdx === rIdx && selectedCell.colIdx === colIdx;
                     const inRange = isCellInRange(rIdx, colIdx);
                     const isBeingEdited = editingCell && editingCell.rowIdx === rIdx && editingCell.colId === col.id;
+                    const isFormulaTarget = formulaMode && formulaTarget?.rowIdx === rIdx && formulaTarget?.colIdx === colIdx;
 
                     const isMultiCellRange = minR !== maxR || minC !== maxC;
                     const isRangeTop = inRange && isMultiCellRange && rIdx === minR;
@@ -1584,11 +1740,11 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                       isRangeRight ? 'excel-range-right' : ''
                     ].filter(Boolean).join(' ');
 
-                    const isCellInFormulaRef = formulaEditRefRange &&
-                      rIdx >= Math.min(formulaEditRefRange.startRow, formulaEditRefRange.endRow) &&
-                      rIdx <= Math.max(formulaEditRefRange.startRow, formulaEditRefRange.endRow) &&
-                      colIdx >= Math.min(formulaEditRefRange.startCol, formulaEditRefRange.endCol) &&
-                      colIdx <= Math.max(formulaEditRefRange.startCol, formulaEditRefRange.endCol);
+                    const isCellInFormulaRef = formulaRefRange &&
+                      rIdx >= Math.min(formulaRefRange.startRow, formulaRefRange.endRow) &&
+                      rIdx <= Math.max(formulaRefRange.startRow, formulaRefRange.endRow) &&
+                      colIdx >= Math.min(formulaRefRange.startCol, formulaRefRange.endCol) &&
+                      colIdx <= Math.max(formulaRefRange.startCol, formulaRefRange.endCol);
 
                     const tdClass =
                       col.group === 'cyan' ? 'acdoca-td-cyan' :
@@ -1612,10 +1768,15 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                         onMouseEnter={() => handleCellMouseEnter(rIdx, colIdx)}
                         onDoubleClick={() => {
                           const currentVal = rawVal ?? '';
+                          setPrevCellValue(currentVal);
                           setEditingValue(String(currentVal));
                           setEditingCell({ rowIdx: rIdx, colId: col.id });
+                          if (String(currentVal).startsWith('=')) {
+                            setFormulaMode(true);
+                            setFormulaTarget({ rowIdx: rIdx, colIdx, colId: col.id });
+                          }
                         }}
-                        className={`acdoca-td ${tdClass} ${isCellSelected ? 'excel-cell-active' : ''} ${inRange && !isCellSelected ? 'excel-cell-in-range' : ''} ${rangeEdgeClasses} ${isCellInFormulaRef ? 'excel-formula-reference-cell' : ''}`}
+                        className={`acdoca-td ${tdClass} ${isCellSelected ? 'excel-cell-active' : ''} ${isFormulaTarget ? 'excel-formula-target-cell' : ''} ${inRange && !isCellSelected ? 'excel-cell-in-range' : ''} ${rangeEdgeClasses} ${isCellInFormulaRef ? 'excel-formula-reference-cell' : ''}`}
                         title={`${getColLetter(colIdx)}${rIdx + 1} (${col.name}): ${isFormula ? `${rawVal} = ${evaluatedVal}` : rawVal}`}
                       >
                         {isBeingEdited ? (
@@ -1624,27 +1785,47 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                             autoFocus
                             value={editingValue}
                             onChange={(e) => {
-                              setEditingValue(e.target.value);
-                              setFormulaInput(e.target.value);
+                              const val = e.target.value;
+                              setEditingValue(val);
+                              setFormulaInput(val);
+                              if (val.startsWith('=')) {
+                                setFormulaMode(true);
+                                setFormulaTarget({ rowIdx: rIdx, colIdx, colId: col.id });
+                              }
+                              handleCellChange(rIdx, col.id, val);
                             }}
                             onBlur={() => {
-                              handleCellChange(rIdx, col.id, editingValue);
-                              setEditingCell(null);
+                              if (!formulaMode) {
+                                handleCellChange(rIdx, col.id, editingValue);
+                                setEditingCell(null);
+                              }
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
-                                handleCellChange(rIdx, col.id, editingValue);
-                                setEditingCell(null);
-                                selectCell(Math.min(rows.length - 1, rIdx + 1), colIdx, col.id);
+                                if (formulaMode) {
+                                  handleFormulaCommit();
+                                } else {
+                                  handleCellChange(rIdx, col.id, editingValue);
+                                  setEditingCell(null);
+                                  selectCell(Math.min(rows.length - 1, rIdx + 1), colIdx, col.id);
+                                }
                               } else if (e.key === 'Tab') {
                                 e.preventDefault();
-                                handleCellChange(rIdx, col.id, editingValue);
-                                setEditingCell(null);
-                                const nextColIdx = e.shiftKey ? Math.max(0, colIdx - 1) : Math.min(columns.length - 1, colIdx + 1);
-                                selectCell(rIdx, nextColIdx, columns[nextColIdx]?.id);
+                                if (formulaMode) {
+                                  handleFormulaCommit();
+                                } else {
+                                  handleCellChange(rIdx, col.id, editingValue);
+                                  setEditingCell(null);
+                                  const nextColIdx = e.shiftKey ? Math.max(0, colIdx - 1) : Math.min(columns.length - 1, colIdx + 1);
+                                  selectCell(rIdx, nextColIdx, columns[nextColIdx]?.id);
+                                }
                               } else if (e.key === 'Escape') {
-                                setEditingCell(null);
+                                if (formulaMode) {
+                                  handleFormulaCancel();
+                                } else {
+                                  setEditingCell(null);
+                                }
                               }
                             }}
                             className="acdoca-cell-input"
@@ -1664,7 +1845,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                               alignItems: 'center',
                               justifyContent: col.align === 'right' ? 'flex-end' : col.align === 'center' ? 'center' : 'flex-start',
                               padding: '2px 6px',
-                              cursor: 'cell',
+                              cursor: formulaMode ? 'crosshair' : 'cell',
                               position: 'relative',
                               overflow: 'hidden',
                               whiteSpace: 'nowrap',
@@ -1685,11 +1866,11 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                             </span>
 
                             {/* Excel Corner Drag Handle (extend cell/selection) */}
-                            {isCellSelected && (
+                            {isCellSelected && !formulaMode && (
                               <div
                                 className="excel-corner-handle"
                                 onMouseDown={handleCornerHandleMouseDown}
-                                title="AutoFill handle: Drag to extend selection"
+                                title="AutoFill handle: Drag down to copy/fill formulas & values"
                               />
                             )}
                           </div>

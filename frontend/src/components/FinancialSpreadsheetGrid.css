@@ -381,12 +381,11 @@
 }
 
 .acdoca-tr:hover {
-  filter: brightness(0.96);
+  filter: brightness(0.97);
 }
 
-.acdoca-tr.selected {
-  outline: 2px solid #0284c7;
-  outline-offset: -2px;
+.acdoca-tr.row-header-selected {
+  background-color: rgba(16, 124, 65, 0.08) !important;
 }
 
 .acdoca-td {
@@ -752,32 +751,71 @@
 }
 
 .excel-range-top {
-  border-top: 1.5px solid #107c41 !important;
+  border-top: 2px solid #107c41 !important;
 }
 
 .excel-range-bottom {
-  border-bottom: 1.5px solid #107c41 !important;
+  border-bottom: 2px solid #107c41 !important;
 }
 
 .excel-range-left {
-  border-left: 1.5px solid #107c41 !important;
+  border-left: 2px solid #107c41 !important;
 }
 
 .excel-range-right {
-  border-right: 1.5px solid #107c41 !important;
+  border-right: 2px solid #107c41 !important;
 }
 
 [data-theme="dark"] .excel-cell-in-range {
   background-color: rgba(52, 211, 153, 0.18) !important;
 }
 
-/* Formula Marching Ants Reference Highlight */
+/* Formula Marching Ants / Dashed Reference Highlight */
+@keyframes excelAntsPulse {
+  0% {
+    outline-color: #0284c7;
+    background-color: rgba(2, 132, 199, 0.14);
+  }
+  50% {
+    outline-color: #38bdf8;
+    background-color: rgba(2, 132, 199, 0.22);
+  }
+  100% {
+    outline-color: #0284c7;
+    background-color: rgba(2, 132, 199, 0.14);
+  }
+}
+
 .excel-formula-reference-cell {
   outline: 2px dashed #0284c7 !important;
   outline-offset: -2px;
-  background-color: rgba(2, 132, 199, 0.14) !important;
   position: relative;
-  z-index: 4;
+  z-index: 6;
+  animation: excelAntsPulse 1.2s ease-in-out infinite;
+}
+
+/* Formula Target Cell (The cell receiving the formula) */
+.excel-formula-target-cell {
+  outline: 2px solid #107c41 !important;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 3px rgba(16, 124, 65, 0.25) !important;
+  background-color: #ffffff !important;
+  position: relative;
+  z-index: 7;
+}
+
+[data-theme="dark"] .excel-formula-target-cell {
+  background-color: #1e293b !important;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.25) !important;
+}
+
+/* Prevent native browser text selection during cell dragging */
+.acdoca-table.is-selecting,
+.acdoca-table.is-selecting td,
+.acdoca-table.is-selecting th,
+.acdoca-table.is-selecting span {
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 /* Corner Handle for active cell */

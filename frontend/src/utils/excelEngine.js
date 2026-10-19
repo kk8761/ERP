@@ -53,9 +53,16 @@ export function evaluateExcelFormula(formulaStr, allRows, allCols, visited = new
       if (foundCol) {
         return allRows.map(r => {
           const raw = r[foundCol.id];
-          return typeof raw === 'string' && raw.startsWith('=')
-            ? parseFloat(evaluateExcelFormula(raw, allRows, allCols, new Set([...visited, trimmed]))) || 0
-            : parseFloat(raw) || 0;
+          if (typeof raw === 'string' && raw.startsWith('=')) {
+            const evalVal = evaluateExcelFormula(raw, allRows, allCols, new Set([...visited, trimmed]));
+            return typeof evalVal === 'number' ? evalVal : (parseFloat(String(evalVal).replace(/[^\d.-]/g, '')) || 0);
+          }
+          if (typeof raw === 'number') return raw;
+          if (typeof raw === 'string') {
+            const clean = raw.replace(/[^\d.-]/g, '');
+            return clean !== '' && !isNaN(Number(clean)) ? parseFloat(clean) : 0;
+          }
+          return 0;
         });
       }
       return 0;
@@ -75,19 +82,32 @@ export function evaluateExcelFormula(formulaStr, allRows, allCols, visited = new
       if (typeof raw === 'string' && raw.startsWith('=')) {
         const nextVisited = new Set([...visited, cellKey]);
         const evalVal = evaluateExcelFormula(raw, allRows, allCols, nextVisited);
-        return parseFloat(evalVal) || 0;
+        return typeof evalVal === 'number' ? evalVal : (parseFloat(String(evalVal).replace(/[^\d.-]/g, '')) || 0);
       }
-      return parseFloat(raw) || 0;
+      if (typeof raw === 'number') return raw;
+      if (typeof raw === 'string') {
+        const clean = raw.replace(/[^\d.-]/g, '');
+        if (clean !== '' && !isNaN(Number(clean))) {
+          return parseFloat(clean);
+        }
+        return raw;
+      }
+      return raw ?? 0;
     }
     return 0;
   };
+
+  // Direct single cell reference like "=AD1" or "=C2"
+  if (/^[A-Z]+\d+$/i.test(expr)) {
+    return getCellValue(expr);
+  }
 
   // Resolve cell range e.g. "AD1:AD12" or "A1:B3"
   const getRangeValues = (rangeStr) => {
     const parts = rangeStr.split(':').map(p => p.trim());
     if (parts.length === 1) {
       const single = getCellValue(parts[0]);
-      return Array.isArray(single) ? single : [single];
+      return Array.isArray(single) ? single : [typeof single === 'number' ? single : (parseFloat(String(single).replace(/[^\d.-]/g, '')) || 0)];
     }
 
     const m1 = parts[0].toUpperCase().match(/^([A-Z]+)(\d+)$/);
@@ -115,10 +135,14 @@ export function evaluateExcelFormula(formulaStr, allRows, allCols, visited = new
           if (typeof raw === 'string' && raw.startsWith('=')) {
             if (!visited.has(cellKey)) {
               const nextVisited = new Set([...visited, cellKey]);
-              num = parseFloat(evaluateExcelFormula(raw, allRows, allCols, nextVisited)) || 0;
+              const evalVal = evaluateExcelFormula(raw, allRows, allCols, nextVisited);
+              num = typeof evalVal === 'number' ? evalVal : (parseFloat(String(evalVal).replace(/[^\d.-]/g, '')) || 0);
             }
-          } else {
-            num = parseFloat(raw) || 0;
+          } else if (typeof raw === 'number') {
+            num = raw;
+          } else if (typeof raw === 'string') {
+            const clean = raw.replace(/[^\d.-]/g, '');
+            num = clean !== '' && !isNaN(Number(clean)) ? parseFloat(clean) : 0;
           }
           values.push(num);
         }
@@ -134,7 +158,7 @@ export function evaluateExcelFormula(formulaStr, allRows, allCols, visited = new
     let total = 0;
     args.forEach(arg => {
       const vals = getRangeValues(arg);
-      vals.forEach(v => total += v);
+      vals.forEach(v => total += (typeof v === 'number' ? v : 0));
     });
     return total;
   }
@@ -198,10 +222,12 @@ export function evaluateExcelFormula(formulaStr, allRows, allCols, visited = new
       return typeof val === 'number' ? val : 0;
     });
 
-    if (/^[\d\s+\-*/().%]+$/.test(parsedMath)) {
+    let sanitizedMath = parsedMath.replace(/(\d+(?:\.\d+)?)%/g, '($1 * 0.01)');
+
+    if (/^[\d\s+\-*/().]+$/.test(sanitizedMath)) {
       // Safe mathematical calculation
       // eslint-disable-next-line no-new-func
-      const calcResult = Function(`"use strict"; return (${parsedMath})`)();
+      const calcResult = Function(`"use strict"; return (${sanitizedMath})`)();
       return isNaN(calcResult) || !isFinite(calcResult) ? 0 : calcResult;
     }
   } catch {
