@@ -295,35 +295,6 @@ async def verify_2fa(
         )
     )
 
-@router.get("/mfa/demo-code/{temp_token}")
-async def get_demo_authenticator_code(
-    temp_token: str,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Helper for demonstration & developer convenience:
-    Returns the current 6-digit TOTP code for the user in the challenge session.
-    """
-    try:
-        payload = decode_token(temp_token)
-        if not payload or payload.get("type") != "mfa_challenge":
-            raise HTTPException(status_code=400, detail="Invalid challenge token")
-        user_id = int(payload.get("sub"))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid challenge token")
-
-    res = await db.execute(select(User).where(User.id == user_id))
-    user = res.scalar_one_or_none()
-    if not user or not user.mfa_secret:
-        raise HTTPException(status_code=404, detail="MFA not initialized")
-
-    totp = pyotp.TOTP(user.mfa_secret)
-    current_code = totp.now()
-    return {
-        "current_code": current_code,
-        "seconds_remaining": 30 - (int(datetime.now(timezone.utc).timestamp()) % 30),
-        "secret": user.mfa_secret
-    }
 
 @router.post("/mfa/refresh-qr/{temp_token}")
 async def refresh_mfa_qr(

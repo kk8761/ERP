@@ -33,7 +33,6 @@ export default function LoginPage() {
   const [mfaData, setMfaData] = useState(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [copiedKey, setCopiedKey] = useState(false);
-  const [autofilling, setAutofilling] = useState(false);
   const [showQrCode, setShowQrCode] = useState(true);
   const [refreshingQr, setRefreshingQr] = useState(false);
 
@@ -133,25 +132,6 @@ export default function LoginPage() {
     }
   };
 
-  const handleQuickAutofill = async () => {
-    if (!mfaData?.temp_token) return;
-    setAutofilling(true);
-    setError('');
-    try {
-      const res = await fetch(`/api/auth/mfa/demo-code/${mfaData.temp_token}`);
-      if (res.ok) {
-        const data = await res.json();
-        setTwoFactorCode(data.current_code);
-        await executeVerification(mfaData.temp_token, data.current_code);
-      } else {
-        setError('Demo code generator not available for this session.');
-      }
-    } catch (err) {
-      setError('Could not fetch demo code: ' + err.message);
-    } finally {
-      setAutofilling(false);
-    }
-  };
 
   const handleDemoLogin = (demoEmail, demoPass) => {
     setEmail(demoEmail);
@@ -667,28 +647,6 @@ export default function LoginPage() {
                 {!loading && <ArrowRight size={16} />}
               </button>
 
-              {/* Developer / Demo Quick-fill button */}
-              <button
-                type="button"
-                onClick={handleQuickAutofill}
-                disabled={autofilling || loading}
-                className="btn btn-ghost"
-                style={{
-                  fontSize: '12px',
-                  color: '#0284c7',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  padding: '8px',
-                  backgroundColor: '#f0f9ff',
-                  border: '1px dashed #bae6fd',
-                  borderRadius: 'var(--radius-sm)'
-                }}
-              >
-                <RotateCcw size={13} className={autofilling ? 'animate-spin' : ''} />
-                <span>{autofilling ? 'Retrieving code & logging in...' : '1-Click Autofill Code & Enter Console (Demo Testing)'}</span>
-              </button>
 
               <button
                 type="button"
