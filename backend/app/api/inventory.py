@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,6 +144,45 @@ async def adjust_stock(
         entity_id=str(adj.product_id), user_id=current_user.id,
         user_email=current_user.email, status="SUCCESS",
         details={"type": adj.adjustment_type, "qty": adj.quantity, "new_stock": movement.new_stock}
+    )
+    await db.commit()
+    return {"message": "Inventory successfully adjusted", "new_stock": movement.new_stock}
+
+class ProductSpecificAdjustmentIn(BaseModel):
+    quantity_delta: Optional[int] = None
+    quantity: Optional[int] = None
+    movement_type: Optional[str] = None
+    adjustment_type: Optional[str] = None
+    notes: Optional[str] = None
+
+@router.post("/products/{product_id}/adjust")
+async def adjust_specific_product_stock(
+    product_id: int,
+    adj: ProductSpecificAdjustmentIn,
+    current_user: User = Depends(require_permission("inventory.adjust")),
+    db: AsyncSession = Depends(get_db)
+):
+    if adj.quantity_delta is not None:
+        qty = adj.quantity_delta
+        m_type = adj.movement_type or ("ADJUSTMENT_IN" if qty > 0 else "ADJUSTMENT_OUT")
+    else:
+        q = adj.quantity if adj.quantity is not None else 1
+        m_type = adj.movement_type or adj.adjustment_type or "ADJUSTMENT_IN"
+        qty = q if m_type == "ADJUSTMENT_IN" else -abs(q)
+
+    movement = await adjust_product_stock(
+        db=db,
+        product_id=product_id,
+        quantity_change=qty,
+        movement_type=m_type,
+        user_id=current_user.id,
+        notes=adj.notes or "Manual inventory audit adjustment"
+    )
+    await record_audit_log(
+        db, action="INVENTORY_ADJUSTMENT", entity_name="Product",
+        entity_id=str(product_id), user_id=current_user.id,
+        user_email=current_user.email, status="SUCCESS",
+        details={"type": m_type, "qty_delta": qty, "new_stock": movement.new_stock}
     )
     await db.commit()
     return {"message": "Inventory successfully adjusted", "new_stock": movement.new_stock}

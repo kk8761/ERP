@@ -199,19 +199,28 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
     e.preventDefault();
     if (!adjustTarget) return;
     try {
-      await apiRequest(`/api/inventory/products/${adjustTarget.id}/adjust`, {
+      const qtyNum = parseInt(adjustQty, 10);
+      if (isNaN(qtyNum) || qtyNum <= 0) {
+        alert("Please enter a valid positive quantity to adjust.");
+        return;
+      }
+      const adjType = adjustType === 'RETURN' ? 'ADJUSTMENT_IN' : adjustType;
+      await apiRequest('/api/inventory/adjust', {
         method: 'POST',
         body: JSON.stringify({
-          quantity_delta: adjustType === 'ADJUSTMENT_IN' ? Math.abs(parseInt(adjustQty)) : -Math.abs(parseInt(adjustQty)),
-          movement_type: adjustType,
-          notes: adjustNotes || 'Physical Inventory Count Adjustment'
+          product_id: adjustTarget.id,
+          adjustment_type: adjType,
+          quantity: qtyNum,
+          notes: adjustNotes || `Physical inventory count adjustment for ${adjustTarget.name}`
         })
       });
       setShowAdjustModal(false);
       setAdjustTarget(null);
+      setAdjustQty(1);
+      setAdjustNotes('');
       loadInventory();
     } catch (err) {
-      alert(err.message);
+      alert(err.message || 'Error adjusting inventory');
     }
   };
 
