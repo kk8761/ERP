@@ -708,32 +708,89 @@
 }
 
 /* Cell Selection & Range Highlighting */
+.excel-th-selected {
+  background: #dcfce7 !important;
+  color: #166534 !important;
+  border-bottom: 2px solid #107c41 !important;
+  font-weight: 700 !important;
+}
+
+.excel-th-selected .excel-col-letter {
+  color: #15803d !important;
+  font-weight: 800 !important;
+}
+
+.excel-row-num-selected {
+  background: #dcfce7 !important;
+  color: #166534 !important;
+  border-right: 2px solid #107c41 !important;
+  font-weight: 800 !important;
+}
+
+[data-theme="dark"] .excel-th-selected,
+[data-theme="dark"] .excel-row-num-selected {
+  background: rgba(22, 101, 52, 0.4) !important;
+  color: #4ade80 !important;
+}
+
+/* Active Cell Focus (Green Excel border) */
 .excel-cell-active {
   outline: 2px solid #107c41 !important;
   outline-offset: -2px;
   position: relative;
-  z-index: 4;
+  z-index: 5;
+  background-color: #ffffff !important;
 }
 
+[data-theme="dark"] .excel-cell-active {
+  background-color: #1e293b !important;
+}
+
+/* Multi-Cell Range Selection */
 .excel-cell-in-range {
-  background-color: rgba(16, 124, 65, 0.16) !important;
+  background-color: rgba(16, 124, 65, 0.12) !important;
+}
+
+.excel-range-top {
+  border-top: 1.5px solid #107c41 !important;
+}
+
+.excel-range-bottom {
+  border-bottom: 1.5px solid #107c41 !important;
+}
+
+.excel-range-left {
+  border-left: 1.5px solid #107c41 !important;
+}
+
+.excel-range-right {
+  border-right: 1.5px solid #107c41 !important;
 }
 
 [data-theme="dark"] .excel-cell-in-range {
-  background-color: rgba(52, 211, 153, 0.2) !important;
+  background-color: rgba(52, 211, 153, 0.18) !important;
+}
+
+/* Formula Marching Ants Reference Highlight */
+.excel-formula-reference-cell {
+  outline: 2px dashed #0284c7 !important;
+  outline-offset: -2px;
+  background-color: rgba(2, 132, 199, 0.14) !important;
+  position: relative;
+  z-index: 4;
 }
 
 /* Corner Handle for active cell */
 .excel-corner-handle {
   position: absolute;
-  bottom: -2px;
-  right: -2px;
-  width: 6px;
-  height: 6px;
+  bottom: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
   background-color: #107c41;
   border: 1px solid #ffffff;
   cursor: crosshair;
-  z-index: 6;
+  z-index: 10;
 }
 
 /* Live Excel Quick Metrics in Footer */
