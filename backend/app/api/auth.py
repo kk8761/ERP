@@ -220,10 +220,10 @@ async def verify_2fa(
             detail="User account not found, deactivated, or unconfigured."
         )
 
-    # 3. Verify TOTP 6-digit Code (with +/- 1 step tolerance for clock drift)
+    # 3. Verify TOTP 6-digit Code (with +/- 2 step tolerance for clock drift)
     clean_code = payload.code.strip().replace(" ", "").replace("-", "")
     totp = pyotp.TOTP(user.mfa_secret)
-    is_valid = totp.verify(clean_code, valid_window=1)
+    is_valid = totp.verify(clean_code, valid_window=2)
 
     if not is_valid:
         await record_audit_log(
@@ -374,11 +374,13 @@ async def logout(
     # Revoke current token
     jti = getattr(current_user, "current_token_jti", None)
     if jti:
-        revoked = RevokedToken(
-            token_jti=jti,
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        )
-        db.add(revoked)
+        existing = await db.scalar(select(RevokedToken).where(RevokedToken.token_jti == jti))
+        if not existing:
+            revoked = RevokedToken(
+                token_jti=jti,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+            )
+            db.add(revoked)
 
     # Clear cookie
     response.delete_cookie(key=settings.SESSION_COOKIE_NAME)

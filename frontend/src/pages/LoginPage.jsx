@@ -69,22 +69,34 @@ export default function LoginPage() {
     }
   };
 
-  const handleVerify2FASubmit = async (e) => {
-    e?.preventDefault();
-    const cleanCode = twoFactorCode.trim().replace(/\s+/g, '');
+  const executeVerification = async (tempToken, codeToVerify) => {
+    const cleanCode = (codeToVerify || twoFactorCode).trim().replace(/[^0-9]/g, '');
     if (!cleanCode || cleanCode.length !== 6) {
-      setError('Please enter the full 6-digit verification code.');
+      setError('Please enter the full 6-digit code from your Authenticator app.');
       return;
     }
     setLoading(true);
     setError('');
 
     try {
-      await verify2FA(mfaData.temp_token, cleanCode);
+      await verify2FA(tempToken || mfaData?.temp_token, cleanCode);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Invalid 6-digit verification code. Please check your Authenticator app.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVerify2FASubmit = async (e) => {
+    e?.preventDefault();
+    await executeVerification(mfaData?.temp_token, twoFactorCode);
+  };
+
+  const handleCodeChange = (e) => {
+    const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
+    setTwoFactorCode(val);
+    if (val.length === 6 && mfaData?.temp_token && !loading) {
+      executeVerification(mfaData.temp_token, val);
     }
   };
 
@@ -130,6 +142,7 @@ export default function LoginPage() {
       if (res.ok) {
         const data = await res.json();
         setTwoFactorCode(data.current_code);
+        await executeVerification(mfaData.temp_token, data.current_code);
       } else {
         setError('Demo code generator not available for this session.');
       }
@@ -396,16 +409,24 @@ export default function LoginPage() {
                 className="btn btn-primary"
                 style={{
                   width: '100%',
-                  padding: '11px',
-                  fontSize: '14px',
+                  padding: '12px',
+                  fontSize: '14.5px',
+                  fontWeight: 700,
                   marginTop: '4px',
                   backgroundColor: profileType === 'company' ? 'var(--primary)' : '#10b981',
-                  borderColor: profileType === 'company' ? 'var(--primary)' : '#10b981'
+                  borderColor: profileType === 'company' ? 'var(--primary)' : '#10b981',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
                 }}
               >
-                {loading ? 'Validating Credentials...' : 'Proceed to Authenticator Verification'}
+                {loading ? 'Validating Password...' : (profileType === 'company' ? 'Enter Corporate Console' : 'Open Store Register')}
                 {!loading && <ArrowRight size={16} />}
               </button>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '-4px' }}>
+                Protected with 6-digit Authenticator Code (2FA)
+              </div>
             </form>
 
             {/* Dynamic Demo Credentials based on selected Profile */}
@@ -544,6 +565,22 @@ export default function LoginPage() {
               </div>
             )}
 
+            {/* Verified Step Pill */}
+            <div style={{
+              padding: '10px 14px',
+              backgroundColor: '#f0fdf4',
+              color: '#166534',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid #bbf7d0',
+              fontSize: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <Check size={16} color="#16a34a" />
+              <span>Step 2 of 2: Password confirmed. Enter 6-digit Authenticator code to proceed.</span>
+            </div>
+
             {error && (
               <div style={{
                 padding: '10px 14px',
@@ -569,7 +606,7 @@ export default function LoginPage() {
                   marginBottom: '8px',
                   textAlign: 'center'
                 }}>
-                  Temporary 6-Digit Code
+                  Temporary 6-Digit Authenticator Code
                 </label>
                 <div style={{ display: 'flex', justifyContent: 'center' }}>
                   <input
@@ -580,10 +617,10 @@ export default function LoginPage() {
                     autoFocus
                     required
                     value={twoFactorCode}
-                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/[^0-9]/g, ''))}
+                    onChange={handleCodeChange}
                     placeholder="• • • • • •"
                     style={{
-                      width: '240px',
+                      width: '260px',
                       fontSize: '26px',
                       fontWeight: 800,
                       textAlign: 'center',
@@ -600,24 +637,33 @@ export default function LoginPage() {
                   />
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '6px' }}>
-                  Changes every 30 seconds on your Authenticator app
+                  Code refreshes every 30 seconds on your Authenticator app (Google/MS Authenticator)
                 </div>
               </div>
 
+              {/* Enter Corporate Console / Open Register Button */}
               <button
                 type="submit"
-                disabled={loading || twoFactorCode.length !== 6}
+                disabled={loading}
                 className="btn btn-primary"
                 style={{
                   width: '100%',
-                  padding: '11px',
-                  fontSize: '14px',
-                  backgroundColor: '#0284c7',
-                  borderColor: '#0284c7',
-                  opacity: (loading || twoFactorCode.length !== 6) ? 0.7 : 1
+                  padding: '12px',
+                  fontSize: '14.5px',
+                  fontWeight: 700,
+                  marginTop: '4px',
+                  backgroundColor: profileType === 'company' ? 'var(--primary)' : '#10b981',
+                  borderColor: profileType === 'company' ? 'var(--primary)' : '#10b981',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  opacity: loading ? 0.7 : 1
                 }}
               >
-                {loading ? 'Verifying Code...' : 'Verify Code & Sign In'}
+                {loading
+                  ? 'Entering Console...'
+                  : (profileType === 'company' ? 'Enter Corporate Console' : 'Open Store Register')}
                 {!loading && <ArrowRight size={16} />}
               </button>
 
@@ -625,7 +671,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={handleQuickAutofill}
-                disabled={autofilling}
+                disabled={autofilling || loading}
                 className="btn btn-ghost"
                 style={{
                   fontSize: '12px',
@@ -634,11 +680,14 @@ export default function LoginPage() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '6px',
-                  padding: '8px'
+                  padding: '8px',
+                  backgroundColor: '#f0f9ff',
+                  border: '1px dashed #bae6fd',
+                  borderRadius: 'var(--radius-sm)'
                 }}
               >
                 <RotateCcw size={13} className={autofilling ? 'animate-spin' : ''} />
-                <span>Quick Autofill Live Code (Demo Testing)</span>
+                <span>{autofilling ? 'Retrieving code & logging in...' : '1-Click Autofill Code & Enter Console (Demo Testing)'}</span>
               </button>
 
               <button
