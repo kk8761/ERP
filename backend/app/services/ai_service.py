@@ -698,7 +698,7 @@ async def process_ai_query(
         f"2. Strictly use NexaERP standard enterprise terms (Purchase Order, Goods Receipt, Vendor Master, Chart of Accounts). Avoid legacy transaction codes.\n"
         f"3. Address the employee politely, explain policy guidelines clearly, and cite the Document ID or Title with relevance score when applicable.\n"
         f"4. If an employee asks you to perform an action (like create PO, create PR, adjust stock, or add vendor) without full details, ask them for the few missing details politely and provide clear 1-click examples.\n"
-        f"5. Keep responses concise, professional, beautifully formatted with markdown bullet points and bold highlights.\n"
+        f"5. Keep responses concise and professional. Whenever presenting items, stock status, pricing, vendor lists, invoices, or multi-field records, ALWAYS structure them in Markdown tables with clear column headers (e.g. | Product Name | SKU | Current Stock | Reorder Level | Unit Price | Status |), bold names, inline code for SKUs, and clear status indicators (⚠️ LOW STOCK, ✅ In Stock).\n"
         f"6. Maintain company data confidentiality: all facts belong strictly to {organization_name}."
     )
 

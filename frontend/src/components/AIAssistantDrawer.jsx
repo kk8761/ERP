@@ -2,9 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Sparkles, X, Send, Bot, Loader2, Zap, BookOpen, 
   ShieldCheck, Lock, Plus, FileText, CheckCircle2, 
-  ChevronRight, ArrowLeft 
+  ChevronRight, ArrowLeft, Maximize2, Minimize2 
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
+import MarkdownContent from './MarkdownContent';
 
 export default function AIAssistantDrawer({ isOpen, onClose }) {
   const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'knowledge'
@@ -31,6 +32,7 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [newDoc, setNewDoc] = useState({ title: '', category: 'Operational SOP', content: '', tags: '' });
   const [savingDoc, setSavingDoc] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -144,7 +146,9 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
 
   return (
     <div style={{
-      width: '420px',
+      width: isExpanded ? '680px' : '460px',
+      maxWidth: '90vw',
+      transition: 'width 0.25s ease',
       height: 'calc(100vh - var(--header-height, 64px))',
       backgroundColor: 'var(--bg-surface, #ffffff)',
       borderLeft: '1px solid var(--border-color, #e2e8f0)',
@@ -156,7 +160,7 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
     }}>
       {/* Header */}
       <div style={{
-        padding: '14px 18px',
+        padding: '12px 16px',
         borderBottom: '1px solid var(--border-color, #e2e8f0)',
         display: 'flex',
         alignItems: 'center',
@@ -195,9 +199,19 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
           </div>
         </div>
 
-        <button onClick={onClose} className="btn btn-ghost" style={{ padding: '6px', borderRadius: '50%' }}>
-          <X size={16} />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="btn btn-ghost"
+            style={{ padding: '6px', borderRadius: '50%' }}
+            title={isExpanded ? "Collapse width (460px)" : "Expand width for wide tables (680px)"}
+          >
+            {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+          <button onClick={onClose} className="btn btn-ghost" style={{ padding: '6px', borderRadius: '50%' }}>
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Tenant Privacy & Isolation Shield Banner */}
@@ -335,7 +349,8 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
                   )}
 
                   <div style={{
-                    maxWidth: '92%',
+                    maxWidth: isAI ? '100%' : '90%',
+                    width: isAI ? '100%' : 'auto',
                     padding: '12px 14px',
                     borderRadius: '8px',
                     backgroundColor: isAI ? 'var(--bg-subtle, #f8fafc)' : 'var(--primary, #2563eb)',
@@ -343,9 +358,13 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
                     border: isAI ? '1px solid var(--border-color, #e2e8f0)' : 'none',
                     fontSize: '13px',
                     lineHeight: 1.5,
-                    whiteSpace: 'pre-wrap'
+                    boxShadow: isAI ? '0 1px 3px rgba(0,0,0,0.04)' : 'none'
                   }}>
-                    {msg.text}
+                    {isAI ? (
+                      <MarkdownContent content={msg.text} />
+                    ) : (
+                      <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                    )}
                   </div>
 
                   {/* Grounded RAG Citations */}
