@@ -23,7 +23,7 @@ import BarcodeScannerModal from './components/BarcodeScannerModal';
 import SignatureCaptureModal from './components/SignatureCaptureModal';
 import ActionNotAllowedModal from './components/ActionNotAllowedModal';
 import { initScreenshotGuard } from './services/screenshotGuard';
-import { ShieldAlert, X } from 'lucide-react';
+import { ShieldAlert, X, Lock } from 'lucide-react';
 
 function MainApp() {
   const { user, loading } = useAuth();
@@ -32,6 +32,8 @@ function MainApp() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isSignatureOpen, setIsSignatureOpen] = useState(false);
   const [isRightClickBlocked, setIsRightClickBlocked] = useState(false);
+  const [controlDisabledNotice, setControlDisabledNotice] = useState(null);
+  const [cursorPill, setCursorPill] = useState(null);
   const [dlpAlert, setDlpAlert] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('nexaerp_theme') || 'light');
 
@@ -40,11 +42,34 @@ function MainApp() {
     localStorage.setItem('nexaerp_theme', theme);
   }, [theme]);
 
-  // Enterprise Security: Intercept right-click and display safety warning
+  // Enterprise Security: Intercept right-click and display "Control Disabled" safety notification
   useEffect(() => {
+    let dismissTimer = null;
+
+    const triggerControlDisabled = (data = {}) => {
+      // 1. Pop out main toast notification
+      setControlDisabledNotice({
+        action: data.action || 'Right Click',
+        timestamp: new Date().toLocaleTimeString()
+      });
+
+      if (dismissTimer) clearTimeout(dismissTimer);
+      dismissTimer = setTimeout(() => {
+        setControlDisabledNotice(null);
+      }, 3500);
+
+      // 2. Pop out pill at cursor position if coordinates provided
+      if (typeof data.x === 'number' && typeof data.y === 'number') {
+        const x = Math.min(window.innerWidth - 160, Math.max(10, data.x + 8));
+        const y = Math.min(window.innerHeight - 40, Math.max(10, data.y + 8));
+        setCursorPill({ x, y });
+        setTimeout(() => setCursorPill(null), 1800);
+      }
+    };
+
     const handleContextMenu = (e) => {
       e.preventDefault();
-      setIsRightClickBlocked(true);
+      triggerControlDisabled({ x: e.clientX, y: e.clientY, action: 'Right Click' });
     };
     
     // Enterprise Security: Intercept DevTools shortcuts (F12, Ctrl+Shift+I/J, Ctrl+U)
@@ -52,28 +77,36 @@ function MainApp() {
       // F12
       if (e.key === 'F12' || e.keyCode === 123) {
         e.preventDefault();
-        setIsRightClickBlocked(true);
+        triggerControlDisabled({ action: 'DevTools Shortcut (F12)' });
         return;
       }
       // Ctrl+Shift+I or Ctrl+Shift+J or Cmd+Alt+I (DevTools Inspect)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j')) {
         e.preventDefault();
-        setIsRightClickBlocked(true);
+        triggerControlDisabled({ action: 'Inspect Element Shortcut' });
         return;
       }
       // Ctrl+U / Cmd+U (View Source)
       if ((e.ctrlKey || e.metaKey) && (e.key === 'U' || e.key === 'u')) {
         e.preventDefault();
-        setIsRightClickBlocked(true);
+        triggerControlDisabled({ action: 'View Source Shortcut' });
         return;
       }
     };
 
-    document.addEventListener('contextmenu', handleContextMenu);
-    window.addEventListener('keydown', handleKeySecurity);
+    const handleCustomControlDisabled = (e) => {
+      triggerControlDisabled(e.detail || {});
+    };
+
+    document.addEventListener('contextmenu', handleContextMenu, { capture: true });
+    window.addEventListener('keydown', handleKeySecurity, { capture: true });
+    window.addEventListener('nexa:control-disabled', handleCustomControlDisabled);
+
     return () => {
-      document.removeEventListener('contextmenu', handleContextMenu);
-      window.removeEventListener('keydown', handleKeySecurity);
+      if (dismissTimer) clearTimeout(dismissTimer);
+      document.removeEventListener('contextmenu', handleContextMenu, { capture: true });
+      window.removeEventListener('keydown', handleKeySecurity, { capture: true });
+      window.removeEventListener('nexa:control-disabled', handleCustomControlDisabled);
     };
   }, []);
 
@@ -372,6 +405,99 @@ function MainApp() {
           >
             <X size={18} />
           </button>
+        </div>
+      )}
+
+      {/* Pop-Out Notification: Control Disabled */}
+      {controlDisabledNotice && (
+        <div 
+          role="alert"
+          style={{
+            position: 'fixed',
+            top: '20px',
+            right: '24px',
+            zIndex: 99999,
+            backgroundColor: '#0f172a',
+            color: '#ffffff',
+            border: '2px solid #ef4444',
+            borderRadius: '12px',
+            padding: '12px 18px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(239, 68, 68, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            maxWidth: '420px',
+            animation: 'fadeIn 0.2s ease-out',
+            cursor: 'default'
+          }}
+        >
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '8px',
+            backgroundColor: '#ef4444',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            boxShadow: '0 2px 8px rgba(239, 68, 68, 0.4)'
+          }}>
+            <Lock size={18} color="#ffffff" />
+          </div>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '13px', fontWeight: 800, color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '0.4px' }}>
+              <span>CONTROL DISABLED</span>
+              <span style={{ fontSize: '9px', fontWeight: 700, backgroundColor: 'rgba(239, 68, 68, 0.25)', border: '1px solid #ef4444', padding: '1px 5px', borderRadius: '4px', color: '#f87171' }}>
+                RESTRICTED
+              </span>
+            </div>
+            <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '2px', lineHeight: 1.4 }}>
+              Right-click and context menu controls are disabled on this platform.
+            </div>
+          </div>
+
+          <button
+            onClick={() => setControlDisabledNotice(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#94a3b8',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '4px'
+            }}
+            title="Dismiss notification"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Floating Cursor Pill on Right Click */}
+      {cursorPill && (
+        <div
+          style={{
+            position: 'fixed',
+            left: `${cursorPill.x}px`,
+            top: `${cursorPill.y}px`,
+            zIndex: 999999,
+            pointerEvents: 'none',
+            backgroundColor: '#ef4444',
+            color: '#ffffff',
+            borderRadius: '16px',
+            padding: '4px 10px',
+            fontSize: '11px',
+            fontWeight: 700,
+            boxShadow: '0 4px 12px rgba(239, 68, 68, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            animation: 'fadeIn 0.15s ease-out'
+          }}
+        >
+          <Lock size={12} />
+          <span>Control Disabled</span>
         </div>
       )}
     </div>

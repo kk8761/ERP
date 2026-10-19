@@ -72,10 +72,10 @@ export default function ActionNotAllowedModal({ isOpen, onClose }) {
             </div>
             <div>
               <div style={{ fontWeight: 800, fontSize: '16px', color: '#991b1b' }}>
-                Action Not Allowed
+                Control Disabled
               </div>
               <div style={{ fontSize: '11px', color: '#b91c1c', fontWeight: 600 }}>
-                Enterprise Security & Data Loss Prevention
+                Right-Click & Context Menu Restricted (DLP)
               </div>
             </div>
           </div>

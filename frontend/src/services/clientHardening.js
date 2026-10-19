@@ -13,6 +13,13 @@ export function initClientHardening() {
   document.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
+    window.dispatchEvent(new CustomEvent('nexa:control-disabled', {
+      detail: { 
+        x: e.clientX, 
+        y: e.clientY,
+        action: 'Right Click'
+      }
+    }));
     return false;
   }, { capture: true });
 
@@ -22,6 +29,9 @@ export function initClientHardening() {
     if (e.key === 'F12' || e.keyCode === 123) {
       e.preventDefault();
       e.stopPropagation();
+      window.dispatchEvent(new CustomEvent('nexa:control-disabled', {
+        detail: { action: 'DevTools Shortcut (F12)' }
+      }));
       return false;
     }
 
@@ -29,6 +39,9 @@ export function initClientHardening() {
     if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
       e.preventDefault();
       e.stopPropagation();
+      window.dispatchEvent(new CustomEvent('nexa:control-disabled', {
+        detail: { action: 'Developer Inspect Shortcut' }
+      }));
       return false;
     }
 
