@@ -1,14 +1,21 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
-  FileSpreadsheet, Plus, Trash2, Download, Upload, CheckCircle2,
+  Plus, Trash2, Download, Upload, CheckCircle2,
   AlertCircle, Search, Edit2, Filter, ArrowUp, ArrowDown, Printer,
-  Save, Info, Columns, Check, X, SlidersHorizontal, Table
+  Save, Info, Columns, Check, X, SlidersHorizontal, Table,
+  Calculator, ChevronDown, CheckSquare
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
+import {
+  getColLetter,
+  getColIndex,
+  evaluateExcelFormula,
+  getSelectionMetrics
+} from '../utils/excelEngine';
 import './FinancialSpreadsheetGrid.css';
 
 export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted }) {
-  // 1. ACDOCA Table Column Definitions exactly matching the user's reference screenshot
+  // 1. ACDOCA Table Column Definitions exactly matching enterprise ALV browser
   const [columns, setColumns] = useState([
     // Group 1: Pale Cyan Columns (Key & Ledger identifiers)
     { id: 'ld', name: 'Ld', label: 'Ledger', width: 44, align: 'center', type: 'text', group: 'cyan' },
@@ -52,7 +59,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     { id: 'text_memo', name: 'Line Text', label: 'Item Memo / Text', width: 160, align: 'left', type: 'text', group: 'posting' }
   ]);
 
-  // 2. Initial Data Matching the exact rows from the user's reference screenshot
+  // 2. Initial Data Matching the exact rows from the reference screenshot
   const [rows, setRows] = useState([
     {
       id: 'r1', ld: '0L', cocd: '6010', year: '2017', doc_no: '4900000301', line_itm: '000003', clfy: '2017', record_type: '0',
@@ -141,6 +148,20 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
   const [selectedRowIndex, setSelectedRowIndex] = useState(0);
   const [sortConfig, setSortConfig] = useState({ key: 'doc_no', direction: 'asc' });
 
+  // Excel Cell & Range Selection State
+  // Default selected cell: Debit column on first row (Col index 29: 'debit', Row 0)
+  const defaultColIdx = useMemo(() => {
+    const idx = columns.findIndex(c => c.id === 'debit');
+    return idx >= 0 ? idx : 0;
+  }, [columns]);
+
+  const [selectedCell, setSelectedCell] = useState({ rowIdx: 0, colIdx: 29, colId: 'debit' });
+  const [selectionRange, setSelectionRange] = useState({ startRow: 0, startCol: 29, endRow: 0, endCol: 29 });
+  const [isMouseDown, setIsMouseDown] = useState(false);
+  const [editingCell, setEditingCell] = useState(null); // { rowIdx, colId }
+  const [formulaInput, setFormulaInput] = useState('50000');
+  const [showAutoSumMenu, setShowAutoSumMenu] = useState(false);
+
   // Modals & Dynamic Headers
   const [editingHeaderId, setEditingHeaderId] = useState(null);
   const [editingHeaderName, setEditingHeaderName] = useState('');
@@ -153,7 +174,64 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
   const [posting, setPosting] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
 
-  // Cell editing
+  const formulaInputRef = useRef(null);
+
+  // Sync formula input with selected cell
+  useEffect(() => {
+    if (selectedCell && rows[selectedCell.rowIdx]) {
+      const raw = rows[selectedCell.rowIdx][selectedCell.colId] ?? '';
+      setFormulaInput(String(raw));
+    }
+  }, [selectedCell, rows]);
+
+  // Handle cell selection
+  const selectCell = (rowIdx, colIdx, colId, isShift = false) => {
+    setSelectedRowIndex(rowIdx);
+    setSelectedCell({ rowIdx, colIdx, colId });
+
+    if (isShift) {
+      setSelectionRange(prev => ({
+        ...prev,
+        endRow: rowIdx,
+        endCol: colIdx
+      }));
+    } else {
+      setSelectionRange({
+        startRow: rowIdx,
+        startCol: colIdx,
+        endRow: rowIdx,
+        endCol: colIdx
+      });
+    }
+  };
+
+  // Mouse drag range selection
+  const handleCellMouseDown = (rowIdx, colIdx, colId, e) => {
+    if (e.shiftKey) {
+      selectCell(rowIdx, colIdx, colId, true);
+    } else {
+      setIsMouseDown(true);
+      selectCell(rowIdx, colIdx, colId, false);
+    }
+  };
+
+  const handleCellMouseEnter = (rowIdx, colIdx) => {
+    if (isMouseDown) {
+      setSelectionRange(prev => ({
+        ...prev,
+        endRow: rowIdx,
+        endCol: colIdx
+      }));
+    }
+  };
+
+  useEffect(() => {
+    const handleMouseUp = () => setIsMouseDown(false);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, []);
+
+  // Cell editing & Formula evaluation
   const handleCellChange = (rowIdx, colId, value) => {
     setRows(prev => {
       const next = [...prev];
@@ -169,6 +247,104 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
       next[rowIdx] = updatedRow;
       return next;
     });
+
+    if (selectedCell.rowIdx === rowIdx && selectedCell.colId === colId) {
+      setFormulaInput(String(value));
+    }
+  };
+
+  // Formula Bar submit
+  const handleFormulaCommit = () => {
+    if (selectedCell) {
+      handleCellChange(selectedCell.rowIdx, selectedCell.colId, formulaInput);
+      setEditingCell(null);
+    }
+  };
+
+  // AutoSum Execution (Excel AutoSum Engine)
+  const applyAutoSum = (funcType = 'SUM') => {
+    setShowAutoSumMenu(false);
+    if (!selectedCell) return;
+
+    const { rowIdx, colIdx, colId } = selectedCell;
+    const colLetter = getColLetter(colIdx);
+
+    // If multi-cell range is selected, calculate range
+    const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
+    const maxR = Math.max(selectionRange.startRow, selectionRange.endRow);
+    const minC = Math.min(selectionRange.startCol, selectionRange.endCol);
+    const maxC = Math.max(selectionRange.startCol, selectionRange.endCol);
+
+    let formulaStr = '';
+    if (minR !== maxR || minC !== maxC) {
+      // Range is selected -> sum that range
+      const r1 = `${getColLetter(minC)}${minR + 1}`;
+      const r2 = `${getColLetter(maxC)}${maxR + 1}`;
+      formulaStr = `=${funcType}(${r1}:${r2})`;
+    } else {
+      // Single cell selected -> sum all rows above in this column
+      const startRowNum = 1;
+      const endRowNum = Math.max(1, rowIdx);
+      if (rowIdx === 0) {
+        formulaStr = `=${funcType}(${colLetter}1:${colLetter}${rows.length})`;
+      } else {
+        formulaStr = `=${funcType}(${colLetter}${startRowNum}:${colLetter}${endRowNum})`;
+      }
+    }
+
+    handleCellChange(rowIdx, colId, formulaStr);
+    setFormulaInput(formulaStr);
+    setStatusMessage({ type: 'success', text: `Applied Excel formula ${formulaStr} to cell ${colLetter}${rowIdx + 1}.` });
+  };
+
+  // Keyboard navigation across cells
+  const handleKeyDown = (e) => {
+    if (editingCell) return; // Typing inside cell input
+
+    const numRows = rows.length;
+    const numCols = columns.length;
+    let newRow = selectedCell.rowIdx;
+    let newCol = selectedCell.colIdx;
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      newRow = Math.max(0, newRow - 1);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      newRow = Math.min(numRows - 1, newRow + 1);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      newCol = Math.max(0, newCol - 1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      newCol = Math.min(numCols - 1, newCol + 1);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        newCol = Math.max(0, newCol - 1);
+      } else {
+        newCol = Math.min(numCols - 1, newCol + 1);
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        newRow = Math.max(0, newRow - 1);
+      } else {
+        newRow = Math.min(numRows - 1, newRow + 1);
+      }
+    } else if (e.key === 'F2') {
+      e.preventDefault();
+      setEditingCell({ rowIdx: selectedCell.rowIdx, colId: selectedCell.colId });
+      return;
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      handleCellChange(selectedCell.rowIdx, selectedCell.colId, '');
+      return;
+    } else {
+      return;
+    }
+
+    const nextColId = columns[newCol]?.id || 'debit';
+    selectCell(newRow, newCol, nextColId, e.shiftKey && (e.key.startsWith('Arrow')));
   };
 
   // Add Row
@@ -211,7 +387,6 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
       text_memo: ''
     };
 
-    // Initialize custom columns
     columns.forEach(c => {
       if (!(c.id in newRow)) {
         newRow[c.id] = c.type === 'currency' ? 0 : '';
@@ -220,7 +395,8 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
     setRows(prev => [...prev, newRow]);
     setSelectedRowIndex(rows.length);
-    setStatusMessage({ type: 'success', text: `Appended new document line item ${nextDocNum}.` });
+    selectCell(rows.length, defaultColIdx, columns[defaultColIdx].id);
+    setStatusMessage({ type: 'success', text: `Appended row ${rows.length + 1} with Doc ${nextDocNum}.` });
   };
 
   // Delete Row
@@ -251,7 +427,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     setRows(prev => prev.map(r => ({ ...r, [colKey]: newColType === 'currency' ? 0 : '' })));
     setNewColName('');
     setAddColumnModalOpen(false);
-    setStatusMessage({ type: 'success', text: `Added column "${newCol.name}" to ACDOCA matrix.` });
+    setStatusMessage({ type: 'success', text: `Added column "${newCol.name}" [Col ${getColLetter(columns.length)}] to matrix.` });
   };
 
   // Rename Column
@@ -306,11 +482,40 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     return result;
   }, [rows, searchTerm, sortConfig, maxHits]);
 
-  // Totals & Balance
-  const totalDebits = useMemo(() => rows.reduce((s, r) => s + (parseFloat(r.debit) || 0), 0), [rows]);
-  const totalCredits = useMemo(() => rows.reduce((s, r) => s + (parseFloat(r.credit) || 0), 0), [rows]);
+  // Evaluated Totals with Formula Support
+  const totalDebits = useMemo(() => {
+    return rows.reduce((s, r) => {
+      const raw = r.debit;
+      const num = typeof raw === 'string' && raw.startsWith('=')
+        ? parseFloat(evaluateExcelFormula(raw, rows, columns)) || 0
+        : parseFloat(raw) || 0;
+      return s + num;
+    }, 0);
+  }, [rows, columns]);
+
+  const totalCredits = useMemo(() => {
+    return rows.reduce((s, r) => {
+      const raw = r.credit;
+      const num = typeof raw === 'string' && raw.startsWith('=')
+        ? parseFloat(evaluateExcelFormula(raw, rows, columns)) || 0
+        : parseFloat(raw) || 0;
+      return s + num;
+    }, 0);
+  }, [rows, columns]);
+
   const isBalanced = useMemo(() => Math.abs(totalDebits - totalCredits) < 0.01 && totalDebits > 0, [totalDebits, totalCredits]);
-  const activeRow = displayedRows[selectedRowIndex] || displayedRows[0];
+  const activeRow = displayedRows[selectedCell.rowIdx] || displayedRows[0];
+
+  // Selection metrics calculation (Average, Count, Sum for selected range)
+  const selectionMetrics = useMemo(() => {
+    return getSelectionMetrics(selectionRange, rows, columns);
+  }, [selectionRange, rows, columns]);
+
+  // Active cell coordinate label e.g. "AD3"
+  const activeCellCoord = useMemo(() => {
+    const colLetter = getColLetter(selectedCell.colIdx);
+    return `${colLetter}${selectedCell.rowIdx + 1}`;
+  }, [selectedCell]);
 
   // Post to General Ledger
   const handlePostGeneralLedger = async () => {
@@ -323,19 +528,31 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     setStatusMessage(null);
 
     try {
-      const validLines = rows.filter(r => (parseFloat(r.debit) > 0 || parseFloat(r.credit) > 0));
+      const validLines = rows.filter(r => {
+        const d = typeof r.debit === 'string' && r.debit.startsWith('=') ? evaluateExcelFormula(r.debit, rows, columns) : r.debit;
+        const c = typeof r.credit === 'string' && r.credit.startsWith('=') ? evaluateExcelFormula(r.credit, rows, columns) : r.credit;
+        return (parseFloat(d) > 0 || parseFloat(c) > 0);
+      });
+
       for (const line of validLines) {
         if (!line.gl_account) continue;
         const matchedAcc = accounts.find(a => a.code.toLowerCase() === String(line.gl_account).trim().toLowerCase());
         const accId = matchedAcc ? matchedAcc.id : 1;
+
+        const dVal = typeof line.debit === 'string' && line.debit.startsWith('=')
+          ? evaluateExcelFormula(line.debit, rows, columns)
+          : line.debit;
+        const cVal = typeof line.credit === 'string' && line.credit.startsWith('=')
+          ? evaluateExcelFormula(line.credit, rows, columns)
+          : line.credit;
 
         await apiRequest('/api/finance/journal', {
           method: 'POST',
           body: JSON.stringify({
             account_id: accId,
             description: `[ACDOCA ${line.doc_no || 'MANUAL'}] ${line.text_memo || 'Universal Journal Fast Post'} (${line.cost_center || 'HQ'})`,
-            debit: parseFloat(line.debit) || 0,
-            credit: parseFloat(line.credit) || 0,
+            debit: parseFloat(dVal) || 0,
+            credit: parseFloat(cVal) || 0,
             date: new Date().toISOString()
           })
         });
@@ -353,7 +570,13 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
   // Export CSV
   const exportToCSV = () => {
     const headerLine = columns.map(c => `"${c.name}"`).join(',');
-    const rowLines = displayedRows.map(r => columns.map(c => `"${r[c.id] ?? ''}"`).join(','));
+    const rowLines = displayedRows.map(r => columns.map(c => {
+      const val = r[c.id];
+      const evaluated = typeof val === 'string' && val.startsWith('=')
+        ? evaluateExcelFormula(val, rows, columns)
+        : (val ?? '');
+      return `"${evaluated}"`;
+    }).join(','));
     const csvContent = "data:text/csv;charset=utf-8," + [headerLine, ...rowLines].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -407,13 +630,31 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     }
   };
 
+  // Check if cell is in selection range
+  const isCellInRange = (rIdx, cIdx) => {
+    const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
+    const maxR = Math.max(selectionRange.startRow, selectionRange.endRow);
+    const minC = Math.min(selectionRange.startCol, selectionRange.endCol);
+    const maxC = Math.max(selectionRange.startCol, selectionRange.endCol);
+    return rIdx >= minR && rIdx <= maxR && cIdx >= minC && cIdx <= maxC;
+  };
+
   return (
-    <div className="acdoca-grid-container">
+    <div
+      className="acdoca-grid-container"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      style={{ outline: 'none' }}
+    >
       {/* 1. TOP SAP CLASSIC TITLE & PARAMETERS BAR */}
       <div className="acdoca-header">
         <div className="acdoca-title-row">
-          <div className="acdoca-title">
-            ACDOCA: Display of Entries Found
+          <div className="acdoca-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>ACDOCA: Display of Entries Found</span>
+            <span style={{ fontSize: '11px', color: '#107c41', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Calculator size={13} />
+              Excel Engine Active
+            </span>
           </div>
 
           <div className="acdoca-quick-search">
@@ -462,14 +703,17 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         </div>
       </div>
 
-      {/* 2. ALV TOOLBAR WITH DETAILS BUTTON & ACTION ICONS (Matching Screenshot Exactly) */}
+      {/* 2. ALV TOOLBAR WITH AUTOSUM & ACTION ICONS */}
       <div className="acdoca-toolbar">
         <div className="acdoca-toolbar-left">
           {/* Table select icon */}
           <button
-            onClick={() => setSelectedRowIndex(0)}
+            onClick={() => {
+              setSelectedRowIndex(0);
+              selectCell(0, 0, columns[0].id);
+            }}
             className="acdoca-icon-btn"
-            title="First Row"
+            title="First Cell (A1)"
           >
             <Table size={14} />
           </button>
@@ -523,19 +767,48 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
             <Search size={14} />
           </button>
 
-          {/* Sum Σ (Sigma) */}
-          <div
-            style={{
-              padding: '0 6px',
-              fontWeight: 700,
-              fontSize: '13px',
-              color: '#475569',
-              cursor: 'default',
-              userSelect: 'none'
-            }}
-            title="Total Sum debits/credits calculation"
-          >
-            Σ
+          {/* Excel AutoSum Feature (Σ AutoSum with Dropdown) */}
+          <div className="excel-autosum-container">
+            <button
+              onClick={() => applyAutoSum('SUM')}
+              className="excel-autosum-btn"
+              title="AutoSum: Automatically sum values in the column or selected range (Alt + =)"
+            >
+              <span>Σ AutoSum</span>
+            </button>
+            <button
+              onClick={() => setShowAutoSumMenu(!showAutoSumMenu)}
+              className="excel-autosum-btn"
+              style={{ padding: '2px 4px', borderLeft: 'none', marginLeft: '-1px' }}
+              title="More Excel Functions"
+            >
+              <ChevronDown size={12} />
+            </button>
+
+            {showAutoSumMenu && (
+              <div className="excel-autosum-dropdown animate-fade-in">
+                <button onClick={() => applyAutoSum('SUM')} className="excel-autosum-option">
+                  <span>Sum</span>
+                  <span style={{ color: '#107c41', fontWeight: 700 }}>=SUM()</span>
+                </button>
+                <button onClick={() => applyAutoSum('AVERAGE')} className="excel-autosum-option">
+                  <span>Average</span>
+                  <span style={{ color: '#107c41' }}>=AVERAGE()</span>
+                </button>
+                <button onClick={() => applyAutoSum('COUNT')} className="excel-autosum-option">
+                  <span>Count Numbers</span>
+                  <span style={{ color: '#107c41' }}>=COUNT()</span>
+                </button>
+                <button onClick={() => applyAutoSum('MAX')} className="excel-autosum-option">
+                  <span>Max</span>
+                  <span style={{ color: '#107c41' }}>=MAX()</span>
+                </button>
+                <button onClick={() => applyAutoSum('MIN')} className="excel-autosum-option">
+                  <span>Min</span>
+                  <span style={{ color: '#107c41' }}>=MIN()</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Export to Excel Spreadsheet */}
@@ -550,14 +823,14 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
           {/* Layout / Variants */}
           <button
-            onClick={() => alert(`Active ACDOCA Layout: Standard ALV Matrix. Columns: ${columns.length}, Rows: ${rows.length}`)}
+            onClick={() => alert(`ACDOCA Layout: Excel ALV Matrix. Visible Columns: ${columns.length}, Rows: ${rows.length}. Formulas Enabled.`)}
             className="acdoca-icon-btn"
             title="Select / Change Layout"
           >
             <SlidersHorizontal size={14} />
           </button>
 
-          {/* Details Button with exact SAP button appearance */}
+          {/* Details Button */}
           <button
             onClick={() => setDetailsModalOpen(true)}
             className="acdoca-alv-btn"
@@ -591,7 +864,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
           {/* Delete Row Button */}
           <button
-            onClick={() => handleDeleteRow(selectedRowIndex)}
+            onClick={() => handleDeleteRow(selectedCell.rowIdx)}
             className="acdoca-icon-btn"
             style={{ color: '#ef4444' }}
             title="Delete Selected Row"
@@ -646,6 +919,66 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         </div>
       </div>
 
+      {/* 3. MICROSOFT EXCEL FORMULA BAR (fx Bar) */}
+      <div className="excel-formula-bar">
+        {/* Name Box: shows active cell reference coordinate e.g. "AD1" */}
+        <div className="excel-name-box" title={`Active Cell: ${activeCellCoord} (${columns[selectedCell.colIdx]?.name || ''})`}>
+          {activeCellCoord}
+        </div>
+
+        {/* Function Button (fx) */}
+        <button
+          onClick={() => {
+            if (!formulaInput.startsWith('=')) {
+              setFormulaInput('=SUM(');
+              formulaInputRef.current?.focus();
+            }
+          }}
+          className="excel-fx-btn"
+          title="Insert Function (fx)"
+        >
+          fx
+        </button>
+
+        {/* Formula Bar Input */}
+        <div className="excel-formula-input-wrapper">
+          <input
+            ref={formulaInputRef}
+            type="text"
+            value={formulaInput}
+            placeholder="Type value or formula (e.g. =SUM(AD1:AD12), =AD1*0.18, =AVERAGE(AD1:AD8))..."
+            onChange={(e) => {
+              setFormulaInput(e.target.value);
+              if (selectedCell) {
+                handleCellChange(selectedCell.rowIdx, selectedCell.colId, e.target.value);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleFormulaCommit();
+                e.currentTarget.blur();
+              }
+            }}
+            className="excel-formula-input"
+          />
+
+          {formulaInput.startsWith('=') && (
+            <div style={{ position: 'absolute', right: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span className="excel-formula-preview">
+                = {evaluateExcelFormula(formulaInput, rows, columns)}
+              </span>
+              <button
+                onClick={handleFormulaCommit}
+                style={{ background: 'none', border: 'none', color: '#107c41', cursor: 'pointer', padding: '1px' }}
+                title="Commit Formula"
+              >
+                <Check size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Status banner */}
       {statusMessage && (
         <div style={{
@@ -666,7 +999,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         </div>
       )}
 
-      {/* 3. DENSE ENTERPRISE ACDOCA MATRIX TABLE */}
+      {/* 4. DENSE ENTERPRISE ACDOCA MATRIX TABLE WITH EXCEL CELL SELECTION */}
       <div className="acdoca-table-scroll">
         <table className="acdoca-table">
           <thead className="acdoca-thead">
@@ -674,15 +1007,16 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
               {/* Row Selector Header */}
               <th
                 className="acdoca-th acdoca-th-white"
-                style={{ width: '28px', textAlign: 'center', background: '#dbe2e8' }}
+                style={{ width: '32px', textAlign: 'center', background: '#dbe2e8' }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ display: 'inline-block', width: '12px', height: '10px', background: '#fbbf24', border: '1px solid #d97706', borderRadius: '1px' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: '9px', color: '#64748b', fontWeight: 700 }}>#</span>
                 </div>
               </th>
 
-              {columns.map((col) => {
-                const isEditing = editingHeaderId === col.id;
+              {columns.map((col, colIdx) => {
+                const isEditingHeader = editingHeaderId === col.id;
+                const colLetter = getColLetter(colIdx);
                 const thClass =
                   col.group === 'cyan' ? 'acdoca-th-cyan' :
                   col.group === 'yellow' ? 'acdoca-th-yellow' :
@@ -694,9 +1028,22 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                     key={col.id}
                     style={{ minWidth: `${col.width}px` }}
                     className={`acdoca-th ${thClass}`}
+                    onClick={() => {
+                      // Select entire column on header click
+                      setSelectionRange({
+                        startRow: 0,
+                        startCol: colIdx,
+                        endRow: rows.length - 1,
+                        endCol: colIdx
+                      });
+                      setSelectedCell({ rowIdx: 0, colIdx, colId: col.id });
+                    }}
                   >
+                    {/* Excel Column Letter (A, B, C... AD, AE) */}
+                    <span className="excel-col-letter">{colLetter}</span>
+
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
-                      {isEditing ? (
+                      {isEditingHeader ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '100%' }}>
                           <input
                             type="text"
@@ -722,7 +1069,8 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                         </div>
                       ) : (
                         <div
-                          onDoubleClick={() => {
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
                             setEditingHeaderId(col.id);
                             setEditingHeaderName(col.name);
                           }}
@@ -733,7 +1081,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                             justifyContent: 'space-between',
                             width: '100%'
                           }}
-                          title={`Double-click to rename. ${col.label}`}
+                          title={`Col ${colLetter}: ${col.label}. Double-click to rename.`}
                         >
                           <span style={{ fontWeight: 700 }}>{col.name}</span>
                           <Edit2 size={10} style={{ opacity: 0.35, marginLeft: '4px' }} />
@@ -742,7 +1090,10 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
                       {col.group === 'white' && columns.length > 20 && (
                         <button
-                          onClick={() => handleDeleteColumn(col.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteColumn(col.id);
+                          }}
                           style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0 2px' }}
                           title="Remove column"
                         >
@@ -768,36 +1119,49 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
           <tbody>
             {displayedRows.map((row, rIdx) => {
-              const isSelected = selectedRowIndex === rIdx;
+              const isRowSelected = selectedCell.rowIdx === rIdx;
 
               return (
                 <tr
                   key={row.id || rIdx}
-                  onClick={() => setSelectedRowIndex(rIdx)}
-                  className={`acdoca-tr ${isSelected ? 'selected' : ''}`}
+                  className={`acdoca-tr ${isRowSelected ? 'selected' : ''}`}
                 >
-                  {/* Selector Cell */}
+                  {/* Row Number Header (Excel 1, 2, 3...) */}
                   <td
                     className="acdoca-td"
-                    style={{ textAlign: 'center', background: '#f1f5f9', width: '28px' }}
+                    style={{
+                      textAlign: 'center',
+                      background: isRowSelected ? '#dbeafe' : '#f1f5f9',
+                      width: '32px',
+                      userSelect: 'none',
+                      fontWeight: 700,
+                      color: isRowSelected ? '#1d4ed8' : '#64748b'
+                    }}
+                    onClick={() => {
+                      // Select entire row on row header click
+                      setSelectionRange({
+                        startRow: rIdx,
+                        startCol: 0,
+                        endRow: rIdx,
+                        endCol: columns.length - 1
+                      });
+                      setSelectedCell({ rowIdx: rIdx, colIdx: 0, colId: columns[0].id });
+                      setSelectedRowIndex(rIdx);
+                    }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <span style={{
-                        display: 'inline-block',
-                        width: '12px',
-                        height: '10px',
-                        borderRadius: '1px',
-                        background: isSelected ? '#fbbf24' : '#6ee7b7',
-                        border: isSelected ? '1px solid #b45309' : '1px solid #059669',
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
-                      }} />
-                    </div>
+                    {rIdx + 1}
                   </td>
 
                   {/* Columns */}
-                  {columns.map((col) => {
+                  {columns.map((col, colIdx) => {
                     const rawVal = row[col.id];
+                    const isFormula = typeof rawVal === 'string' && rawVal.startsWith('=');
+                    const evaluatedVal = isFormula ? evaluateExcelFormula(rawVal, rows, columns) : rawVal;
+
                     const isCurrency = col.type === 'currency';
+                    const isCellSelected = selectedCell.rowIdx === rIdx && selectedCell.colIdx === colIdx;
+                    const inRange = isCellInRange(rIdx, colIdx);
+                    const isBeingEdited = editingCell && editingCell.rowIdx === rIdx && editingCell.colId === col.id;
 
                     const tdClass =
                       col.group === 'cyan' ? 'acdoca-td-cyan' :
@@ -808,26 +1172,65 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                     return (
                       <td
                         key={col.id}
-                        className={`acdoca-td ${tdClass}`}
+                        onMouseDown={(e) => handleCellMouseDown(rIdx, colIdx, col.id, e)}
+                        onMouseEnter={() => handleCellMouseEnter(rIdx, colIdx)}
+                        onDoubleClick={() => setEditingCell({ rowIdx: rIdx, colId: col.id })}
+                        className={`acdoca-td ${tdClass} ${isCellSelected ? 'excel-cell-active' : ''} ${inRange && !isCellSelected ? 'excel-cell-in-range' : ''}`}
+                        title={`${getColLetter(colIdx)}${rIdx + 1} (${col.name}): ${isFormula ? `${rawVal} = ${evaluatedVal}` : rawVal}`}
                       >
-                        {isCurrency ? (
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={rawVal === 0 ? '' : (rawVal ?? '')}
-                            placeholder="0.00"
-                            onChange={(e) => handleCellChange(rIdx, col.id, e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                            className="acdoca-cell-input"
-                            style={{ textAlign: 'right' }}
-                          />
-                        ) : (
+                        {isBeingEdited ? (
                           <input
                             type="text"
+                            autoFocus
                             value={rawVal ?? ''}
                             onChange={(e) => handleCellChange(rIdx, col.id, e.target.value)}
+                            onBlur={() => setEditingCell(null)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === 'Tab') {
+                                setEditingCell(null);
+                              } else if (e.key === 'Escape') {
+                                setEditingCell(null);
+                              }
+                            }}
                             className="acdoca-cell-input"
-                            style={{ textAlign: col.align || 'left' }}
+                            style={{
+                              textAlign: col.align || 'left',
+                              backgroundColor: '#ffffff',
+                              boxShadow: 'inset 0 0 0 2px #107c41'
+                            }}
                           />
+                        ) : (
+                          <div
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: col.align === 'right' ? 'flex-end' : col.align === 'center' ? 'center' : 'flex-start',
+                              padding: '2px 6px',
+                              cursor: 'cell',
+                              position: 'relative'
+                            }}
+                          >
+                            <span style={{
+                              fontWeight: isFormula ? 700 : 'inherit',
+                              color: isFormula ? '#107c41' : 'inherit'
+                            }}>
+                              {isCurrency
+                                ? (typeof evaluatedVal === 'number'
+                                    ? `₹ ${evaluatedVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                                    : (evaluatedVal || '0.00'))
+                                : (evaluatedVal ?? '')}
+                            </span>
+
+                            {/* Excel Corner Drag Handle */}
+                            {isCellSelected && (
+                              <div
+                                className="excel-corner-handle"
+                                title="AutoFill handle"
+                              />
+                            )}
+                          </div>
                         )}
                       </td>
                     );
@@ -851,15 +1254,28 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         </table>
       </div>
 
-      {/* 4. FOOTER STATUS BAR */}
+      {/* 5. FOOTER STATUS BAR (Live Excel Metrics: Average, Count, Sum & Ledger Balance) */}
       <div className="acdoca-footer">
         <div className="acdoca-footer-info">
           <span>Entries: <strong style={{ color: '#0f172a' }}>{displayedRows.length}</strong></span>
+          <span>Active Cell: <strong style={{ color: '#107c41' }}>{activeCellCoord}</strong></span>
           <span>Doc: <strong style={{ color: '#0284c7' }}>{activeRow?.doc_no || 'None'}</strong></span>
-          <span>Line: <strong>{activeRow?.line_itm || '000001'}</strong></span>
-          <span>Ref Doc: <strong>{activeRow?.ref_doc || '-'}</strong></span>
           <span>Account: <strong style={{ color: '#6366f1' }}>{activeRow?.gl_account || '-'} ({activeRow?.gl_title || 'Unassigned'})</strong></span>
         </div>
+
+        {/* Live Selection Statistics (Excel Status Bar Metrics) */}
+        {selectionMetrics && (
+          <div className="excel-metrics-pill">
+            <span style={{ color: '#64748b' }}>Range: <strong>{selectionMetrics.rangeName}</strong></span>
+            {selectionMetrics.hasNumbers && (
+              <>
+                <span>Average: <strong style={{ color: '#0284c7' }}>₹ {selectionMetrics.average.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                <span>Sum: <strong style={{ color: '#107c41' }}>₹ {selectionMetrics.sum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+              </>
+            )}
+            <span>Count: <strong>{selectionMetrics.count}</strong></span>
+          </div>
+        )}
 
         <div className="acdoca-footer-totals">
           <span>Total Dr: <strong style={{ color: '#0284c7' }}>₹ {totalDebits.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></span>
@@ -867,7 +1283,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         </div>
       </div>
 
-      {/* 5. ACDOCA LINE ITEM DETAILS POPUP */}
+      {/* 6. ACDOCA LINE ITEM DETAILS POPUP */}
       {detailsModalOpen && activeRow && (
         <div style={{
           position: 'fixed',
@@ -950,15 +1366,24 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                     </tr>
                   </thead>
                   <tbody>
-                    {columns.map(c => (
-                      <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '5px 12px', fontWeight: 700, color: '#0284c7' }}>{c.name}</td>
-                        <td style={{ padding: '5px 12px', color: '#64748b' }}>{c.label}</td>
-                        <td style={{ padding: '5px 12px', fontWeight: 600, color: '#0f172a' }}>
-                          {c.type === 'currency' ? `₹ ${parseFloat(activeRow[c.id] || 0).toFixed(2)}` : (activeRow[c.id] || '-')}
-                        </td>
-                      </tr>
-                    ))}
+                    {columns.map((c, idx) => {
+                      const raw = activeRow[c.id];
+                      const evaled = typeof raw === 'string' && raw.startsWith('=')
+                        ? evaluateExcelFormula(raw, rows, columns)
+                        : raw;
+
+                      return (
+                        <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '5px 12px', fontWeight: 700, color: '#0284c7' }}>
+                            {getColLetter(idx)}: {c.name}
+                          </td>
+                          <td style={{ padding: '5px 12px', color: '#64748b' }}>{c.label}</td>
+                          <td style={{ padding: '5px 12px', fontWeight: 600, color: '#0f172a' }}>
+                            {c.type === 'currency' ? `₹ ${parseFloat(evaled || 0).toFixed(2)}` : (evaled || '-')}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -983,7 +1408,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         </div>
       )}
 
-      {/* 6. ADD COLUMN MODAL */}
+      {/* 7. ADD COLUMN MODAL */}
       {addColumnModalOpen && (
         <div style={{
           position: 'fixed',
@@ -1095,7 +1520,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         </div>
       )}
 
-      {/* 7. CSV IMPORT MODAL */}
+      {/* 8. CSV IMPORT MODAL */}
       {importModalOpen && (
         <div style={{
           position: 'fixed',
