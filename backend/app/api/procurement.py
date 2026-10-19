@@ -27,7 +27,8 @@ from app.services.email_service import (
     generate_screenshot_alert_template,
     get_email_system_status
 )
-from app.services.receipt_service import generate_goods_receipt_html
+import base64
+from app.services.receipt_service import generate_goods_receipt_pdf, generate_goods_receipt_html
 
 router = APIRouter(prefix="/api/procurement", tags=["Procurement"])
 
@@ -329,11 +330,14 @@ async def receive_goods(
     await db.commit()
 
     receipt_dict = _build_receipt_dict(po, current_user.full_name or current_user.email)
+    pdf_bytes = generate_goods_receipt_pdf(receipt_dict)
+    pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
     receipt_html = generate_goods_receipt_html(receipt_dict)
 
     return {
         "message": f"Goods received for {po.po_number} and inventory stocks replenished",
         "receipt": receipt_dict,
+        "pdf_base64": pdf_base64,
         "receipt_html": receipt_html
     }
 
@@ -354,9 +358,12 @@ async def get_po_receipt(
         raise HTTPException(status_code=404, detail="Purchase order not found")
 
     receipt_dict = _build_receipt_dict(po, current_user.full_name or current_user.email)
+    pdf_bytes = generate_goods_receipt_pdf(receipt_dict)
+    pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
     receipt_html = generate_goods_receipt_html(receipt_dict)
     return {
         "receipt": receipt_dict,
+        "pdf_base64": pdf_base64,
         "receipt_html": receipt_html
     }
 
@@ -377,12 +384,12 @@ async def download_po_receipt(
         raise HTTPException(status_code=404, detail="Purchase order not found")
 
     receipt_dict = _build_receipt_dict(po, current_user.full_name or current_user.email)
-    receipt_html = generate_goods_receipt_html(receipt_dict)
+    pdf_bytes = generate_goods_receipt_pdf(receipt_dict)
     return Response(
-        content=receipt_html,
-        media_type="text/html",
+        content=pdf_bytes,
+        media_type="application/pdf",
         headers={
-            "Content-Disposition": f"attachment; filename=Goods_Receipt_{po.po_number}.html"
+            "Content-Disposition": f"attachment; filename=Goods_Receipt_{po.po_number}.pdf"
         }
     )
 

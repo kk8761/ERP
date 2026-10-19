@@ -21,7 +21,8 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
   const [receiptModal, setReceiptModal] = useState({
     isOpen: false,
     receipt: null,
-    receiptHtml: '',
+    pdfBase64: '',
+    pdfUrl: null,
     poNumber: ''
   });
 
@@ -98,34 +99,43 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
     }
   };
 
-  // Client-side instant receipt file download helper
-  const downloadHtmlReceipt = (receiptHtml, poNumber) => {
-    if (!receiptHtml) return;
+  // Client-side pure PDF file download helper
+  const downloadPdfReceipt = (pdfBase64, poNumber) => {
+    if (!pdfBase64) return;
     try {
-      const blob = new Blob([receiptHtml], { type: 'text/html;charset=utf-8' });
+      const byteCharacters = atob(pdfBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Goods_Receipt_${poNumber || 'PO'}_${new Date().toISOString().slice(0, 10)}.html`;
+      link.download = `Goods_Receipt_${poNumber || 'PO'}_${new Date().toISOString().slice(0, 10)}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (e) {
-      console.error('Download error:', e);
+      console.error('PDF download error:', e);
     }
   };
 
-  const handlePrintReceipt = (receiptHtml) => {
-    if (!receiptHtml) return;
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(receiptHtml);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => {
-        printWindow.print();
-      }, 350);
+  const getPdfBlobUrl = (pdfBase64) => {
+    if (!pdfBase64) return '';
+    try {
+      const byteCharacters = atob(pdfBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/pdf' });
+      return URL.createObjectURL(blob);
+    } catch (e) {
+      return '';
     }
   };
 
@@ -137,18 +147,21 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
     setProcessingPoId(poId);
     try {
       const res = await apiRequest(`/api/procurement/purchase-orders/${poId}/receive`, { method: 'POST' });
-      setStatusMsg(`✓ Goods receipt posted for #${poNum}! Stocks replenished & official GRN downloaded.`);
+      setStatusMsg(`✓ Goods receipt posted for #${poNum}! Stocks replenished & official PDF receipt downloaded.`);
 
-      // 1. Automatically download the generated Goods Receipt Note file
-      if (res.receipt_html) {
-        downloadHtmlReceipt(res.receipt_html, poNum);
+      const blobUrl = res.pdf_base64 ? getPdfBlobUrl(res.pdf_base64) : null;
+
+      // 1. Automatically download the generated PDF file!
+      if (res.pdf_base64) {
+        downloadPdfReceipt(res.pdf_base64, poNum);
       }
 
-      // 2. Open interactive receipt modal for print / preview
+      // 2. Open interactive PDF viewer modal
       setReceiptModal({
         isOpen: true,
         receipt: res.receipt,
-        receiptHtml: res.receipt_html,
+        pdfBase64: res.pdf_base64,
+        pdfUrl: blobUrl,
         poNumber: poNum
       });
 
@@ -163,17 +176,19 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
   const handleDownloadReceipt = async (po) => {
     try {
       const res = await apiRequest(`/api/procurement/purchase-orders/${po.id}/receipt`);
-      if (res && res.receipt_html) {
-        downloadHtmlReceipt(res.receipt_html, po.po_number);
+      if (res && res.pdf_base64) {
+        const blobUrl = getPdfBlobUrl(res.pdf_base64);
+        downloadPdfReceipt(res.pdf_base64, po.po_number);
         setReceiptModal({
           isOpen: true,
           receipt: res.receipt,
-          receiptHtml: res.receipt_html,
+          pdfBase64: res.pdf_base64,
+          pdfUrl: blobUrl,
           poNumber: po.po_number
         });
       }
     } catch (err) {
-      alert(`Could not fetch goods receipt: ${err.message}`);
+      alert(`Could not fetch goods receipt PDF: ${err.message}`);
     }
   };
 
@@ -445,14 +460,14 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
                               gap: '6px',
                               boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)'
                             }}
-                            title="Post Goods Receipt into inventory and automatically download official receipt note"
+                            title="Post Goods Receipt into inventory and automatically download official PDF receipt"
                           >
                             {processingPoId === po.id ? (
                               <RefreshCw size={13} className="animate-spin" />
                             ) : (
                               <ArrowDownToLine size={13} />
                             )}
-                            <span>{processingPoId === po.id ? 'Generating GRN...' : 'Post Goods Receipt'}</span>
+                            <span>{processingPoId === po.id ? 'Generating PDF...' : 'Post Goods Receipt'}</span>
                           </button>
                         )}
                         {po.status === 'RECEIVED' && (
@@ -470,10 +485,10 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
                               alignItems: 'center',
                               gap: '6px'
                             }}
-                            title="Download and print official Goods Receipt Note (GRN / PGI slip)"
+                            title="Download official Goods Receipt PDF Note"
                           >
                             <Download size={13} />
-                            <span>Download GRN</span>
+                            <span>Download PDF</span>
                           </button>
                         )}
                       </div>
@@ -792,7 +807,7 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
           </div>
         </div>
       )}
-      {/* Modal: Official Goods Receipt Note (GRN / PGI Slip) */}
+      {/* Modal: Official Goods Receipt Note PDF Viewer */}
       {receiptModal.isOpen && (
         <div style={{
           position: 'fixed',
@@ -807,8 +822,8 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
         }}>
           <div className="nexa-card" style={{
             width: '100%',
-            maxWidth: '820px',
-            maxHeight: '92vh',
+            maxWidth: '850px',
+            maxHeight: '94vh',
             display: 'flex',
             flexDirection: 'column',
             backgroundColor: '#ffffff',
@@ -819,7 +834,7 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
           }}>
             {/* Header */}
             <div style={{
-              padding: '16px 22px',
+              padding: '14px 22px',
               borderBottom: '1px solid var(--border-color)',
               display: 'flex',
               justifyContent: 'space-between',
@@ -842,16 +857,16 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
                 </div>
                 <div>
                   <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: '#0f172a' }}>
-                    Goods Receipt Note (GRN / PGI)
+                    Goods Receipt Note (PDF)
                   </h3>
                   <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                    Document Ref: <strong style={{ color: '#0284c7' }}>#{receiptModal.poNumber}</strong> • Stock Replenishment Confirmed
+                    Document Ref: <strong style={{ color: '#0284c7' }}>#{receiptModal.poNumber}</strong> • Vector PDF Document
                   </div>
                 </div>
               </div>
 
               <button
-                onClick={() => setReceiptModal({ isOpen: false, receipt: null, receiptHtml: '', poNumber: '' })}
+                onClick={() => setReceiptModal({ isOpen: false, receipt: null, pdfBase64: '', pdfUrl: null, poNumber: '' })}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
               >
                 <X size={20} />
@@ -860,16 +875,16 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
 
             {/* Notification Banner */}
             <div style={{
-              padding: '12px 22px',
+              padding: '10px 22px',
               backgroundColor: '#ecfdf5',
               borderBottom: '1px solid #a7f3d0',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#065f46', fontWeight: 600 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: '#065f46', fontWeight: 600 }}>
                 <CheckCircle2 size={16} color="#059669" />
-                <span>Automated Goods Receipt generated & downloaded to your browser downloads folder!</span>
+                <span>Automated Goods Receipt PDF generated & downloaded to your browser downloads folder!</span>
               </div>
               <span style={{
                 fontSize: '11px',
@@ -883,23 +898,30 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
               </span>
             </div>
 
-            {/* Preview Frame */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px', backgroundColor: '#f1f5f9' }}>
-              <div
-                style={{
-                  backgroundColor: '#ffffff',
-                  borderRadius: '8px',
-                  border: '1px solid #cbd5e1',
-                  overflow: 'hidden',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
-                }}
-                dangerouslySetInnerHTML={{ __html: receiptModal.receiptHtml }}
-              />
+            {/* Embedded Native PDF Viewer Frame */}
+            <div style={{ flex: 1, padding: '12px 16px', backgroundColor: '#334155', minHeight: '520px', display: 'flex' }}>
+              {receiptModal.pdfUrl ? (
+                <iframe
+                  src={receiptModal.pdfUrl}
+                  title={`Goods Receipt PDF - ${receiptModal.poNumber}`}
+                  style={{
+                    width: '100%',
+                    height: '520px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    backgroundColor: '#ffffff'
+                  }}
+                />
+              ) : (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' }}>
+                  Loading PDF Document...
+                </div>
+              )}
             </div>
 
             {/* Footer Buttons */}
             <div style={{
-              padding: '14px 22px',
+              padding: '12px 22px',
               borderTop: '1px solid var(--border-color)',
               display: 'flex',
               alignItems: 'center',
@@ -907,7 +929,7 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
               backgroundColor: '#f8fafc'
             }}>
               <button
-                onClick={() => setReceiptModal({ isOpen: false, receipt: null, receiptHtml: '', poNumber: '' })}
+                onClick={() => setReceiptModal({ isOpen: false, receipt: null, pdfBase64: '', pdfUrl: null, poNumber: '' })}
                 className="btn btn-ghost"
                 style={{ padding: '8px 16px', fontSize: '13px' }}
               >
@@ -915,25 +937,26 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
               </button>
 
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  onClick={() => downloadHtmlReceipt(receiptModal.receiptHtml, receiptModal.poNumber)}
-                  className="btn btn-ghost"
-                  style={{
-                    padding: '8px 16px',
-                    fontSize: '13px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    border: '1px solid #cbd5e1',
-                    fontWeight: 600
-                  }}
-                >
-                  <Download size={15} />
-                  <span>Download File Again</span>
-                </button>
+                {receiptModal.pdfUrl && (
+                  <button
+                    onClick={() => window.open(receiptModal.pdfUrl, '_blank')}
+                    className="btn btn-ghost"
+                    style={{
+                      padding: '8px 16px',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      border: '1px solid #cbd5e1',
+                      fontWeight: 600
+                    }}
+                  >
+                    <span>Open in New Tab</span>
+                  </button>
+                )}
 
                 <button
-                  onClick={() => handlePrintReceipt(receiptModal.receiptHtml)}
+                  onClick={() => downloadPdfReceipt(receiptModal.pdfBase64, receiptModal.poNumber)}
                   className="btn btn-primary"
                   style={{
                     padding: '8px 20px',
@@ -941,11 +964,12 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    backgroundColor: '#0284c7'
+                    backgroundColor: '#10b981',
+                    borderColor: '#10b981'
                   }}
                 >
-                  <Printer size={15} />
-                  <span>Print / Save as PDF</span>
+                  <Download size={15} />
+                  <span>Download PDF Document</span>
                 </button>
               </div>
             </div>
