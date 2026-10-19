@@ -13,7 +13,7 @@ from app.models.org import Department
 from app.schemas.hr import (
     EmployeeCreate, EmployeeOut,
     AttendanceIn, AttendanceOut,
-    LeaveCreate, LeaveOut,
+    LeaveCreate, LeaveOut, LeaveReviewAction,
     PayrollCreate, PayrollOut
 )
 from app.services.audit_service import record_audit_log
@@ -52,6 +52,37 @@ async def list_employees(
             department_name=emp.department.name if emp.department else None,
             date_of_joining=emp.date_of_joining,
             basic_salary=emp.basic_salary if can_view_payroll else None,
+            gender=emp.gender,
+            date_of_birth=emp.date_of_birth,
+            marital_status=emp.marital_status,
+            current_address=emp.current_address,
+            permanent_address=emp.permanent_address,
+            emergency_contact_name=emp.emergency_contact_name,
+            emergency_contact_phone=emp.emergency_contact_phone,
+            emergency_contact_relation=emp.emergency_contact_relation,
+            employment_type=emp.employment_type,
+            work_mode=emp.work_mode,
+            branch_location=emp.branch_location,
+            reporting_manager=emp.reporting_manager,
+            hra=emp.hra if can_view_payroll else None,
+            conveyance_allowance=emp.conveyance_allowance if can_view_payroll else None,
+            special_allowance=emp.special_allowance if can_view_payroll else None,
+            medical_allowance=emp.medical_allowance if can_view_payroll else None,
+            variable_pay=emp.variable_pay if can_view_payroll else None,
+            pf_deduction=emp.pf_deduction if can_view_payroll else None,
+            professional_tax=emp.professional_tax if can_view_payroll else None,
+            tds_tax=emp.tds_tax if can_view_payroll else None,
+            net_salary=emp.net_salary if can_view_payroll else None,
+            bank_name=emp.bank_name,
+            account_holder_name=emp.account_holder_name,
+            bank_account_number=emp.bank_account_number if can_view_payroll else None,
+            bank_ifsc=emp.bank_ifsc if can_view_payroll else None,
+            account_type=emp.account_type,
+            pan_tax_id=emp.pan_tax_id if can_view_payroll else None,
+            aadhaar_id=emp.aadhaar_id if can_view_payroll else None,
+            uan_number=emp.uan_number if can_view_payroll else None,
+            documents_json=emp.documents_json,
+            notes=emp.notes,
             is_active=emp.is_active
         ))
     return out
@@ -88,8 +119,40 @@ async def create_employee(
         phone=emp.phone,
         designation=emp.designation,
         department_id=emp.department_id,
+        department_name=emp.department.name if emp.department else None,
         date_of_joining=emp.date_of_joining,
         basic_salary=emp.basic_salary,
+        gender=emp.gender,
+        date_of_birth=emp.date_of_birth,
+        marital_status=emp.marital_status,
+        current_address=emp.current_address,
+        permanent_address=emp.permanent_address,
+        emergency_contact_name=emp.emergency_contact_name,
+        emergency_contact_phone=emp.emergency_contact_phone,
+        emergency_contact_relation=emp.emergency_contact_relation,
+        employment_type=emp.employment_type,
+        work_mode=emp.work_mode,
+        branch_location=emp.branch_location,
+        reporting_manager=emp.reporting_manager,
+        hra=emp.hra,
+        conveyance_allowance=emp.conveyance_allowance,
+        special_allowance=emp.special_allowance,
+        medical_allowance=emp.medical_allowance,
+        variable_pay=emp.variable_pay,
+        pf_deduction=emp.pf_deduction,
+        professional_tax=emp.professional_tax,
+        tds_tax=emp.tds_tax,
+        net_salary=emp.net_salary,
+        bank_name=emp.bank_name,
+        account_holder_name=emp.account_holder_name,
+        bank_account_number=emp.bank_account_number,
+        bank_ifsc=emp.bank_ifsc,
+        account_type=emp.account_type,
+        pan_tax_id=emp.pan_tax_id,
+        aadhaar_id=emp.aadhaar_id,
+        uan_number=emp.uan_number,
+        documents_json=emp.documents_json,
+        notes=emp.notes,
         is_active=emp.is_active
     )
 
@@ -169,12 +232,19 @@ async def list_leaves(
             id=l.id,
             employee_id=l.employee_id,
             employee_name=f"{l.employee.first_name} {l.employee.last_name}" if l.employee else None,
+            employee_code=l.employee.employee_code if l.employee else None,
             leave_type=l.leave_type,
             start_date=l.start_date,
             end_date=l.end_date,
             days_count=l.days_count,
             reason=l.reason,
-            status=l.status
+            status=l.status,
+            manager_comment=l.manager_comment,
+            reviewed_by_name=l.reviewed_by_name,
+            reviewed_at=l.reviewed_at,
+            document_name=l.document_name,
+            document_url=l.document_url,
+            document_size=l.document_size
         )
         for l in leaves
     ]
@@ -189,32 +259,122 @@ async def submit_leave(
     db.add(leave)
     await db.commit()
     await db.refresh(leave)
+
+    emp_res = await db.execute(select(Employee).where(Employee.id == leave.employee_id))
+    emp = emp_res.scalar_one_or_none()
+
     return LeaveOut(
         id=leave.id,
         employee_id=leave.employee_id,
+        employee_name=f"{emp.first_name} {emp.last_name}" if emp else None,
+        employee_code=emp.employee_code if emp else None,
         leave_type=leave.leave_type,
         start_date=leave.start_date,
         end_date=leave.end_date,
         days_count=leave.days_count,
         reason=leave.reason,
-        status=leave.status
+        status=leave.status,
+        manager_comment=leave.manager_comment,
+        reviewed_by_name=leave.reviewed_by_name,
+        reviewed_at=leave.reviewed_at,
+        document_name=leave.document_name,
+        document_url=leave.document_url,
+        document_size=leave.document_size
     )
 
-@router.post("/leaves/{leave_id}/approve")
+@router.post("/leaves/{leave_id}/approve", response_model=LeaveOut)
 async def approve_leave(
     leave_id: int,
+    action: Optional[LeaveReviewAction] = None,
     current_user: User = Depends(require_permission("leaves.manage")),
     db: AsyncSession = Depends(get_db)
 ):
-    res = await db.execute(select(LeaveRequest).where(LeaveRequest.id == leave_id))
+    stmt = select(LeaveRequest).options(selectinload(LeaveRequest.employee)).where(LeaveRequest.id == leave_id)
+    res = await db.execute(stmt)
     leave = res.scalar_one_or_none()
     if not leave:
         raise HTTPException(status_code=404, detail="Leave request not found")
 
     leave.status = "APPROVED"
     leave.approved_by_user_id = current_user.id
+    leave.reviewed_by_name = current_user.full_name or current_user.email
+    leave.reviewed_at = datetime.now(timezone.utc)
+    if action and action.comment:
+        leave.manager_comment = action.comment
+
+    await record_audit_log(
+        db, action="LEAVE_APPROVED", entity_name="LeaveRequest",
+        user_id=current_user.id, user_email=current_user.email,
+        details={"leave_id": leave_id, "employee_id": leave.employee_id, "comment": leave.manager_comment}
+    )
     await db.commit()
-    return {"message": "Leave request approved"}
+    await db.refresh(leave)
+
+    return LeaveOut(
+        id=leave.id,
+        employee_id=leave.employee_id,
+        employee_name=f"{leave.employee.first_name} {leave.employee.last_name}" if leave.employee else None,
+        employee_code=leave.employee.employee_code if leave.employee else None,
+        leave_type=leave.leave_type,
+        start_date=leave.start_date,
+        end_date=leave.end_date,
+        days_count=leave.days_count,
+        reason=leave.reason,
+        status=leave.status,
+        manager_comment=leave.manager_comment,
+        reviewed_by_name=leave.reviewed_by_name,
+        reviewed_at=leave.reviewed_at,
+        document_name=leave.document_name,
+        document_url=leave.document_url,
+        document_size=leave.document_size
+    )
+
+@router.post("/leaves/{leave_id}/reject", response_model=LeaveOut)
+async def reject_leave(
+    leave_id: int,
+    action: Optional[LeaveReviewAction] = None,
+    current_user: User = Depends(require_permission("leaves.manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(LeaveRequest).options(selectinload(LeaveRequest.employee)).where(LeaveRequest.id == leave_id)
+    res = await db.execute(stmt)
+    leave = res.scalar_one_or_none()
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+
+    leave.status = "REJECTED"
+    leave.approved_by_user_id = current_user.id
+    leave.reviewed_by_name = current_user.full_name or current_user.email
+    leave.reviewed_at = datetime.now(timezone.utc)
+    if action and action.comment:
+        leave.manager_comment = action.comment
+
+    await record_audit_log(
+        db, action="LEAVE_REJECTED", entity_name="LeaveRequest",
+        user_id=current_user.id, user_email=current_user.email,
+        details={"leave_id": leave_id, "employee_id": leave.employee_id, "comment": leave.manager_comment}
+    )
+    await db.commit()
+    await db.refresh(leave)
+
+    return LeaveOut(
+        id=leave.id,
+        employee_id=leave.employee_id,
+        employee_name=f"{leave.employee.first_name} {leave.employee.last_name}" if leave.employee else None,
+        employee_code=leave.employee.employee_code if leave.employee else None,
+        leave_type=leave.leave_type,
+        start_date=leave.start_date,
+        end_date=leave.end_date,
+        days_count=leave.days_count,
+        reason=leave.reason,
+        status=leave.status,
+        manager_comment=leave.manager_comment,
+        reviewed_by_name=leave.reviewed_by_name,
+        reviewed_at=leave.reviewed_at,
+        document_name=leave.document_name,
+        document_url=leave.document_url,
+        document_size=leave.document_size
+    )
 
 @router.get("/payroll", response_model=List[PayrollOut])
 async def list_payroll(

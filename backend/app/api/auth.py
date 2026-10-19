@@ -14,6 +14,7 @@ from app.auth.security import verify_password, hash_password, create_access_toke
 from app.auth.dependencies import get_current_user
 from app.authorization.rbac_engine import get_user_effective_permissions
 from app.services.audit_service import record_audit_log
+from app.services.intrusion_defense_service import detect_sql_injection, notify_administrators_of_sqli
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -24,7 +25,42 @@ async def login(
     login_data: LoginRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "unknown")
+    if "," in client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+    user_agent = request.headers.get("user-agent", "")
+
+    # Active Intrusion Detection: Check for SQL injection exploit attempts on authentication fields
+    sqli_match_email = detect_sql_injection(login_data.email)
+    sqli_match_password = detect_sql_injection(login_data.password)
+
+    if sqli_match_email or sqli_match_password:
+        targeted_field = "email" if sqli_match_email else "password"
+        payload_sample = sqli_match_email or sqli_match_password
+
+        # Notify System Administrators via high-priority dispatch, record IntrusionEvent & AuditLog
+        notified_admins, is_quarantined = await notify_administrators_of_sqli(
+            db=db,
+            client_ip=client_ip,
+            target_endpoint="/api/auth/login",
+            field_name=targeted_field,
+            payload_sample=payload_sample,
+            threat_score=90,
+            action_taken="BLOCKED_AND_ADMIN_NOTIFIED",
+            user_agent=user_agent
+        )
+
+        status_code = status.HTTP_403_FORBIDDEN if is_quarantined else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(
+            status_code=status_code,
+            detail="Security Alert: Malicious SQL injection pattern intercepted by NexaERP Intrusion Defense System. System Administrator has been notified.",
+            headers={
+                "X-NexaERP-IDS": "TRIGGERED",
+                "X-NexaERP-Attack-Vector": "SQL_INJECTION",
+                "X-NexaERP-Quarantine": "ACTIVE" if is_quarantined else "INACTIVE",
+                "X-NexaERP-Admin-Alert": "DISPATCHED"
+            }
+        )
 
     # Find user by email
     stmt = select(User).options(

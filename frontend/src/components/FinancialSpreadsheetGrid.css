@@ -17,6 +17,143 @@
   margin-top: 12px;
 }
 
+/* Full Screen Excel Mode: Locks the viewport exclusively to Excel */
+.acdoca-grid-container.is-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  z-index: 999999 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background-color: #ffffff !important;
+  animation: excelFadeIn 0.15s ease-out;
+}
+
+[data-theme="dark"] .acdoca-grid-container.is-fullscreen {
+  background-color: #0b1120 !important;
+}
+
+/* In fullscreen mode, the table expands dynamically to take all remaining vertical height */
+.acdoca-grid-container.is-fullscreen .acdoca-table-scroll {
+  flex: 1 1 0% !important;
+  max-height: none !important;
+  height: 100% !important;
+  overflow: auto !important;
+}
+
+/* Fullscreen toggle action button in toolbar */
+.excel-fullscreen-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background-color: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.excel-fullscreen-action-btn:hover {
+  background-color: #dcfce7;
+  border-color: #4ade80;
+}
+
+.excel-fullscreen-action-btn.active {
+  background-color: #047857;
+  border-color: #059669;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
+.excel-fullscreen-action-btn.active:hover {
+  background-color: #065f46;
+}
+
+[data-theme="dark"] .excel-fullscreen-action-btn {
+  background-color: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #6ee7b7;
+}
+
+[data-theme="dark"] .excel-fullscreen-action-btn.active {
+  background-color: #059669;
+  color: #ffffff;
+}
+
+.excel-key-badge {
+  font-size: 9.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.excel-fullscreen-action-btn.active .excel-key-badge {
+  background-color: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* Floating Fullscreen HUD banner */
+.excel-fullscreen-hud {
+  position: absolute;
+  top: 10px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: 11.5px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+  color: #f8fafc;
+  pointer-events: auto;
+}
+
+.excel-fullscreen-hud-exit-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  color: #fca5a5;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.excel-fullscreen-hud-exit-btn:hover {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #dc2626;
+}
+
+@keyframes excelFadeIn {
+  from { opacity: 0.85; transform: scale(0.995); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 [data-theme="dark"] .acdoca-grid-container {
   background-color: #0f172a;
   border-color: #334155;
@@ -944,5 +1081,209 @@
   background: rgba(22, 101, 52, 0.25);
   border-color: rgba(74, 222, 128, 0.3);
 }
+
+/* ==========================================================================
+   FULL SCREEN EXCEL IMMERSION MODE
+   Dedicated distraction-free workspace that fills 100% of the viewport,
+   obscuring all ERP sidebars, headers, and tabs until exited.
+   ========================================================================== */
+.acdoca-grid-container.is-fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 999999 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+  background: #ffffff !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+[data-theme="dark"] .acdoca-grid-container.is-fullscreen {
+  background: #0b1120 !important;
+}
+
+/* Make table scroll container fill remaining height dynamically */
+.acdoca-grid-container.is-fullscreen .acdoca-table-scroll {
+  flex: 1 1 0% !important;
+  max-height: none !important;
+  height: 100% !important;
+  overflow: auto !important;
+}
+
+/* Immersive Top HUD Bar */
+.excel-fullscreen-hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(90deg, #0d5f32 0%, #107c41 50%, #15803d 100%);
+  color: #ffffff;
+  padding: 6px 16px;
+  font-size: 11.5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  z-index: 50;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+  animation: hudSlideDown 0.25s ease-out;
+}
+
+@keyframes hudSlideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.excel-fullscreen-hud-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+.excel-hud-badge {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+}
+
+.excel-fullscreen-hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.excel-hud-hint {
+  font-size: 11px;
+  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.excel-key-badge {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.excel-fullscreen-hud-exit-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  color: #107c41;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.excel-fullscreen-hud-exit-btn:hover {
+  background: #f0fdf4;
+  color: #047857;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* Fullscreen Button in Title Row */
+.excel-title-fullscreen-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 4px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #15803d;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.excel-title-fullscreen-btn:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+  color: #14532d;
+}
+
+[data-theme="dark"] .excel-title-fullscreen-btn {
+  background: rgba(22, 101, 52, 0.25);
+  border-color: rgba(74, 222, 128, 0.4);
+  color: #86efac;
+}
+
+[data-theme="dark"] .excel-title-fullscreen-btn:hover {
+  background: rgba(22, 101, 52, 0.45);
+  border-color: #4ade80;
+  color: #ffffff;
+}
+
+/* Action button in Toolbar Right */
+.excel-fullscreen-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #107c41;
+  color: #ffffff;
+  border: 1px solid #0d5f32;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: 6px;
+}
+
+.excel-fullscreen-action-btn:hover {
+  background: #0d5f32;
+  box-shadow: 0 1px 4px rgba(16, 124, 65, 0.35);
+}
+
+.excel-fullscreen-action-btn.active {
+  background: #b91c1c;
+  border-color: #991b1b;
+}
+
+.excel-fullscreen-action-btn.active:hover {
+  background: #991b1b;
+  box-shadow: 0 1px 4px rgba(185, 28, 28, 0.35);
+}
+
+[data-theme="dark"] .excel-fullscreen-action-btn {
+  background: #107c41;
+  border-color: #15803d;
+}
+
 
 

@@ -89,10 +89,33 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 )
                 status_code = 403 if is_quarantined else 400
                 action = "QUARANTINED" if is_quarantined else "BLOCKED"
+
+                # If attack is SQL injection directed at authentication gateway, notify system administrators
+                if threat["attack_type"] == "SQL_INJECTION" and path.startswith("/api/auth/login"):
+                    import asyncio
+                    async def _dispatch_admin_alert():
+                        try:
+                            from app.database import AsyncSessionLocal
+                            from app.services.intrusion_defense_service import notify_administrators_of_sqli
+                            async with AsyncSessionLocal() as bg_db:
+                                await notify_administrators_of_sqli(
+                                    db=bg_db,
+                                    client_ip=client_ip,
+                                    target_endpoint=path,
+                                    field_name=threat.get("location", "Query/URL"),
+                                    payload_sample=threat.get("sample", "SQLi probe"),
+                                    threat_score=threat["threat_score"],
+                                    action_taken=f"{action}_AND_ADMIN_NOTIFIED",
+                                    user_agent=request.headers.get("user-agent", "")
+                                )
+                        except Exception as alert_err:
+                            print(f"[WAF Alert] Error dispatching admin alert: {alert_err}")
+                    asyncio.create_task(_dispatch_admin_alert())
+
                 return JSONResponse(
                     status_code=status_code,
                     content={
-                        "detail": f"Threat detected: {threat['attack_type']} pattern intercepted by NexaERP Intrusion Defense System.",
+                        "detail": f"Threat detected: {threat['attack_type']} pattern intercepted by NexaERP Intrusion Defense System. System Administrator has been notified.",
                         "attack_type": threat["attack_type"],
                         "action": action,
                         "threat_score": threat["threat_score"],
@@ -102,7 +125,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                     headers={
                         "X-NexaERP-IDS": "TRIGGERED",
                         "X-NexaERP-Attack-Vector": threat["attack_type"],
-                        "X-NexaERP-Quarantine": "ACTIVE" if is_quarantined else "INACTIVE"
+                        "X-NexaERP-Quarantine": "ACTIVE" if is_quarantined else "INACTIVE",
+                        "X-NexaERP-Admin-Alert": "DISPATCHED"
                     }
                 )
 

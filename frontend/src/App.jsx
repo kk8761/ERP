@@ -19,6 +19,7 @@ import LoginPage from './pages/LoginPage';
 import ManufacturingPage from './pages/ManufacturingPage';
 import GRCPage from './pages/GRCPage';
 import PredictiveAIPage from './pages/PredictiveAIPage';
+import EmailHubPage from './pages/EmailHubPage';
 import BarcodeScannerModal from './components/BarcodeScannerModal';
 import SignatureCaptureModal from './components/SignatureCaptureModal';
 import ActionNotAllowedModal from './components/ActionNotAllowedModal';
@@ -238,8 +239,12 @@ function MainApp() {
         return <ProcurementPage initialTab="suppliers" />;
 
       // Finance & General Ledger Sub-Modules
+      case 'finance':
       case 'accounting':
         return <FinancePage initialTab="overview" />;
+      case 'spreadsheet':
+      case 'acdoca':
+        return <FinancePage initialTab="spreadsheet" />;
       case 'chart_of_accounts':
         return <FinancePage initialTab="accounts" />;
       case 'expenses':
@@ -284,6 +289,13 @@ function MainApp() {
         return <SecurityElevationPage initialTab="elevation" />;
       case 'admin':
         return <SecurityElevationPage initialTab="audit" />;
+
+      // Mail Center & AI Email Hub
+      case 'email_hub':
+      case 'emails':
+      case 'inbox':
+      case 'mail':
+        return <EmailHubPage onNavigate={setCurrentTab} />;
 
       default:
         return <DashboardPage onNavigate={setCurrentTab} />;

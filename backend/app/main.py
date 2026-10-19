@@ -34,6 +34,7 @@ from app.api.system_admin import router as system_admin_router
 from app.api.vision import router as vision_router
 from app.api.security import router as security_router
 from app.api.sync import router as sync_router
+from app.api.emails import router as emails_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,9 +42,21 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # Safe schema sync for newly added columns in SQLite
-        for col, col_type in [("sender_email", "VARCHAR(150)"), ("sender_name", "VARCHAR(150)")]:
+        for col, col_type in [
+            ("sender_email", "VARCHAR(150)"), ("sender_name", "VARCHAR(150)"), ("raw_headers", "TEXT"),
+            ("cc_recipients", "TEXT"), ("bcc_recipients", "TEXT"), ("attachments_data", "TEXT"), ("priority", "VARCHAR(20) DEFAULT 'NORMAL'")
+        ]:
             try:
                 await conn.execute(text(f"ALTER TABLE outgoing_email_logs ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass # column already exists
+        for col, col_type in [
+            ("original_mail_id", "INTEGER"), ("original_message_body", "TEXT"), ("raw_headers", "TEXT"),
+            ("cc_recipients", "TEXT"), ("bcc_recipients", "TEXT"), ("attachments_data", "TEXT"),
+            ("priority", "VARCHAR(20) DEFAULT 'NORMAL'"), ("is_trash", "BOOLEAN DEFAULT 0"), ("is_archived", "BOOLEAN DEFAULT 0")
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE received_emails ADD COLUMN {col} {col_type}"))
             except Exception:
                 pass # column already exists
     yield
@@ -120,6 +133,7 @@ app.include_router(system_admin_router)
 app.include_router(vision_router)
 app.include_router(security_router)
 app.include_router(sync_router)
+app.include_router(emails_router)
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():

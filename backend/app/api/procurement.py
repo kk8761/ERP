@@ -22,6 +22,8 @@ from app.services.email_service import (
     send_business_email,
     generate_po_email_template,
     generate_pr_email_template,
+    generate_invoice_email_template,
+    generate_screenshot_alert_template,
     get_email_system_status
 )
 
@@ -328,39 +330,80 @@ async def email_system_status(
 
 @router.post("/emails/test-dispatch")
 async def send_test_email(
-    target_email: str = Query("vendor.test@nexaerp.internal"),
+    target_email: str = Query("vendor.test@nexaerp.internal", description="Recipient email address"),
+    email_type: str = Query("vendor", pattern="^(vendor|client|security)$", description="Type of email to dispatch: vendor, client, or security"),
     current_user: User = Depends(require_permission("procurement.create")),
     db: AsyncSession = Depends(get_db)
 ):
-    """Sends a verified test email using the enterprise SMTP dispatcher."""
-    sample_items = [{"product_name": "Industrial Basmati Rice", "quantity": 10, "unit_cost": 450.0, "line_total": 4500.0}]
-    template = generate_po_email_template(
-        po_number=f"TEST-PO-{uuid.uuid4().hex[:4].upper()}",
-        vendor_name="Global Test Supplier Ltd.",
-        items=sample_items,
-        total_amount=4500.0,
-        notes="Automated test dispatch to verify enterprise SMTP delivery.",
-        buyer_name=current_user.full_name or current_user.email,
-        buyer_email=current_user.email
-    )
+    """Sends a verified test email (Vendor PO, Client Invoice, or Security Alert) using the logged in user's identity."""
+    sender_display_name = current_user.full_name or "Karthik Reddy"
+    sender_email_addr = current_user.email or "admin@nexaerp.internal"
+
+    if email_type == "client":
+        doc_ref = f"INV-{uuid.uuid4().hex[:5].upper()}"
+        doc_type = "INVOICE"
+        template = generate_invoice_email_template(
+            invoice_number=doc_ref,
+            customer_name="Acme Enterprise Client",
+            items=[
+                {"name": "NexaERP Cloud Professional License", "quantity": 1, "price": 45000.0, "total": 45000.0},
+                {"name": "Priority Technical Support SLA (Annual)", "quantity": 1, "price": 12000.0, "total": 12000.0}
+            ],
+            total_amount=57000.0,
+            company_name="Nexa Global Enterprises"
+        )
+    elif email_type == "security":
+        doc_ref = f"DLP-INC-{uuid.uuid4().hex[:4].upper()}"
+        doc_type = "DLP_INCIDENT"
+        template = generate_screenshot_alert_template(
+            user_name=sender_display_name,
+            user_email=sender_email_addr,
+            captured_at_str=datetime.now().strftime("%d %b %Y, %H:%M:%S UTC"),
+            page_url="/procurement/orders",
+            image_data="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+            action_type="PRINT_SCREEN_KEY",
+            company_name="Nexa Global Enterprises"
+        )
+    else: # vendor
+        doc_ref = f"PO-{uuid.uuid4().hex[:5].upper()}"
+        doc_type = "PURCHASE_ORDER"
+        sample_items = [
+            {"product_name": "Enterprise Server Hardware", "quantity": 2, "unit_cost": 45000.0, "line_total": 90000.0},
+            {"product_name": "Cat6A High-Speed Patch Panels", "quantity": 5, "unit_cost": 3200.0, "line_total": 16000.0}
+        ]
+        template = generate_po_email_template(
+            po_number=doc_ref,
+            vendor_name="Global Test Supplier Ltd.",
+            items=sample_items,
+            total_amount=106000.0,
+            notes="Automated test purchase order dispatch to verify enterprise SMTP delivery.",
+            buyer_name=sender_display_name,
+            buyer_email=sender_email_addr
+        )
+
     log_entry = await send_business_email(
         db=db,
         recipient_email=target_email,
-        recipient_name="Global Test Supplier Ltd.",
-        document_type="PURCHASE_ORDER",
-        document_reference="TEST-DISPATCH",
+        recipient_name="Recipient Counterparty",
+        document_type=doc_type,
+        document_reference=doc_ref,
         subject=template["subject"],
         body_html=template["body_html"],
         sent_by_user_id=current_user.id,
-        sender_email=current_user.email,
-        sender_name=current_user.full_name or current_user.email
+        sender_email=sender_email_addr,
+        sender_name=sender_display_name
     )
     await db.commit()
     return {
         "status": "DISPATCHED",
+        "email_type": email_type,
         "delivery_status": log_entry.status,
         "sender": log_entry.sender_email,
+        "sender_name": log_entry.sender_name,
+        "sender_email": log_entry.sender_email,
         "recipient": target_email,
+        "subject": log_entry.subject,
+        "document_reference": log_entry.document_reference,
         "log_id": log_entry.id
     }
 

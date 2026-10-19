@@ -13,12 +13,29 @@ from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.security_incident import IntrusionEvent, QuarantinedIP
+from app.models.auth import User, Role, UserRole
 from app.services.audit_service import record_audit_log
+from app.services.email_service import send_business_email, generate_sqli_alert_template
+from app.config import settings
 
 # Threat signature regex definitions
 PATTERNS = {
     "SQL_INJECTION": re.compile(
-        r"(\b(union(\s+all)?\s+select|select\s+.*\s+from|insert\s+into|delete\s+from|drop\s+(table|database)|alter\s+table|exec(\s+xp_)?|or\s+1\s*=\s*1|'\s*or\s*'1'\s*=\s*'1|waitfor\s+delay|sleep\(|benchmark\(|pg_sleep)\b)",
+        r"("
+        # Tautologies with quotes/parentheses: ' OR 1=1, ' OR '1'='1, " OR "1"="1", ') OR ('1'='1, ' OR ''=', ' OR 'a'='a', ' OR true
+        r"(?:['\"]\s*|\)\s*)\b(?:or|and|xor)\b\s*\(?['\"]?[a-z0-9_]+['\"]?\s*=\s*['\"]?[a-z0-9_]+['\"]?\)?|"
+        r"\b(?:or|and)\s+(?:1\s*=\s*1|0\s*=\s*0|true\s*=\s*true|'1'\s*=\s*'1'|\"1\"\s*=\s*\"1\")\b|"
+        # SQL Comments following a quote or alphanumeric: admin'--, admin' #, admin'/*, or standalone --, #, /*
+        r"(['\"][^'\"]*(--|#|/\*)|^\s*(--|#|/\*))|"
+        # SQL Commands: UNION SELECT, SELECT ... FROM, INSERT INTO, DELETE FROM, DROP TABLE/DATABASE, ALTER TABLE, EXEC
+        r"\b(?:union(?:\s+all)?\s+select|select\s+.*?\s+from|insert\s+into|delete\s+from|update\s+.*?\s+set|drop\s+(?:table|database|view|index)|alter\s+table|create\s+table|truncate\s+table|exec(?:\s+xp_)?)\b|"
+        # Stacked SQL statements: ; SELECT, ; DROP, ; INSERT, ; UPDATE, ; DELETE
+        r";\s*(?:select|insert|update|delete|drop|alter|exec|truncate)\b|"
+        # Time-based blind SQLi: sleep(N), benchmark(N), waitfor delay, pg_sleep(N)
+        r"\b(?:waitfor\s+delay|sleep\s*\(|benchmark\s*\(|pg_sleep\s*\(|dbms_pipe\.receive_message)\b|"
+        # SQL functions often used in injection: version(), user(), database(), schema(), current_user
+        r"\b(?:version\(\)|current_user\(\)|user\(\)|database\(\)|schema\(\)|load_file\s*\(|into\s+(?:out|dump)file)\b"
+        r")",
         re.IGNORECASE
     ),
     "COMMAND_INJECTION": re.compile(
@@ -187,6 +204,165 @@ def analyze_request_for_threats(
         }
 
     return None
+
+def detect_sql_injection(input_text: Optional[str]) -> Optional[str]:
+    """
+    Scans an input string (e.g. login username/email or password) for hostile SQL injection signatures.
+    Returns matched exploit pattern or None if clean.
+    """
+    if not input_text or not isinstance(input_text, str):
+        return None
+    match = PATTERNS["SQL_INJECTION"].search(input_text)
+    if match:
+        return match.group(0)
+    return None
+
+async def notify_administrators_of_sqli(
+    db: AsyncSession,
+    client_ip: str,
+    target_endpoint: str,
+    field_name: str,
+    payload_sample: str,
+    threat_score: int = 90,
+    action_taken: str = "BLOCKED_AND_ADMIN_NOTIFIED",
+    user_agent: Optional[str] = None
+) -> Tuple[List[str], bool]:
+    """
+    Dispatches immediate high-priority alerts to System Administrators when SQL injection
+    is intercepted (specifically during authentication or sensitive gateway operations).
+    
+    1. Resolves all active Superusers and System Administrators from the database.
+    2. Composes & transmits RFC-compliant security notification emails with incident telemetry.
+    3. Persists tamper-evident IntrusionEvent into the security database table.
+    4. Records comprehensive audit log entry.
+    5. Accumulates IP threat score and dynamically applies firewall quarantine if threshold exceeded.
+    
+    Returns (list_of_admin_emails_notified, is_ip_quarantined).
+    """
+    now = datetime.now(timezone.utc)
+    timestamp_str = now.strftime("%d %b %Y, %H:%M:%S UTC")
+
+    # 1. Resolve System Administrator recipients
+    admin_recipients: Set[Tuple[str, str]] = set() # (email, full_name)
+
+    # 1a. Superusers / Platform Admins
+    try:
+        admin_stmt = (
+            select(User.email, User.full_name)
+            .where(User.is_active == True)
+            .where(User.is_superuser == True)
+        )
+        admin_res = await db.execute(admin_stmt)
+        for row in admin_res.all():
+            if row.email:
+                admin_recipients.add((row.email, row.full_name or "System Administrator"))
+
+        # 1b. Users explicitly assigned the "System Administrator" role
+        role_stmt = (
+            select(User.email, User.full_name)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(User.is_active == True)
+            .where(Role.name == "System Administrator")
+        )
+        role_res = await db.execute(role_stmt)
+        for row in role_res.all():
+            if row.email:
+                admin_recipients.add((row.email, row.full_name or "System Administrator"))
+    except Exception as exc:
+        print(f"[IDS Alert] Error resolving administrator emails from DB: {exc}")
+
+    # Fallback to designated system SOC admin address if no specific database administrator exists
+    if not admin_recipients:
+        fallback_email = settings.SMTP_FROM_EMAIL or "admin@nexaerp.internal"
+        admin_recipients.add((fallback_email, "NexaERP SOC Administrator"))
+
+    notified_emails: List[str] = []
+
+    # 2. Dispatch high-priority HTML email notifications
+    email_content = generate_sqli_alert_template(
+        client_ip=client_ip,
+        timestamp_str=timestamp_str,
+        target_endpoint=target_endpoint,
+        field_name=field_name,
+        payload_sample=payload_sample,
+        threat_score=threat_score,
+        action_taken=action_taken,
+        user_agent=user_agent
+    )
+
+    for adm_email, adm_name in admin_recipients:
+        try:
+            await send_business_email(
+                db=db,
+                recipient_email=adm_email,
+                recipient_name=adm_name,
+                document_type="SECURITY_ALERT",
+                document_reference="SQLI-AUTH-ATTEMPT",
+                subject=email_content["subject"],
+                body_html=email_content["body_html"]
+            )
+            notified_emails.append(adm_email)
+        except Exception as exc:
+            print(f"[IDS Alert] Failed to dispatch security alert to {adm_email}: {exc}")
+
+    # 3. Persist Intrusion Incident Record
+    event = IntrusionEvent(
+        attack_type="SQL_INJECTION",
+        client_ip=client_ip,
+        user_agent=user_agent[:250] if user_agent else None,
+        request_path=target_endpoint[:250],
+        payload_sample=payload_sample[:500],
+        threat_score=threat_score,
+        action_taken=action_taken,
+        is_mitigated=True,
+        detected_at=now
+    )
+    db.add(event)
+
+    # 4. Record Audit Log
+    await record_audit_log(
+        db,
+        action="AUTH_SQL_INJECTION_BLOCKED",
+        entity_name="IntrusionEvent",
+        ip_address=client_ip,
+        status="BLOCKED",
+        details={
+            "attack_type": "SQL_INJECTION",
+            "endpoint": target_endpoint,
+            "targeted_field": field_name,
+            "payload_sample": payload_sample[:100],
+            "threat_score": threat_score,
+            "action_taken": action_taken,
+            "administrators_notified": notified_emails,
+            "timestamp": now.isoformat()
+        }
+    )
+
+    # 5. Threat score accumulation & dynamic IP quarantine
+    is_quarantined, total_score = record_threat_and_evaluate_quarantine(client_ip, threat_score)
+    if is_quarantined:
+        until = now + timedelta(minutes=60)
+        q_stmt = select(QuarantinedIP).where(QuarantinedIP.ip_address == client_ip)
+        q_res = await db.execute(q_stmt)
+        existing_q = q_res.scalar_one_or_none()
+        if existing_q:
+            existing_q.is_active = True
+            existing_q.quarantined_until = until
+            existing_q.reason = f"Automated quarantine: SQL injection detected during authentication (Score: {total_score})"
+        else:
+            q_rec = QuarantinedIP(
+                ip_address=client_ip,
+                reason=f"Automated quarantine: SQL injection detected during authentication (Score: {total_score})",
+                threat_score=total_score,
+                quarantined_until=until,
+                is_active=True,
+                quarantined_by="NexaERP-IDS-AutoShield"
+            )
+            db.add(q_rec)
+
+    await db.commit()
+    return notified_emails, is_quarantined
 
 async def log_intrusion_incident_to_db(
     db: AsyncSession,

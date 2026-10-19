@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -232,9 +232,15 @@ async def get_screenshot_incident_stats(
     recent_res = await db.execute(recent_stmt)
     recent_incidents = recent_res.scalars().all()
 
+    # Also tally recent intrusion events (e.g., SQL injections)
+    cutoff_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+    ids_stmt = select(func.count(IntrusionEvent.id)).where(IntrusionEvent.detected_at >= cutoff_24h)
+    ids_res = await db.execute(ids_stmt)
+    ids_unreviewed = ids_res.scalar() or 0
+
     return {
-        "total_incidents": total_res.scalar() or 0,
-        "unreviewed_count": unreviewed_res.scalar() or 0,
+        "total_incidents": (total_res.scalar() or 0) + ids_unreviewed,
+        "unreviewed_count": (unreviewed_res.scalar() or 0) + ids_unreviewed,
         "recent_incidents": [
             {
                 "id": inc.id,
@@ -247,6 +253,93 @@ async def get_screenshot_incident_stats(
             }
             for inc in recent_incidents
         ]
+    }
+
+@router.get("/security-notifications")
+async def get_security_notifications(
+    limit: int = Query(25, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns unified security notifications for System Administrators,
+    combining SQL injection / IDS intrusion intercepts and DLP screenshot alerts.
+    """
+    is_admin = (
+        current_user.is_superuser or
+        "audit.view" in getattr(current_user, "effective_permissions", set()) or
+        "system.admin" in getattr(current_user, "effective_permissions", set())
+    )
+    if not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrative privileges required to access security notifications."
+        )
+
+    # 1. Fetch IDS Intrusion Events (SQLi, WAF intercepts)
+    ids_stmt = select(IntrusionEvent).order_by(desc(IntrusionEvent.detected_at)).limit(limit)
+    ids_res = await db.execute(ids_stmt)
+    ids_events = ids_res.scalars().all()
+
+    # 2. Fetch DLP Screenshot Incidents
+    dlp_stmt = select(ScreenshotIncident).order_by(desc(ScreenshotIncident.captured_at)).limit(limit)
+    dlp_res = await db.execute(dlp_stmt)
+    dlp_incidents = dlp_res.scalars().all()
+
+    combined: List[Dict[str, Any]] = []
+
+    for ev in ids_events:
+        is_sqli = ev.attack_type == "SQL_INJECTION"
+        combined.append({
+            "id": f"ids-{ev.id}",
+            "numeric_id": ev.id,
+            "category": "IDS_INTRUSION",
+            "attack_type": ev.attack_type,
+            "title": "🚨 SQL Injection Attempt Intercepted" if is_sqli else f"🚨 {ev.attack_type} Blocked",
+            "severity": "CRITICAL" if is_sqli else ("HIGH" if ev.threat_score >= 70 else "MEDIUM"),
+            "client_ip": ev.client_ip,
+            "target_endpoint": ev.request_path,
+            "payload_sample": ev.payload_sample,
+            "threat_score": ev.threat_score,
+            "action_taken": ev.action_taken,
+            "detected_at": ev.detected_at.isoformat() if ev.detected_at else datetime.now(timezone.utc).isoformat(),
+            "is_reviewed": False,
+            "user_name": "External / Untrusted Client",
+            "user_email": "gateway-probe@untrusted",
+            "summary": f"Hostile {ev.attack_type} pattern intercepted at {ev.request_path}. System Administrator notified."
+        })
+
+    for dlp in dlp_incidents:
+        combined.append({
+            "id": f"dlp-{dlp.id}",
+            "numeric_id": dlp.id,
+            "category": "DLP_SCREENSHOT",
+            "attack_type": "DLP_SCREENSHOT",
+            "title": "Screen Capture Attempt",
+            "severity": dlp.severity or "HIGH",
+            "client_ip": dlp.ip_address,
+            "target_endpoint": dlp.page_url,
+            "payload_sample": dlp.action_type,
+            "threat_score": 50,
+            "action_taken": "LOGGED_AND_ADMIN_ALERTED",
+            "detected_at": dlp.captured_at.isoformat() if dlp.captured_at else datetime.now(timezone.utc).isoformat(),
+            "is_reviewed": dlp.is_reviewed,
+            "user_name": dlp.user_name,
+            "user_email": dlp.user_email,
+            "image_data": dlp.image_data,
+            "page_url": dlp.page_url,
+            "action_type": dlp.action_type,
+            "summary": f"{dlp.user_name} triggered screen capture policy on {dlp.page_url}."
+        })
+
+    # Sort combined descending by detected_at
+    combined.sort(key=lambda x: x.get("detected_at", ""), reverse=True)
+    unreviewed_count = sum(1 for item in combined if not item.get("is_reviewed", False))
+
+    return {
+        "total_alerts": len(combined),
+        "unreviewed_count": unreviewed_count,
+        "notifications": combined[:limit]
     }
 
 

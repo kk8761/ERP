@@ -3,7 +3,7 @@ import {
   Search, Bell, HelpCircle, Sun, Moon, ChevronDown, 
   Store, User, Shield, LogOut, KeyRound, Sparkles,
   ScanLine, PenTool, Wifi, WifiOff, Sliders, ShieldAlert, Eye, Check,
-  RefreshCw
+  RefreshCw, Mail
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ModuleSearchModal from './ModuleSearchModal';
@@ -95,16 +95,29 @@ export default function TopNav({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Fetch DLP Screenshot Security Incidents for Admin notification badge & popover
+  // Fetch Unified Security & DLP Incidents for Admin notification badge & popover
   const fetchSecurityIncidents = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || localStorage.getItem('nexaerp_token');
       if (!token) return;
-      const res = await fetch('/api/security/screenshot-incidents?limit=10', {
+      
+      // Try unified security notifications endpoint (includes SQL Injection & IDS events)
+      const res = await fetch('/api/security/security-notifications?limit=20', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
+        setScreenshotIncidents(data.notifications || []);
+        setUnreviewedCount(data.unreviewed_count || 0);
+        return;
+      }
+      
+      // Fallback for non-admin accounts or legacy endpoint
+      const legacyRes = await fetch('/api/security/screenshot-incidents?limit=10', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (legacyRes.ok) {
+        const data = await legacyRes.json();
         setScreenshotIncidents(data);
         const unread = data.filter(i => !i.is_reviewed).length;
         setUnreviewedCount(unread);
@@ -156,19 +169,24 @@ export default function TopNav({
           style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
         >
           <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '8px',
-            background: 'linear-gradient(135deg, #0064d2 0%, #0098ff 100%)',
+            width: '38px',
+            height: '38px',
+            borderRadius: '9px',
+            background: '#010c22',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#ffffff',
-            fontWeight: 800,
-            fontSize: '18px',
-            boxShadow: '0 2px 8px rgba(0, 100, 210, 0.3)'
+            boxShadow: '0 2px 10px rgba(0, 100, 210, 0.35)',
+            border: '1px solid rgba(0, 152, 255, 0.35)',
+            overflow: 'hidden',
+            padding: '2px',
+            flexShrink: 0
           }}>
-            N
+            <img
+              src="/assets/nexa_icon_transparent.png"
+              alt="Nexa ERP"
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            />
           </div>
           <div>
             <div style={{ 
@@ -176,12 +194,13 @@ export default function TopNav({
               fontWeight: 800, 
               fontSize: '18px', 
               color: 'var(--text-main)', 
-              lineHeight: 1.1 
+              lineHeight: 1.1,
+              letterSpacing: '-0.3px'
             }}>
               Nexa<span style={{ color: 'var(--primary)' }}>ERP</span>
             </div>
-            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-              Grow Your Business
+            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.2px' }}>
+              An ERP Tool For Everyone
             </div>
           </div>
         </div>
@@ -406,6 +425,40 @@ export default function TopNav({
           <Sparkles size={17} />
         </button>
 
+        {/* Mail Center & AI Hub Quick Trigger */}
+        <button
+          onClick={() => onNavigate('email_hub')}
+          className="btn btn-ghost"
+          title="Open Mail Center & AI Hub"
+          style={{
+            position: 'relative',
+            color: currentTab === 'email_hub' ? 'var(--primary)' : 'var(--text-main)',
+            backgroundColor: currentTab === 'email_hub' ? 'var(--primary-light)' : 'transparent',
+            padding: '7px 10px',
+            borderRadius: 'var(--radius-sm)'
+          }}
+        >
+          <Mail size={17} />
+          {(syncState?.metrics?.emails?.unread_emails > 0) && (
+            <span
+              style={{
+                position: 'absolute',
+                top: '2px',
+                right: '2px',
+                backgroundColor: '#0284c7',
+                color: '#ffffff',
+                fontSize: '9px',
+                fontWeight: 800,
+                borderRadius: '8px',
+                padding: '1px 4px',
+                lineHeight: 1
+              }}
+            >
+              {syncState.metrics.emails.unread_emails}
+            </span>
+          )}
+        </button>
+
         {/* Notifications Icon with Real-Time DLP Alert Badge */}
         <div style={{ position: 'relative' }}>
           <button 
@@ -538,34 +591,55 @@ export default function TopNav({
                       }}
                     >
                       <div style={{ display: 'flex', gap: '10px' }}>
-                        {/* Thumbnail of WHAT was captured */}
-                        <div style={{
-                          width: '60px',
-                          height: '46px',
-                          borderRadius: '4px',
-                          overflow: 'hidden',
-                          backgroundColor: '#000000',
-                          flexShrink: 0,
-                          border: '1px solid rgba(239, 68, 68, 0.5)',
-                          position: 'relative'
-                        }}>
-                          <img 
-                            src={inc.image_data} 
-                            alt="capture thumbnail" 
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                          />
-                        </div>
+                        {/* Thumbnail or Attack Icon */}
+                        {inc.category === 'IDS_INTRUSION' || inc.attack_type === 'SQL_INJECTION' ? (
+                          <div style={{
+                            width: '56px',
+                            height: '50px',
+                            borderRadius: '6px',
+                            backgroundColor: '#fef2f2',
+                            border: '1px solid #f87171',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}>
+                            <ShieldAlert size={24} color="#dc2626" />
+                          </div>
+                        ) : (
+                          <div style={{
+                            width: '60px',
+                            height: '46px',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            backgroundColor: '#000000',
+                            flexShrink: 0,
+                            border: '1px solid rgba(239, 68, 68, 0.5)',
+                            position: 'relative'
+                          }}>
+                            <img 
+                              src={inc.image_data} 
+                              alt="capture thumbnail" 
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                            />
+                          </div>
+                        )}
 
-                        {/* Details: WHO did it, Date & Time, Page */}
+                        {/* Details */}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#ef4444' }}>
-                              Screen Capture Attempt
+                            <span style={{ 
+                              fontSize: '11px', 
+                              fontWeight: 700, 
+                              color: inc.category === 'IDS_INTRUSION' ? '#dc2626' : '#ef4444' 
+                            }}>
+                              {inc.category === 'IDS_INTRUSION' ? '🚨 SQL Injection Intercepted' : 'Screen Capture Attempt'}
                             </span>
                             <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                              {new Date(inc.captured_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(inc.detected_at || inc.captured_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
+                          
                           <div style={{
                             fontSize: '12px',
                             fontWeight: 600,
@@ -575,28 +649,39 @@ export default function TopNav({
                             overflow: 'hidden',
                             textOverflow: 'ellipsis'
                           }}>
-                            {inc.user_name}
+                            {inc.category === 'IDS_INTRUSION' 
+                              ? `Gateway: ${inc.target_endpoint || '/api/auth/login'}` 
+                              : inc.user_name}
                           </div>
+
                           <div style={{
-                            fontSize: '10px',
-                            color: 'var(--primary)',
+                            fontSize: '10.5px',
+                            color: inc.category === 'IDS_INTRUSION' ? '#991b1b' : 'var(--primary)',
                             fontFamily: 'monospace',
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis'
                           }}>
-                            {inc.user_email}
+                            {inc.category === 'IDS_INTRUSION' 
+                              ? `Attacker IP: ${inc.client_ip}` 
+                              : inc.user_email}
                           </div>
+
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
                             <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                              {inc.page_url.substring(0, 26)}
+                              {inc.category === 'IDS_INTRUSION' 
+                                ? (inc.payload_sample ? `Sample: ${inc.payload_sample.substring(0, 18)}` : 'Auth Bypass') 
+                                : (inc.page_url?.substring(0, 24) || '')}
                             </span>
                             <span style={{
-                              fontSize: '10px',
-                              fontWeight: 600,
-                              color: inc.is_reviewed ? '#16a34a' : '#ef4444'
+                              fontSize: '9.5px',
+                              fontWeight: 700,
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              backgroundColor: inc.category === 'IDS_INTRUSION' ? '#fee2e2' : (inc.is_reviewed ? '#dcfce7' : '#fee2e2'),
+                              color: inc.category === 'IDS_INTRUSION' ? '#991b1b' : (inc.is_reviewed ? '#16a34a' : '#ef4444')
                             }}>
-                              {inc.is_reviewed ? '✓ Reviewed' : '● Needs Review'}
+                              {inc.category === 'IDS_INTRUSION' ? 'Admin Alert Dispatched' : (inc.is_reviewed ? '✓ Reviewed' : '● Needs Review')}
                             </span>
                           </div>
                         </div>

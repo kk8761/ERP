@@ -176,6 +176,48 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
   const [statusMessage, setStatusMessage] = useState(null);
 
   const formulaInputRef = useRef(null);
+  const gridContainerRef = useRef(null);
+
+  // Full Screen Excel Immersion Mode (Dedicated spreadsheet workspace)
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen(prev => {
+      const next = !prev;
+      if (next) {
+        if (gridContainerRef.current?.requestFullscreen && !document.fullscreenElement) {
+          gridContainerRef.current.requestFullscreen().catch(() => {});
+        }
+      } else {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  // Sync state if native browser fullscreen is toggled or exited via browser Esc
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [isFullscreen]);
+
+  // Lock background scroll when full screen so user only works in Excel
+  useEffect(() => {
+    if (isFullscreen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
+    }
+  }, [isFullscreen]);
 
   // Resizable Cell Dimensions (Column Widths & Row Heights)
   const [columnWidths, setColumnWidths] = useState(() => {
@@ -323,6 +365,23 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
       setFormulaInput(String(raw));
     }
   }, [selectedCell, rows, formulaMode]);
+
+  // Global Esc / F11 keyboard handler for full screen immersion mode
+  useEffect(() => {
+    const handleGlobalKey = (e) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullscreen();
+      } else if (e.key === 'Escape' && isFullscreen && !editingCell && !formulaMode) {
+        setIsFullscreen(false);
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKey);
+    return () => window.removeEventListener('keydown', handleGlobalKey);
+  }, [isFullscreen, editingCell, formulaMode, toggleFullscreen]);
 
   // Handle cell selection
   const selectCell = useCallback((rowIdx, colIdx, colId, isShift = false) => {
@@ -644,6 +703,13 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
       return;
     }
 
+    // F11 Shortcut: Full Screen Excel Immersion Mode
+    if (e.key === 'F11') {
+      e.preventDefault();
+      toggleFullscreen();
+      return;
+    }
+
     // Excel Shortcut: Alt + = triggers AutoSum
     if (e.altKey && (e.key === '=' || e.key === '+')) {
       e.preventDefault();
@@ -714,6 +780,13 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         handleFormulaCancel();
         return;
       }
+      if (isFullscreen) {
+        setIsFullscreen(false);
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+        return;
+      }
     } else if (e.key === 'F2') {
       e.preventDefault();
       const currentVal = rows[selectedCell.rowIdx]?.[selectedCell.colId] ?? '';
@@ -752,7 +825,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
     const nextColId = columns[newCol]?.id || 'debit';
     selectCell(newRow, newCol, nextColId, e.shiftKey && e.key.startsWith('Arrow'));
-  }, [editingCell, editingValue, selectedCell, rows, columns, selectCell, handleCellChange, formulaMode, handleFormulaCommit, handleFormulaCancel, applyAutoSum]);
+  }, [editingCell, editingValue, selectedCell, rows, columns, selectCell, handleCellChange, formulaMode, handleFormulaCommit, handleFormulaCancel, applyAutoSum, isFullscreen, toggleFullscreen]);
 
   // Global window keyboard listener for Excel shortcuts
   useEffect(() => {
@@ -1085,11 +1158,35 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
 
   return (
     <div
-      className="acdoca-grid-container"
+      ref={gridContainerRef}
+      className={`acdoca-grid-container ${isFullscreen ? 'is-fullscreen' : ''}`}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       style={{ outline: 'none' }}
     >
+      {/* Immersive Full Screen HUD Banner */}
+      {isFullscreen && (
+        <div className="excel-fullscreen-hud">
+          <div className="excel-fullscreen-hud-title">
+            <span className="excel-hud-badge">EXCEL IMMERSION ACTIVE</span>
+            <span>Dedicated Full-Screen Workspace &bull; Background ERP Paused</span>
+          </div>
+          <div className="excel-fullscreen-hud-actions">
+            <span className="excel-hud-hint">
+              Press <span className="excel-key-badge">Esc</span> or <span className="excel-key-badge">F11</span> to exit
+            </span>
+            <button
+              onClick={toggleFullscreen}
+              className="excel-fullscreen-hud-exit-btn"
+              title="Exit Full Screen Mode (Esc or F11)"
+            >
+              <Minimize2 size={13} />
+              <span>Exit Full Screen</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 1. TOP SAP CLASSIC TITLE & PARAMETERS BAR */}
       <div className="acdoca-header">
         <div className="acdoca-title-row">
@@ -1101,14 +1198,27 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
             </span>
           </div>
 
-          <div className="acdoca-quick-search">
-            <span>Filter Search:</span>
-            <input
-              type="text"
-              placeholder="Search in grid..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="excel-title-fullscreen-btn"
+              title={isFullscreen ? "Exit Full Screen Sheet (Esc / F11)" : "Enter Full Screen Sheet (F11)"}
+            >
+              {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              <span>{isFullscreen ? "Exit Full Screen" : "Full Screen Sheet"}</span>
+              <span className="excel-key-badge">{isFullscreen ? "Esc" : "F11"}</span>
+            </button>
+
+            <div className="acdoca-quick-search">
+              <span>Filter Search:</span>
+              <input
+                type="text"
+                placeholder="Search in grid..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
           </div>
         </div>
 
@@ -1403,6 +1513,16 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
               DIFF: ₹ {Math.abs(totalDebits - totalCredits).toFixed(2)}
             </span>
           )}
+
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={`excel-fullscreen-action-btn ${isFullscreen ? 'active' : ''}`}
+            title={isFullscreen ? "Exit Full Screen Excel Mode (Esc / F11)" : "Enter Full Screen Excel Mode (F11)"}
+          >
+            {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            <span>{isFullscreen ? "Exit Full Screen" : "Full Screen"}</span>
+          </button>
         </div>
       </div>
 

@@ -45,6 +45,7 @@ export function AuthProvider({ children }) {
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
+    localStorage.setItem('token', data.access_token);
     localStorage.setItem('nexaerp_token', data.access_token);
     localStorage.setItem('nexaerp_user', JSON.stringify(data.user));
     setToken(data.access_token);
@@ -60,6 +61,7 @@ export function AuthProvider({ children }) {
     } catch (e) {
       // Ignore logout errors
     } finally {
+      localStorage.removeItem('token');
       localStorage.removeItem('nexaerp_token');
       localStorage.removeItem('nexaerp_user');
       setToken(null);

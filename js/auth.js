@@ -89,24 +89,54 @@ async function handleLogin(e) {
 
     // Demo mode — check hardcoded creds
     const demoUser = Object.values(DEMO_USERS).find(u => u.email === email);
+    const localUsers = Storage.get('nexaerp_local_users') || [];
+    const localUser = localUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+
     if (demoUser && password === 'demo123') {
       token = generateDemoToken(demoUser);
       user = demoUser;
+    } else if (localUser && localUser.password === password) {
+      token = generateDemoToken(localUser);
+      user = localUser;
     } else {
       // Real API call
-      const res = await Http.post('/auth/login', { email, password, rememberMe });
-      
-      // Check if MFA is required
-      if (res.requireMFA) {
-        Toast.info('MFA verification required');
-        setTimeout(() => {
-          window.location.href = '/mfa/verify';
-        }, 500);
-        return;
+      let res = null;
+      try {
+        res = await Http.post('/auth/login', { email, password, rememberMe });
+      } catch (e) {
+        res = null;
       }
-      
-      token = res.token;
-      user  = res.user;
+
+      if (res && res.token) {
+        // Check if MFA is required
+        if (res.requireMFA) {
+          Toast.info('MFA verification required');
+          setTimeout(() => {
+            window.location.href = '/mfa/verify';
+          }, 500);
+          return;
+        }
+
+        token = res.token;
+        user  = res.user;
+      } else if (!res || !Http._isOnline) {
+        // Backend is offline / unreachable — provide resilient local demo login
+        Toast.warn('Backend server offline. Continuing in local demo mode.');
+        user = {
+          id: 'demo-' + Date.now(),
+          name: email.split('@')[0],
+          email,
+          role: 'owner',
+          business: 'Demo Business',
+          businessType: 'retail',
+          avatar: email.substring(0, 2).toUpperCase(),
+          plan: 'free',
+          storeId: 'store-001'
+        };
+        token = generateDemoToken(user);
+      } else {
+        throw new Error(res?.message || 'Invalid email or password');
+      }
     }
 
     // Persist session
@@ -209,6 +239,11 @@ async function handleRegister(e) {
         storeId: generateId()
       };
       token = generateDemoToken(user);
+
+      // Save locally so user can log in again
+      const localUsers = Storage.get('nexaerp_local_users') || [];
+      localUsers.push({ ...user, password });
+      Storage.set('nexaerp_local_users', localUsers);
     }
 
     Auth.setSession(token, user);

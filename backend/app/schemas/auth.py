@@ -2,8 +2,8 @@ from typing import Optional, List
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(..., min_length=6)
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
 
 class TokenResponse(BaseModel):
     access_token: str

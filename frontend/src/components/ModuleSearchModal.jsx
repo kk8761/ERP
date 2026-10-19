@@ -4,10 +4,24 @@ import {
   Boxes, Package, ArrowLeftRight, ScanLine, TrendingDown, Truck, Building,
   Factory, Layers, Cpu, Sparkles, BookOpen, Wallet, DollarSign, BarChart3,
   Users, Clock, Calendar, ShieldAlert, Award, User, KeyRound, ShieldCheck,
-  Database, Sliders, ExternalLink, Filter, ChevronRight, PenTool, UserPlus, PlusCircle
+  Database, Sliders, ExternalLink, Filter, ChevronRight, PenTool, UserPlus, PlusCircle, Mail
 } from 'lucide-react';
 
 export const SYSTEM_FUNCTIONS = [
+  // --- Communication & Mail Hub ---
+  {
+    id: 'email_hub',
+    name: 'Mail Center & AI Hub',
+    module: 'Communication & AI',
+    category: 'all',
+    tab: 'email_hub',
+    icon: Mail,
+    color: '#0284c7',
+    bgColor: '#f0f9ff',
+    borderColor: '#bae6fd',
+    description: 'Bi-directional business email, automated IMAP/SMTP sync, Groq AI entity extraction (PO, amounts, dates), and smart content drafting.',
+    keywords: ['email', 'mail', 'inbox', 'send mail', 'receive mail', 'suggest mail', 'extract mail', 'message', 'smtp', 'imap', 'ai email']
+  },
   // --- Sales & POS ---
   {
     id: 'pos_terminal',

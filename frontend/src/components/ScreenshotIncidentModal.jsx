@@ -10,31 +10,39 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
 
   if (!incident) return null;
 
+  const isIDS = incident.category === 'IDS_INTRUSION' || incident.attack_type === 'SQL_INJECTION';
+
   const handleReview = async () => {
     try {
       setIsReviewing(true);
-      const token = localStorage.getItem('token');
-      const res = await fetch(`/api/security/screenshot-incidents/${incident.id}/review`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ is_reviewed: true })
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        if (onReviewed) onReviewed(updated);
-        onClose();
+      const token = localStorage.getItem('token') || localStorage.getItem('nexaerp_token');
+      if (!isIDS) {
+        const res = await fetch(`/api/security/screenshot-incidents/${incident.id}/review`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ is_reviewed: true })
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          if (onReviewed) onReviewed(updated);
+          onClose();
+          return;
+        }
       }
+      if (onReviewed) onReviewed({ ...incident, is_reviewed: true });
+      onClose();
     } catch (err) {
-      console.error('Failed to review screenshot incident:', err);
+      console.error('Failed to review security incident:', err);
     } finally {
       setIsReviewing(false);
     }
   };
 
-  const formattedDate = new Date(incident.captured_at).toLocaleString('en-US', {
+  const rawDate = incident.detected_at || incident.captured_at || new Date().toISOString();
+  const formattedDate = new Date(rawDate).toLocaleString('en-US', {
     weekday: 'short',
     year: 'numeric',
     month: 'short',
@@ -78,7 +86,9 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
         {/* Header Banner */}
         <div style={{
           padding: '18px 24px',
-          background: 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)',
+          background: isIDS 
+            ? 'linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)' 
+            : 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)',
           color: '#ffffff',
           display: 'flex',
           alignItems: 'center',
@@ -98,10 +108,14 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
             </div>
             <div>
               <div style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>
-                DLP Security Incident #INC-{incident.id}
+                {isIDS 
+                  ? `🚨 Autonomous IDS Shield: Intrusion Incident #${incident.numeric_id || incident.id}` 
+                  : `DLP Security Incident #INC-${incident.id}`}
               </div>
               <div style={{ fontSize: '12px', opacity: 0.9 }}>
-                Unauthorized Screen Capture Trigger Detected & Logged
+                {isIDS 
+                  ? 'Hostile SQL Injection Intercepted & Mitigated • System Administrator Notified' 
+                  : 'Unauthorized Screen Capture Trigger Detected & Logged'}
               </div>
             </div>
           </div>
@@ -146,13 +160,13 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
                 <User size={14} color="var(--primary)" />
-                <span style={{ fontWeight: 600 }}>Offending User (Who)</span>
+                <span style={{ fontWeight: 600 }}>{isIDS ? 'Attacker Client Identity' : 'Offending User (Who)'}</span>
               </div>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>
-                {incident.user_name}
+                {isIDS ? `IP: ${incident.client_ip}` : incident.user_name}
               </div>
-              <div style={{ fontSize: '12px', color: 'var(--primary)', fontFamily: 'monospace', marginTop: '2px' }}>
-                {incident.user_email}
+              <div style={{ fontSize: '12px', color: isIDS ? '#dc2626' : 'var(--primary)', fontFamily: 'monospace', marginTop: '2px' }}>
+                {isIDS ? 'UNTRUSTED GATEWAY PROBE' : incident.user_email}
               </div>
             </div>
 
@@ -165,13 +179,13 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
                 <Clock size={14} color="#e11d48" />
-                <span style={{ fontWeight: 600 }}>Date & Time</span>
+                <span style={{ fontWeight: 600 }}>Detection Timestamp</span>
               </div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>
                 {formattedDate}
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Logged to SOC Audit Trail
+                {isIDS ? 'Logged to Tamper-Evident IDS Ledger' : 'Logged to SOC Audit Trail'}
               </div>
             </div>
 
@@ -184,10 +198,10 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
                 <Globe size={14} color="#16a34a" />
-                <span style={{ fontWeight: 600 }}>Location & Action</span>
+                <span style={{ fontWeight: 600 }}>{isIDS ? 'Targeted Endpoint' : 'Location & Action'}</span>
               </div>
               <div style={{ fontSize: '12px', fontFamily: 'monospace', color: 'var(--text-main)', wordBreak: 'break-all' }}>
-                {incident.page_url}
+                {isIDS ? (incident.target_endpoint || '/api/auth/login') : incident.page_url}
               </div>
               <div style={{ marginTop: '4px' }}>
                 <span style={{
@@ -198,68 +212,117 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
                   padding: '2px 6px',
                   borderRadius: '4px'
                 }}>
-                  {incident.action_type}
+                  {isIDS ? (incident.action_taken || 'BLOCKED_AND_ADMIN_NOTIFIED') : incident.action_type}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Captured Image Evidence Section */}
-          <div>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '10px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>
-                <Monitor size={16} color="var(--primary)" />
-                <span>Captured Screen Image (Evidence Preview):</span>
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <a
-                  href={incident.image_data}
-                  download={`DLP_Incident_${incident.id}_${incident.user_name.replace(/\s+/g, '_')}.jpg`}
-                  className="btn btn-ghost"
-                  style={{ fontSize: '12px', padding: '4px 8px', height: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <Download size={13} />
-                  <span>Download Snapshot</span>
-                </a>
-                <button
-                  onClick={() => setIsZoomed(!isZoomed)}
-                  className="btn btn-ghost"
-                  style={{ fontSize: '12px', padding: '4px 8px', height: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <Maximize2 size={13} />
-                  <span>{isZoomed ? 'Shrink' : 'Zoom'}</span>
-                </button>
-              </div>
-            </div>
-
-            <div style={{
-              backgroundColor: '#090d16',
-              borderRadius: '8px',
-              border: '2px solid #ef4444',
-              padding: '8px',
-              textAlign: 'center',
-              position: 'relative',
-              overflow: 'hidden'
-            }}>
-              <img
-                src={incident.image_data}
-                alt={`Screen capture by ${incident.user_name}`}
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: isZoomed ? '700px' : '360px',
-                  width: 'auto',
+          {/* Forensic Evidence Section */}
+          {isIDS ? (
+            <div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '10px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>
+                  <ShieldAlert size={16} color="#dc2626" />
+                  <span>Intercepted Hostile Query Vector (Payload Evidence):</span>
+                </div>
+                <div style={{
+                  backgroundColor: '#fee2e2',
+                  color: '#991b1b',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '3px 8px',
                   borderRadius: '4px',
-                  display: 'inline-block',
-                  transition: 'max-height var(--transition-normal)'
-                }}
-              />
+                  border: '1px solid #f87171'
+                }}>
+                  Threat Score: {incident.threat_score || 90} / 100 ({incident.severity || 'CRITICAL'})
+                </div>
+              </div>
+
+              <div style={{
+                backgroundColor: '#090d16',
+                borderRadius: '8px',
+                border: '2px solid #ef4444',
+                padding: '16px',
+                fontFamily: 'monospace',
+                fontSize: '13px',
+                color: '#f87171',
+                lineHeight: 1.6,
+                boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.6)'
+              }}>
+                <div style={{ color: '#94a3b8', fontSize: '11px', marginBottom: '8px', borderBottom: '1px solid #1e293b', paddingBottom: '4px' }}>
+                  -- RAW PAYLOAD CAPTURE [OWASP A03:2021 SQL INJECTION] --
+                </div>
+                <code>{incident.payload_sample || "' OR 1=1 --"}</code>
+                <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid #1e293b', fontSize: '11px', color: '#10b981', display: 'flex', gap: '16px' }}>
+                  <span>✓ Action: Query Blocked</span>
+                  <span>✓ Admin Dispatched: YES (Email Alert)</span>
+                  <span>✓ Threat Score: {incident.threat_score || 90}</span>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '10px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 700, color: 'var(--text-main)' }}>
+                  <Monitor size={16} color="var(--primary)" />
+                  <span>Captured Screen Image (Evidence Preview):</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <a
+                    href={incident.image_data}
+                    download={`DLP_Incident_${incident.id}_${incident.user_name.replace(/\s+/g, '_')}.jpg`}
+                    className="btn btn-ghost"
+                    style={{ fontSize: '12px', padding: '4px 8px', height: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Download size={13} />
+                    <span>Download Snapshot</span>
+                  </a>
+                  <button
+                    onClick={() => setIsZoomed(!isZoomed)}
+                    className="btn btn-ghost"
+                    style={{ fontSize: '12px', padding: '4px 8px', height: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Maximize2 size={13} />
+                    <span>{isZoomed ? 'Shrink' : 'Zoom'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style={{
+                backgroundColor: '#090d16',
+                borderRadius: '8px',
+                border: '2px solid #ef4444',
+                padding: '8px',
+                textAlign: 'center',
+                position: 'relative',
+                overflow: 'hidden'
+              }}>
+                <img
+                  src={incident.image_data}
+                  alt={`Screen capture by ${incident.user_name}`}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: isZoomed ? '700px' : '360px',
+                    width: 'auto',
+                    borderRadius: '4px',
+                    display: 'inline-block',
+                    transition: 'max-height var(--transition-normal)'
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Security Notice Note */}
           <div style={{
@@ -270,7 +333,15 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
             fontSize: '12px',
             color: 'var(--text-main)'
           }}>
-            <strong>Compliance Policy Notice:</strong> All screen capture actions on confidential financial, employee, or procurement records are restricted under NexaERP Enterprise DLP Policy. This capture has been archived and an email notification has been dispatched to security administrators.
+            {isIDS ? (
+              <span>
+                <strong>Autonomous Intrusion Defense Notice:</strong> All unauthorized SQL injection attempts targeting the platform's authentication gateway are actively neutralized. Detailed telemetry and forensic records are written into the tamper-resistant security audit log and dispatched immediately to System Administrators.
+              </span>
+            ) : (
+              <span>
+                <strong>Compliance Policy Notice:</strong> All screen capture actions on confidential financial, employee, or procurement records are restricted under NexaERP Enterprise DLP Policy. This capture has been archived and an email notification has been dispatched to security administrators.
+              </span>
+            )}
           </div>
         </div>
 

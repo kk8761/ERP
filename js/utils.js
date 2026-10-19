@@ -239,9 +239,20 @@ const Http = {
 
     if (method === 'POST' && resource === 'auth') {
       if (segments[1] === 'login') {
+        const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+        const payload = btoa(JSON.stringify({
+          sub: 'demo-user-001',
+          email: data?.email || 'demo@nexaerp.demo',
+          role: 'owner',
+          exp: Math.floor(Date.now() / 1000) + (7 * 24 * 3600),
+          iat: Math.floor(Date.now() / 1000),
+          demo: true
+        }));
+        const sig = btoa('demo-signature');
         return {
-          success: true, token: 'demo.jwt.token',
-          user: { name: 'Demo User', role: 'owner', email: data?.email, storeId: 'store-001' }
+          success: true,
+          token: `${header}.${payload}.${sig}`,
+          user: { name: 'Demo User', role: 'owner', email: data?.email || 'demo@nexaerp.demo', storeId: 'store-001' }
         };
       }
     }

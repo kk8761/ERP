@@ -1,7 +1,13 @@
-# Environment files
+# Environment & Secret files
 .env
-.env.local
+.env.*
 *.env
+*.key
+*.pem
+*.cert
+*.pfx
+credentials.json
+token.json
 
 # Python
 __pycache__/

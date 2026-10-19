@@ -21,11 +21,47 @@ class Employee(Base, TimestampMixin):
     designation: Mapped[str] = mapped_column(String(100), nullable=False)
     date_of_joining: Mapped[date] = mapped_column(Date, default=date.today)
 
-    # Sensitive fields (Protected by payroll/hr permissions)
+    # Personal & Contact Information
+    gender: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    marital_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    current_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    permanent_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    emergency_contact_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    emergency_contact_phone: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    emergency_contact_relation: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # Job & Work Arrangement
+    employment_type: Mapped[Optional[str]] = mapped_column(String(50), default="Full-Time")
+    work_mode: Mapped[Optional[str]] = mapped_column(String(30), default="In-Office")
+    branch_location: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    reporting_manager: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Detailed Salary Components (Protected by payroll/hr permissions)
     basic_salary: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+    hra: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+    conveyance_allowance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+    special_allowance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+    medical_allowance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+    variable_pay: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+    pf_deduction: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+    professional_tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+    tds_tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+    net_salary: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
+
+    # Banking & Statutory
+    bank_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    account_holder_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     bank_account_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     bank_ifsc: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    account_type: Mapped[Optional[str]] = mapped_column(String(30), default="Savings")
     pan_tax_id: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    aadhaar_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    uan_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # Document Vault & Notes (Stored JSON string of metadata/attachments)
+    documents_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -58,6 +94,16 @@ class LeaveRequest(Base, TimestampMixin):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="PENDING") # PENDING, APPROVED, REJECTED
     approved_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Reviewer & Manager Feedback
+    manager_comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Supporting Documents (Medical cert, ticket, leave proof)
+    document_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    document_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_size: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     employee: Mapped["Employee"] = relationship("Employee", back_populates="leaves")
 

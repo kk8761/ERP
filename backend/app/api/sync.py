@@ -70,12 +70,18 @@ async def sync_all_modules(
         # 5. HR stats
         emp_count_res = await db.execute(select(func.count(Employee.id)))
         total_employees = emp_count_res.scalar_one() or 0
+
+        # 6. Unread Email stats
+        from app.models.email_log import ReceivedEmail
+        unread_email_res = await db.execute(select(func.count(ReceivedEmail.id)).where(ReceivedEmail.is_read == False))
+        unread_emails = unread_email_res.scalar_one() or 0
     except Exception:
         total_products = 0
         total_sales_orders = 0
         total_journals = 0
         total_pos = 0
         total_employees = 0
+        unread_emails = 0
 
     return {
         "status": "synchronized",
@@ -88,7 +94,8 @@ async def sync_all_modules(
             "sales": { "total_orders": total_sales_orders, "status": "synced" },
             "finance": { "total_journal_entries": total_journals, "status": "synced" },
             "procurement": { "total_purchase_orders": total_pos, "status": "synced" },
-            "hr": { "total_employees": total_employees, "status": "synced" }
+            "hr": { "total_employees": total_employees, "status": "synced" },
+            "emails": { "unread_emails": unread_emails, "status": "synced" }
         },
         "cached_draft_status": {
             k: v["synced_at"] for k, v in _MODULE_DRAFT_CACHE.items() if k.startswith(f"{user_id}:")

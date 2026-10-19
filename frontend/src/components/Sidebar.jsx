@@ -5,7 +5,7 @@ import {
   Boxes, Truck, ScanLine, Wallet, BookOpen, Clock, Calendar,
   ShieldAlert, Sparkles, BarChart3, Sliders, ArrowLeftRight,
   Factory, Layers, Cpu, ShieldCheck, Award, TrendingDown,
-  Database, KeyRound
+  Database, KeyRound, FileSpreadsheet, Mail
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -77,6 +77,7 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
       title: 'Finance',
       icon: DollarSign,
       items: [
+        { id: 'spreadsheet', label: 'ACDOCA Universal Journal', icon: FileSpreadsheet, perm: 'finance.view' },
         { id: 'invoices', label: 'Invoices', icon: FileText, perm: 'sales.view' },
         { id: 'expenses', label: 'Expenses', icon: Wallet, perm: 'expenses.record' },
         { id: 'accounting', label: 'Accounting', icon: BookOpen, perm: 'finance.view' },
@@ -102,6 +103,7 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
       title: 'Tools',
       icon: Wrench,
       items: [
+        { id: 'email_hub', label: 'Mail Center & AI Hub', icon: Mail, perm: 'sales.view' },
         { id: 'predictive_ai', label: 'Predictive AI & What-If', icon: Sparkles, perm: 'ai.use' },
         { id: 'ai_tool', label: 'AI Assistant', icon: Sparkles, action: onToggleAI, perm: 'ai.use' },
         { id: 'reports', label: 'Analytics & Reports', icon: BarChart3, perm: 'reports.view' },

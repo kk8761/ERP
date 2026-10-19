@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, Mail, ArrowRight, UserCheck, Building2, Store, ShoppingBag } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Lock, Mail, ArrowRight, UserCheck, Building2, Store, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
@@ -68,11 +68,11 @@ export default function LoginPage() {
         {/* Brand Header */}
         <div style={{ textAlign: 'center' }}>
           <div style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '12px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
             background: profileType === 'company' 
-              ? 'linear-gradient(135deg, #0064d2 0%, #0098ff 100%)' 
+              ? '#010c22' 
               : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
             color: '#ffffff',
             fontWeight: 800,
@@ -82,22 +82,44 @@ export default function LoginPage() {
             justifyContent: 'center',
             margin: '0 auto 12px auto',
             boxShadow: profileType === 'company' 
-              ? '0 4px 12px rgba(0, 100, 210, 0.3)' 
+              ? '0 6px 20px rgba(0, 100, 210, 0.45)' 
               : '0 4px 12px rgba(16, 185, 129, 0.3)',
+            border: profileType === 'company' ? '1px solid rgba(0, 152, 255, 0.35)' : 'none',
+            overflow: 'hidden',
+            padding: profileType === 'company' ? '4px' : '0',
             transition: 'all 0.2s ease'
           }}>
-            {profileType === 'company' ? 'N' : <ShoppingBag size={24} />}
+            {profileType === 'company' ? (
+              <img
+                src="/assets/nexa_icon_transparent.png"
+                alt="Nexa ERP"
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              />
+            ) : (
+              <ShoppingBag size={28} />
+            )}
           </div>
           <h1 style={{
             fontFamily: 'var(--font-brand)',
             fontSize: '24px',
             fontWeight: 800,
             color: 'var(--text-main)',
-            letterSpacing: '-0.3px'
+            letterSpacing: '-0.3px',
+            marginBottom: '2px'
           }}>
             Nexa<span style={{ color: profileType === 'company' ? 'var(--primary)' : '#10b981' }}>ERP</span>
           </h1>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+          <div style={{
+            fontSize: '11px',
+            color: '#0098ff',
+            fontWeight: 700,
+            letterSpacing: '1px',
+            textTransform: 'uppercase',
+            marginBottom: '4px'
+          }}>
+            An ERP Tool For Everyone
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
             {profileType === 'company' 
               ? 'Corporate Headquarters & Multi-Branch Enterprise Console' 
               : 'Storefront POS Terminal & Retail Counter Portal'}
@@ -164,17 +186,53 @@ export default function LoginPage() {
         </div>
 
         {error && (
-          <div style={{
-            padding: '10px 14px',
-            backgroundColor: 'var(--danger-bg)',
-            color: 'var(--danger-text)',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--danger-border)',
-            fontSize: '13px',
-            textAlign: 'center'
-          }}>
-            {error}
-          </div>
+          error.toLowerCase().includes('sql injection') || error.toLowerCase().includes('security alert') ? (
+            <div style={{
+              padding: '14px 16px',
+              backgroundColor: '#fef2f2',
+              color: '#991b1b',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid #f87171',
+              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px' }}>
+                <ShieldAlert size={18} color="#dc2626" />
+                <span>NexaShield: Intrusion Intercepted</span>
+              </div>
+              <p style={{ margin: 0, fontSize: '12px', lineHeight: 1.5, color: '#7f1d1d' }}>
+                {error}
+              </p>
+              <div style={{ 
+                marginTop: '4px', 
+                fontSize: '10.5px', 
+                fontWeight: 700, 
+                color: '#b91c1c', 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '6px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em'
+              }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#dc2626', display: 'inline-block' }} />
+                Audit Trail Recorded • System Administrator Dispatched
+              </div>
+            </div>
+          ) : (
+            <div style={{
+              padding: '10px 14px',
+              backgroundColor: 'var(--danger-bg)',
+              color: 'var(--danger-text)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--danger-border)',
+              fontSize: '13px',
+              textAlign: 'center'
+            }}>
+              {error}
+            </div>
+          )
         )}
 
         {/* Login Form */}
