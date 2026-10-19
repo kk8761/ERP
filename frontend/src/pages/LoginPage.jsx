@@ -34,6 +34,8 @@ export default function LoginPage() {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [copiedKey, setCopiedKey] = useState(false);
   const [autofilling, setAutofilling] = useState(false);
+  const [showQrCode, setShowQrCode] = useState(true);
+  const [refreshingQr, setRefreshingQr] = useState(false);
 
   const handleProfileSwitch = (type) => {
     setProfileType(type);
@@ -57,6 +59,7 @@ export default function LoginPage() {
       if (res && res.mfa_required) {
         setMfaData(res);
         setStep('2fa');
+        setShowQrCode(true);
         setTwoFactorCode('');
       }
     } catch (err) {
@@ -90,6 +93,31 @@ export default function LoginPage() {
       navigator.clipboard.writeText(mfaData.secret);
       setCopiedKey(true);
       setTimeout(() => setCopiedKey(false), 2000);
+    }
+  };
+
+  const handleRefreshQr = async () => {
+    if (!mfaData?.temp_token) return;
+    setRefreshingQr(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/auth/mfa/refresh-qr/${mfaData.temp_token}`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setMfaData(prev => ({
+          ...prev,
+          secret: data.secret,
+          qr_code_base64: data.qr_code_base64,
+          provisioning_uri: data.provisioning_uri
+        }));
+        setShowQrCode(true);
+      } else {
+        setError('Could not generate fresh QR code.');
+      }
+    } catch (err) {
+      setError('Failed to refresh QR code: ' + err.message);
+    } finally {
+      setRefreshingQr(false);
     }
   };
 
@@ -435,42 +463,40 @@ export default function LoginPage() {
               <span style={{ color: '#0c4a6e', fontWeight: 700, fontFamily: 'monospace' }}>{email}</span>
             </div>
 
-            {/* First-time Setup: QR Code & Key Box */}
-            {mfaData?.mfa_setup && (
+            {/* Authenticator QR Code & Key Box */}
+            {mfaData?.qr_code_base64 && (
               <div style={{
-                padding: '14px',
+                padding: '16px',
                 backgroundColor: '#f8fafc',
-                border: '1px solid #e2e8f0',
+                border: '1px solid #cbd5e1',
                 borderRadius: 'var(--radius-md)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: '10px',
+                gap: '12px',
                 textAlign: 'center'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 700, color: '#0f172a' }}>
-                  <Smartphone size={16} color="#0284c7" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                  <Smartphone size={17} color="#0284c7" />
                   <span>Scan in Google or Microsoft Authenticator</span>
                 </div>
 
-                {mfaData?.qr_code_base64 && (
-                  <div style={{
-                    backgroundColor: '#ffffff',
-                    padding: '8px',
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
-                  }}>
-                    <img 
-                      src={`data:image/png;base64,${mfaData.qr_code_base64}`} 
-                      alt="Authenticator QR Code"
-                      style={{ width: '160px', height: '160px', display: 'block' }}
-                    />
-                  </div>
-                )}
+                <div style={{
+                  backgroundColor: '#ffffff',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  border: '2px solid #0284c7',
+                  boxShadow: '0 4px 16px rgba(2, 132, 199, 0.18)'
+                }}>
+                  <img 
+                    src={`data:image/png;base64,${mfaData.qr_code_base64}`} 
+                    alt="Authenticator QR Code"
+                    style={{ width: '180px', height: '180px', display: 'block' }}
+                  />
+                </div>
 
-                <div style={{ fontSize: '11px', color: '#64748b' }}>
-                  Or enter secret key manually into Authenticator:
+                <div style={{ fontSize: '12px', color: '#475569', lineHeight: 1.4 }}>
+                  Open your Authenticator app, tap <strong>"+"</strong>, and point camera at this QR code.
                 </div>
 
                 <div style={{
@@ -480,10 +506,11 @@ export default function LoginPage() {
                   backgroundColor: '#ffffff',
                   border: '1px solid #cbd5e1',
                   borderRadius: '6px',
-                  padding: '4px 10px',
+                  padding: '5px 12px',
                   maxWidth: '100%'
                 }}>
-                  <code style={{ fontSize: '12px', fontWeight: 700, color: '#0369a1', letterSpacing: '1px' }}>
+                  <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Key:</span>
+                  <code style={{ fontSize: '12.5px', fontWeight: 800, color: '#0369a1', letterSpacing: '1.2px' }}>
                     {mfaData?.secret}
                   </code>
                   <button
@@ -495,6 +522,25 @@ export default function LoginPage() {
                     {copiedKey ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
                   </button>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleRefreshQr}
+                  disabled={refreshingQr}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    color: '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <RotateCcw size={12} className={refreshingQr ? 'animate-spin' : ''} />
+                  <span>{refreshingQr ? 'Generating fresh QR...' : 'Need a fresh QR code? Click to regenerate'}</span>
+                </button>
               </div>
             )}
 

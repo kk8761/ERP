@@ -138,28 +138,16 @@ async def login(
     uri = None
 
     if not user.mfa_secret:
-        # Generate new base32 secret for Authenticator
-        sec = pyotp.random_base32()
-        user.mfa_secret = sec
-        new_setup = True
-        
-        # Build standard provisioning URI and QR Code
-        totp = pyotp.TOTP(sec)
-        uri = totp.provisioning_uri(name=user.email, issuer_name="NexaERP")
-        
-        img = qrcode.make(uri)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    elif not user.mfa_enabled:
-        # Secret exists but not yet verified
-        new_setup = True
-        totp = pyotp.TOTP(user.mfa_secret)
-        uri = totp.provisioning_uri(name=user.email, issuer_name="NexaERP")
-        img = qrcode.make(uri)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        user.mfa_secret = pyotp.random_base32()
+
+    # Always generate provisioning URI and QR Code so employee can view/scan it anytime
+    totp = pyotp.TOTP(user.mfa_secret)
+    uri = totp.provisioning_uri(name=user.email, issuer_name="NexaERP")
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    new_setup = True
 
     # Generate temporary 2FA challenge token (5-minute expiration)
     temp_token = create_access_token(
@@ -335,6 +323,45 @@ async def get_demo_authenticator_code(
         "current_code": current_code,
         "seconds_remaining": 30 - (int(datetime.now(timezone.utc).timestamp()) % 30),
         "secret": user.mfa_secret
+    }
+
+@router.post("/mfa/refresh-qr/{temp_token}")
+async def refresh_mfa_qr(
+    temp_token: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Generates a fresh Authenticator QR code and secret for the user."""
+    try:
+        payload = decode_token(temp_token)
+        if not payload or payload.get("type") != "mfa_challenge":
+            raise HTTPException(status_code=400, detail="Invalid challenge token")
+        user_id = int(payload.get("sub"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid challenge token")
+
+    res = await db.execute(select(User).where(User.id == user_id))
+    user = res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    sec = pyotp.random_base32()
+    user.mfa_secret = sec
+    user.mfa_enabled = False
+
+    totp = pyotp.TOTP(sec)
+    uri = totp.provisioning_uri(name=user.email, issuer_name="NexaERP")
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    await db.commit()
+
+    return {
+        "secret": sec,
+        "qr_code_base64": qr_b64,
+        "provisioning_uri": uri,
+        "message": "Fresh Authenticator QR code generated."
     }
 
 @router.post("/logout")
