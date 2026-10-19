@@ -16,6 +16,10 @@ class User(Base, TimestampMixin):
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[Optional[DateTime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Multi-Factor Authentication (TOTP / Google & Microsoft Authenticator)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    mfa_secret: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     # Scopes
     branch_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("branches.id"), nullable=True)
     department_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("departments.id"), nullable=True)

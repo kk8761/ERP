@@ -64,6 +64,13 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text(f"ALTER TABLE received_emails ADD COLUMN {col} {col_type}"))
             except Exception:
                 pass # column already exists
+        for col, col_type in [
+            ("mfa_enabled", "BOOLEAN DEFAULT 0"), ("mfa_secret", "VARCHAR(64)")
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass # column already exists
 
     # 3. Auto-seed initial enterprise admin and catalog if database is fresh (e.g. newly provisioned Postgres on Render)
     try:

@@ -11,6 +11,23 @@ class TokenResponse(BaseModel):
     expires_in: int
     user: "UserOut"
 
+class LoginResponse(BaseModel):
+    mfa_required: bool = False
+    mfa_setup: bool = False
+    temp_token: Optional[str] = None
+    secret: Optional[str] = None
+    qr_code_base64: Optional[str] = None
+    provisioning_uri: Optional[str] = None
+    message: Optional[str] = None
+    access_token: Optional[str] = None
+    token_type: Optional[str] = "bearer"
+    expires_in: Optional[int] = None
+    user: Optional["UserOut"] = None
+
+class Verify2FARequest(BaseModel):
+    temp_token: str
+    code: str = Field(..., min_length=6, max_length=6)
+
 class UserRoleOut(BaseModel):
     id: int
     name: str
@@ -21,6 +38,7 @@ class UserOut(BaseModel):
     full_name: str
     is_active: bool
     is_superuser: bool
+    mfa_enabled: bool = False
     branch_id: Optional[int] = None
     branch_name: Optional[str] = "Main Store"
     department_id: Optional[int] = None

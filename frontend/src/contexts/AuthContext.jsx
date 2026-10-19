@@ -45,6 +45,22 @@ export function AuthProvider({ children }) {
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
+    if (data.mfa_required) {
+      return data;
+    }
+    localStorage.setItem('token', data.access_token);
+    localStorage.setItem('nexaerp_token', data.access_token);
+    localStorage.setItem('nexaerp_user', JSON.stringify(data.user));
+    setToken(data.access_token);
+    setUser(data.user);
+    return data.user;
+  };
+
+  const verify2FA = async (tempToken, code) => {
+    const data = await apiRequest('/api/auth/verify-2fa', {
+      method: 'POST',
+      body: JSON.stringify({ temp_token: tempToken, code })
+    });
     localStorage.setItem('token', data.access_token);
     localStorage.setItem('nexaerp_token', data.access_token);
     localStorage.setItem('nexaerp_user', JSON.stringify(data.user));
@@ -98,6 +114,7 @@ export function AuthProvider({ children }) {
       token,
       loading,
       login,
+      verify2FA,
       logout,
       refreshUser,
       hasPermission,
