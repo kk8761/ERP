@@ -1,4 +1,5 @@
 services:
+  # Primary Relational DBMS: PostgreSQL 16
   db:
     image: postgres:16-alpine
     container_name: nexaerp_postgres
@@ -14,9 +15,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    ports:
+      - "5432:5432"
     networks:
       - nexaerp_net
 
+  # Polyglot Document Store: MongoDB 7
+  mongodb:
+    image: mongo:7.0
+    container_name: nexaerp_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: nexaerp
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - nexaerp_net
+
+  # Enterprise FastAPI Backend Service
   backend:
     build:
       context: ./backend
@@ -26,20 +44,27 @@ services:
     environment:
       - ENVIRONMENT=production
       - DATABASE_URL=postgresql+asyncpg://nexa_user:nexa_secure_password@db:5432/nexaerp_db
-      - SECRET_KEY=nexa_erp_production_secret_key_needs_override
-      - CORS_ORIGINS=http://localhost:5173,http://localhost:80
+      - MONGODB_URI=mongodb://mongodb:27017
+      - MONGODB_DB_NAME=nexaerp
+      - SECRET_KEY=nexa_erp_production_secret_key_override_2026
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:80,http://127.0.0.1:5173
     depends_on:
       db:
         condition: service_healthy
+      mongodb:
+        condition: service_started
     ports:
       - "8000:8000"
     networks:
       - nexaerp_net
 
+  # Production React SPA Frontend (Served via Nginx)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:8000
     container_name: nexaerp_frontend
     restart: unless-stopped
     ports:
@@ -51,6 +76,7 @@ services:
 
 volumes:
   postgres_data:
+  mongo_data:
 
 networks:
   nexaerp_net:

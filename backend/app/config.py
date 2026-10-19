@@ -17,11 +17,15 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"
 
-    # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./nexaerp.db"
+    # Database (PostgreSQL / SQLite)
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./nexaerp.db")
+
+    # Document Database (MongoDB)
+    MONGODB_URI: Optional[str] = os.getenv("MONGODB_URI", None)
+    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "nexaerp")
 
     # CORS
-    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://*.onrender.com,https://*.vercel.app")
 
     # Rate Limiting
     RATE_LIMIT_LOGIN_ATTEMPTS: int = 10
@@ -34,9 +38,13 @@ class Settings(BaseSettings):
     BOOTSTRAP_ADMIN_BRANCH: str = "Main Store"
     BOOTSTRAP_ADMIN_ORG: str = "Nexa Global Enterprises"
 
-    # AI & Groq LLM
+    # AI Multi-Provider APIs (Groq, Gemini, OpenAI)
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     # Enterprise SMTP & Mail Dispatch (RFC 5322 Compliant)
     SMTP_HOST: Optional[str] = None

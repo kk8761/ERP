@@ -30,24 +30,12 @@ GROQ_MODELS = [
     "openai/gpt-oss-20b"
 ]
 
-def _call_groq_llm(system_prompt: str, user_prompt: str) -> Optional[str]:
-    """
-    Direct HTTPS call to Groq Cloud API with multi-model failover.
-    Ensures enterprise data privacy:
-    - User prompts and system prompts are sanitized of PII before dispatch.
-    - Tenant isolation directives are enforced.
-    - Mozilla/5.0 User-Agent header satisfies Cloudflare/Groq gateway requirements.
-    """
+def _call_groq_llm_direct(safe_system: str, safe_user: str) -> Optional[str]:
+    """Calls Groq Cloud API with multi-model failover."""
     if not settings.GROQ_API_KEY:
         return None
 
     url = "https://api.groq.com/openai/v1/chat/completions"
-
-    # Sanitize prompts before leaving enterprise perimeter
-    safe_system = mask_sensitive_pii(system_prompt)
-    safe_user = mask_sensitive_pii(user_prompt)
-
-    # Try configured models in order
     for model_name in GROQ_MODELS:
         payload = {
             "model": model_name,
@@ -58,7 +46,6 @@ def _call_groq_llm(system_prompt: str, user_prompt: str) -> Optional[str]:
             "temperature": 0.2,
             "max_tokens": 1024
         }
-
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -68,7 +55,6 @@ def _call_groq_llm(system_prompt: str, user_prompt: str) -> Optional[str]:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
         )
-
         try:
             with urllib.request.urlopen(req, timeout=12) as response:
                 if response.status == 200:
@@ -77,10 +63,111 @@ def _call_groq_llm(system_prompt: str, user_prompt: str) -> Optional[str]:
                     if content and len(content.strip()) > 0:
                         return content
         except Exception as exc:
-            print(f"[AI Service] Groq model '{model_name}' error: {exc}. Trying fallback...")
+            print(f"[AI Service] Groq model '{model_name}' notice: {exc}. Trying next...")
             continue
+    return None
+
+def _call_gemini_llm(safe_system: str, safe_user: str) -> Optional[str]:
+    """Calls Google Gemini API (Free tier from Google AI Studio)."""
+    if not settings.GEMINI_API_KEY:
+        return None
+
+    gemini_models = [settings.GEMINI_MODEL or "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    for model in gemini_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={settings.GEMINI_API_KEY}"
+        payload = {
+            "system_instruction": {"parts": [{"text": safe_system}]},
+            "contents": [{"parts": [{"text": safe_user}]}],
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 1024
+            }
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=12) as response:
+                if response.status == 200:
+                    data = json.loads(response.read().decode("utf-8"))
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts and "text" in parts[0]:
+                            return parts[0]["text"]
+        except Exception as exc:
+            print(f"[AI Service] Gemini model '{model}' notice: {exc}. Trying next...")
+            continue
+    return None
+
+def _call_openai_llm(safe_system: str, safe_user: str) -> Optional[str]:
+    """Calls OpenAI API if OPENAI_API_KEY is configured."""
+    if not settings.OPENAI_API_KEY:
+        return None
+
+    url = "https://api.openai.com/v1/chat/completions"
+    payload = {
+        "model": settings.OPENAI_MODEL or "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": safe_system},
+            {"role": "user", "content": safe_user}
+        ],
+        "temperature": 0.2,
+        "max_tokens": 1024
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=12) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode("utf-8"))
+                return data["choices"][0]["message"]["content"]
+    except Exception as exc:
+        print(f"[AI Service] OpenAI API notice: {exc}")
+    return None
+
+def call_enterprise_ai_llm(system_prompt: str, user_prompt: str) -> Optional[str]:
+    """
+    Enterprise Multi-Provider AI LLM Gateway:
+    Tries in priority order:
+    1. Groq Cloud (Free high-speed open models)
+    2. Google Gemini (Free high-intelligence Google AI Studio)
+    3. OpenAI (GPT-4o-mini)
+    Enforces PII masking and tenant boundary isolation before prompt dispatch.
+    """
+    safe_system = mask_sensitive_pii(system_prompt)
+    safe_user = mask_sensitive_pii(user_prompt)
+
+    # 1. Groq
+    if settings.GROQ_API_KEY:
+        ans = _call_groq_llm_direct(safe_system, safe_user)
+        if ans:
+            return ans
+
+    # 2. Google Gemini
+    if settings.GEMINI_API_KEY:
+        ans = _call_gemini_llm(safe_system, safe_user)
+        if ans:
+            return ans
+
+    # 3. OpenAI
+    if settings.OPENAI_API_KEY:
+        ans = _call_openai_llm(safe_system, safe_user)
+        if ans:
+            return ans
 
     return None
+
+# Backward compatibility alias
+_call_groq_llm = call_enterprise_ai_llm
 
 async def _fetch_live_erp_context(
     db: AsyncSession,

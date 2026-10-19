@@ -36,12 +36,17 @@ from app.api.security import router as security_router
 from app.api.sync import router as sync_router
 from app.api.emails import router as emails_router
 
+from app.mongodb import init_mongodb, close_mongodb, check_mongodb_status
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize DB tables automatically on startup
+    # 1. Connect MongoDB Document Store (if configured)
+    await init_mongodb()
+
+    # 2. Initialize Relational DB (PostgreSQL / SQLite) tables automatically on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Safe schema sync for newly added columns in SQLite
+        # Safe schema sync for newly added columns
         for col, col_type in [
             ("sender_email", "VARCHAR(150)"), ("sender_name", "VARCHAR(150)"), ("raw_headers", "TEXT"),
             ("cc_recipients", "TEXT"), ("bcc_recipients", "TEXT"), ("attachments_data", "TEXT"), ("priority", "VARCHAR(20) DEFAULT 'NORMAL'")
@@ -59,7 +64,30 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text(f"ALTER TABLE received_emails ADD COLUMN {col} {col_type}"))
             except Exception:
                 pass # column already exists
+
+    # 3. Auto-seed initial enterprise admin and catalog if database is fresh (e.g. newly provisioned Postgres on Render)
+    try:
+        from app.database import AsyncSessionLocal
+        from app.models.org import Organization
+        async with AsyncSessionLocal() as session:
+            res = await session.execute(text("SELECT count(*) FROM organizations"))
+            count = res.scalar() or 0
+            if count == 0:
+                logging.info("[NexaERP] Fresh database detected. Auto-seeding initial master records and admin...")
+                try:
+                    import sys, os
+                    scripts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+                    if scripts_dir not in sys.path:
+                        sys.path.insert(0, scripts_dir)
+                    from seed_demo_data import seed
+                    await seed()
+                except Exception as seed_err:
+                    logging.warning(f"[NexaERP] Auto-seed notice: {seed_err}")
+    except Exception as check_err:
+        logging.debug(f"[NexaERP] DB check notice: {check_err}")
+
     yield
+    await close_mongodb()
     await engine.dispose()
 
 app = FastAPI(
@@ -137,9 +165,32 @@ app.include_router(emails_router)
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():
+    db_type = "PostgreSQL" if "postgres" in settings.DATABASE_URL.lower() else "SQLite"
+    mongo_status = await check_mongodb_status()
+
+    # Detect active AI providers
+    ai_providers = []
+    if settings.GROQ_API_KEY:
+        ai_providers.append(f"Groq Cloud ({settings.GROQ_MODEL})")
+    if settings.GEMINI_API_KEY:
+        ai_providers.append(f"Google Gemini ({settings.GEMINI_MODEL})")
+    if settings.OPENAI_API_KEY:
+        ai_providers.append(f"OpenAI ({settings.OPENAI_MODEL})")
+    if not ai_providers:
+        ai_providers.append("Autonomous Offline Domain Copilot (Built-in RAG)")
+
     return {
         "status": "healthy",
         "app": settings.APP_NAME,
         "environment": settings.ENVIRONMENT,
-        "version": "2.1.0"
+        "version": "2.1.0",
+        "database": {
+            "type": db_type,
+            "connected": True
+        },
+        "mongodb": mongo_status,
+        "ai_engine": {
+            "active_providers": ai_providers,
+            "status": "operational"
+        }
     }

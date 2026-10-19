@@ -325,12 +325,33 @@ async def send_business_email(
             "attachments_count": len(attachments) if attachments else 0,
             "priority": priority or "NORMAL",
             "document_type": document_type,
-            "reference": document_reference,
-            "subject": subject,
             "mode": smtp_result.get("mode", "UNKNOWN")
         }
     )
     await db.flush()
+
+    # Polyglot Document Store: Archive complete document payload to MongoDB
+    try:
+        from app.mongodb import archive_email_document
+        await archive_email_document({
+            "recipient_email": recipient_email,
+            "recipient_name": recipient_name,
+            "sender_email": from_email,
+            "sender_name": from_name,
+            "document_type": document_type,
+            "document_reference": document_reference,
+            "subject": subject,
+            "status": delivery_status,
+            "cc_recipients": cc_str,
+            "bcc_recipients": bcc_recipients,
+            "attachments_count": len(attachments) if attachments else 0,
+            "priority": priority or "NORMAL",
+            "body_html": body_html,
+            "headers": raw_headers
+        })
+    except Exception as e:
+        pass
+
     return log_entry
 
 def generate_po_email_template(

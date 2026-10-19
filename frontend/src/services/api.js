@@ -1,4 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL !== undefined 
+  ? import.meta.env.VITE_API_URL 
+  : (import.meta.env.PROD ? '' : 'http://localhost:8000');
 
 export async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('nexaerp_token');
