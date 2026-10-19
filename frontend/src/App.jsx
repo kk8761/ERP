@@ -23,6 +23,7 @@ import BarcodeScannerModal from './components/BarcodeScannerModal';
 import SignatureCaptureModal from './components/SignatureCaptureModal';
 import ActionNotAllowedModal from './components/ActionNotAllowedModal';
 import { initScreenshotGuard } from './services/screenshotGuard';
+import { startAutoSync, stopAutoSync } from './services/syncManager';
 import { ShieldAlert, X, Lock } from 'lucide-react';
 
 function MainApp() {
@@ -36,6 +37,12 @@ function MainApp() {
   const [cursorPill, setCursorPill] = useState(null);
   const [dlpAlert, setDlpAlert] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('nexaerp_theme') || 'light');
+
+  // Initialize Enterprise 30-Second Multi-Module Server Auto-Sync
+  useEffect(() => {
+    startAutoSync();
+    return () => stopAutoSync();
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);

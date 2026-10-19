@@ -33,6 +33,7 @@ from app.api.forum import router as forum_router
 from app.api.system_admin import router as system_admin_router
 from app.api.vision import router as vision_router
 from app.api.security import router as security_router
+from app.api.sync import router as sync_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -118,6 +119,7 @@ app.include_router(forum_router)
 app.include_router(system_admin_router)
 app.include_router(vision_router)
 app.include_router(security_router)
+app.include_router(sync_router)
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():

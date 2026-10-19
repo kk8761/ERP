@@ -1,11 +1,12 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   Plus, Trash2, Download, Upload, CheckCircle2,
   AlertCircle, Search, Edit2, Filter, ArrowUp, ArrowDown, Printer,
   Save, Info, Columns, Check, X, SlidersHorizontal, Table,
-  Calculator, ChevronDown, CheckSquare
+  Calculator, ChevronDown, CheckSquare, RefreshCw, Maximize2, Minimize2
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
+import { registerModuleSyncProvider, triggerSyncNow } from '../services/syncManager';
 import {
   getColLetter,
   getColIndex,
@@ -175,6 +176,191 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
   const [statusMessage, setStatusMessage] = useState(null);
 
   const formulaInputRef = useRef(null);
+
+  // Resizable Cell Dimensions (Column Widths & Row Heights)
+  const [columnWidths, setColumnWidths] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexaerp_acdoca_col_widths');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+
+  const [rowHeights, setRowHeights] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nexaerp_acdoca_row_heights');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+
+  const [activeResizingCol, setActiveResizingCol] = useState(null);
+  const [activeResizingRow, setActiveResizingRow] = useState(null);
+  const [isDraggingCorner, setIsDraggingCorner] = useState(false);
+
+  // Auto-sync status tracking (every 30 seconds across modules)
+  const [syncStatus, setSyncStatus] = useState({
+    isSyncing: false,
+    secondsRemaining: 30,
+    lastSyncTimestamp: null
+  });
+
+  useEffect(() => {
+    const handleSyncUpdate = (e) => {
+      if (e.detail) {
+        setSyncStatus(prev => ({ ...prev, ...e.detail }));
+      }
+    };
+    window.addEventListener('nexaerp:sync_update', handleSyncUpdate);
+    return () => window.removeEventListener('nexaerp:sync_update', handleSyncUpdate);
+  }, []);
+
+  // Register ACDOCA module with global 30-second sync engine
+  useEffect(() => {
+    const unregister = registerModuleSyncProvider('finance_acdoca_spreadsheet', () => {
+      return {
+        rows_count: rows.length,
+        total_debits: totalDebits,
+        total_credits: totalCredits,
+        is_balanced: isBalanced,
+        draft_journal_vouchers: rows.slice(0, 50).map(r => ({
+          id: r.id,
+          doc_no: r.doc_no,
+          gl_account: r.gl_account,
+          debit: r.debit,
+          credit: r.credit,
+          cost_center: r.cost_center,
+          text_memo: r.text_memo
+        }))
+      };
+    });
+    return () => unregister();
+  }, [rows, totalDebits, totalCredits, isBalanced]);
+
+  // Column resize start
+  const handleColResizeStart = (colId, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveResizingCol(colId);
+    const startX = e.clientX;
+    const initialWidth = columnWidths[colId] || (columns.find(c => c.id === colId)?.width || 75);
+
+    const onMouseMove = (moveEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const newWidth = Math.max(45, Math.min(600, initialWidth + delta));
+      setColumnWidths(prev => {
+        const next = { ...prev, [colId]: newWidth };
+        try { localStorage.setItem('nexaerp_acdoca_col_widths', JSON.stringify(next)); } catch {}
+        return next;
+      });
+    };
+
+    const onMouseUp = () => {
+      setActiveResizingCol(null);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Double-click column resizer: Auto-fit column to content
+  const handleColAutoFit = (colId) => {
+    const colObj = columns.find(c => c.id === colId);
+    let maxChars = (colObj?.name || '').length;
+    rows.forEach(r => {
+      const val = String(r[colId] ?? '');
+      if (val.length > maxChars) maxChars = val.length;
+    });
+    const fittedWidth = Math.min(400, Math.max(55, maxChars * 8 + 32));
+    setColumnWidths(prev => {
+      const next = { ...prev, [colId]: fittedWidth };
+      try { localStorage.setItem('nexaerp_acdoca_col_widths', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  // Row resize start (drag bottom edge of row number)
+  const handleRowResizeStart = (rIdx, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveResizingRow(rIdx);
+    const startY = e.clientY;
+    const initialHeight = rowHeights[rIdx] || 28;
+
+    const onMouseMove = (moveEvent) => {
+      const delta = moveEvent.clientY - startY;
+      const newHeight = Math.max(22, Math.min(200, initialHeight + delta));
+      setRowHeights(prev => {
+        const next = { ...prev, [rIdx]: newHeight };
+        try { localStorage.setItem('nexaerp_acdoca_row_heights', JSON.stringify(next)); } catch {}
+        return next;
+      });
+    };
+
+    const onMouseUp = () => {
+      setActiveResizingRow(null);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Quick row height preset
+  const handleApplyRowHeightPreset = (height) => {
+    const updated = {};
+    rows.forEach((_, idx) => {
+      updated[idx] = height;
+    });
+    setRowHeights(updated);
+    try { localStorage.setItem('nexaerp_acdoca_row_heights', JSON.stringify(updated)); } catch {}
+  };
+
+  // Quick column width adjustment
+  const handleExpandAllColumns = (delta) => {
+    setColumnWidths(prev => {
+      const next = { ...prev };
+      columns.forEach(c => {
+        const current = next[c.id] || c.width || 75;
+        next[c.id] = Math.max(50, current + delta);
+      });
+      try { localStorage.setItem('nexaerp_acdoca_col_widths', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  // Corner handle mouse down to extend selection
+  const handleCornerHandleMouseDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingCorner(true);
+
+    const onMouseMove = (moveEvent) => {
+      const el = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+      const cellTd = el?.closest('td[data-cell-row]');
+      if (cellTd) {
+        const r = parseInt(cellTd.getAttribute('data-cell-row'), 10);
+        const c = parseInt(cellTd.getAttribute('data-cell-col'), 10);
+        if (!isNaN(r) && !isNaN(c)) {
+          setSelectionRange(prev => ({
+            ...prev,
+            endRow: r,
+            endCol: c
+          }));
+        }
+      }
+    };
+
+    const onMouseUp = () => {
+      setIsDraggingCorner(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   // Sync formula input with selected cell
   useEffect(() => {
@@ -897,6 +1083,49 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
             <Save size={13} />
             <span>Post GL</span>
           </button>
+
+          <div className="acdoca-separator" />
+
+          {/* Cell Sizing Controls: Extend row height & column width */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              onClick={() => handleExpandAllColumns(25)}
+              className="excel-cell-size-btn"
+              title="Extend all column widths (+25px)"
+            >
+              <Maximize2 size={11} style={{ color: '#0284c7' }} />
+              <span>Widen Cells</span>
+            </button>
+            <button
+              onClick={() => handleExpandAllColumns(-25)}
+              className="excel-cell-size-btn"
+              title="Narrow all column widths (-25px)"
+            >
+              <Minimize2 size={11} style={{ color: '#64748b' }} />
+              <span>Narrow</span>
+            </button>
+            <button
+              onClick={() => handleApplyRowHeightPreset(38)}
+              className="excel-cell-size-btn"
+              title="Extend cell row height to spacious (38px)"
+            >
+              <span>Expand Row</span>
+            </button>
+            <button
+              onClick={() => {
+                handleApplyRowHeightPreset(28);
+                setColumnWidths({});
+                try {
+                  localStorage.removeItem('nexaerp_acdoca_col_widths');
+                  localStorage.removeItem('nexaerp_acdoca_row_heights');
+                } catch {}
+              }}
+              className="excel-cell-size-btn"
+              title="Reset all cells to default sizes"
+            >
+              <span>Reset Sizes</span>
+            </button>
+          </div>
         </div>
 
         {/* Right: Real-time Debit & Credit Balance Indicator */}
@@ -999,7 +1228,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         </div>
       )}
 
-      {/* 4. DENSE ENTERPRISE ACDOCA MATRIX TABLE WITH EXCEL CELL SELECTION */}
+      {/* 4. DENSE ENTERPRISE ACDOCA MATRIX TABLE WITH EXCEL CELL SELECTION & RESIZABLE CELLS */}
       <div className="acdoca-table-scroll">
         <table className="acdoca-table">
           <thead className="acdoca-thead">
@@ -1007,7 +1236,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
               {/* Row Selector Header */}
               <th
                 className="acdoca-th acdoca-th-white"
-                style={{ width: '32px', textAlign: 'center', background: '#dbe2e8' }}
+                style={{ width: '36px', minWidth: '36px', maxWidth: '36px', textAlign: 'center', background: '#dbe2e8' }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                   <span style={{ fontSize: '9px', color: '#64748b', fontWeight: 700 }}>#</span>
@@ -1017,6 +1246,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
               {columns.map((col, colIdx) => {
                 const isEditingHeader = editingHeaderId === col.id;
                 const colLetter = getColLetter(colIdx);
+                const colWidth = columnWidths[col.id] || col.width || 75;
                 const thClass =
                   col.group === 'cyan' ? 'acdoca-th-cyan' :
                   col.group === 'yellow' ? 'acdoca-th-yellow' :
@@ -1026,7 +1256,13 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                 return (
                   <th
                     key={col.id}
-                    style={{ minWidth: `${col.width}px` }}
+                    style={{
+                      width: `${colWidth}px`,
+                      minWidth: `${colWidth}px`,
+                      maxWidth: `${colWidth}px`,
+                      position: 'relative',
+                      boxSizing: 'border-box'
+                    }}
                     className={`acdoca-th ${thClass}`}
                     onClick={() => {
                       // Select entire column on header click
@@ -1042,7 +1278,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                     {/* Excel Column Letter (A, B, C... AD, AE) */}
                     <span className="excel-col-letter">{colLetter}</span>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px', overflow: 'hidden' }}>
                       {isEditingHeader ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '100%' }}>
                           <input
@@ -1079,12 +1315,13 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
-                            width: '100%'
+                            width: '100%',
+                            overflow: 'hidden'
                           }}
                           title={`Col ${colLetter}: ${col.label}. Double-click to rename.`}
                         >
-                          <span style={{ fontWeight: 700 }}>{col.name}</span>
-                          <Edit2 size={10} style={{ opacity: 0.35, marginLeft: '4px' }} />
+                          <span style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.name}</span>
+                          <Edit2 size={10} style={{ opacity: 0.35, marginLeft: '4px', flexShrink: 0 }} />
                         </div>
                       )}
 
@@ -1101,6 +1338,17 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                         </button>
                       )}
                     </div>
+
+                    {/* Excel Column Width Resizer (Drag right edge or double-click to auto-fit) */}
+                    <div
+                      className={`excel-col-resizer ${activeResizingCol === col.id ? 'resizing' : ''}`}
+                      onMouseDown={(e) => handleColResizeStart(col.id, e)}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleColAutoFit(col.id);
+                      }}
+                      title="Drag to resize column width, or double-click to auto-fit"
+                    />
                   </th>
                 );
               })}
@@ -1120,22 +1368,28 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
           <tbody>
             {displayedRows.map((row, rIdx) => {
               const isRowSelected = selectedCell.rowIdx === rIdx;
+              const rowHeight = rowHeights[rIdx] || 28;
 
               return (
                 <tr
                   key={row.id || rIdx}
                   className={`acdoca-tr ${isRowSelected ? 'selected' : ''}`}
+                  style={{ height: `${rowHeight}px` }}
                 >
-                  {/* Row Number Header (Excel 1, 2, 3...) */}
+                  {/* Row Number Header (Excel 1, 2, 3...) with Row Height Resizer */}
                   <td
                     className="acdoca-td"
                     style={{
                       textAlign: 'center',
                       background: isRowSelected ? '#dbeafe' : '#f1f5f9',
-                      width: '32px',
+                      width: '36px',
+                      minWidth: '36px',
+                      maxWidth: '36px',
+                      height: `${rowHeight}px`,
                       userSelect: 'none',
                       fontWeight: 700,
-                      color: isRowSelected ? '#1d4ed8' : '#64748b'
+                      color: isRowSelected ? '#1d4ed8' : '#64748b',
+                      position: 'relative'
                     }}
                     onClick={() => {
                       // Select entire row on row header click
@@ -1150,6 +1404,13 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                     }}
                   >
                     {rIdx + 1}
+
+                    {/* Excel Row Height Resizer (Drag bottom edge) */}
+                    <div
+                      className={`excel-row-resizer ${activeResizingRow === rIdx ? 'resizing' : ''}`}
+                      onMouseDown={(e) => handleRowResizeStart(rIdx, e)}
+                      title="Drag to resize row height"
+                    />
                   </td>
 
                   {/* Columns */}
@@ -1157,6 +1418,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                     const rawVal = row[col.id];
                     const isFormula = typeof rawVal === 'string' && rawVal.startsWith('=');
                     const evaluatedVal = isFormula ? evaluateExcelFormula(rawVal, rows, columns) : rawVal;
+                    const colWidth = columnWidths[col.id] || col.width || 75;
 
                     const isCurrency = col.type === 'currency';
                     const isCellSelected = selectedCell.rowIdx === rIdx && selectedCell.colIdx === colIdx;
@@ -1172,6 +1434,15 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                     return (
                       <td
                         key={col.id}
+                        data-cell-row={rIdx}
+                        data-cell-col={colIdx}
+                        style={{
+                          width: `${colWidth}px`,
+                          minWidth: `${colWidth}px`,
+                          maxWidth: `${colWidth}px`,
+                          height: `${rowHeight}px`,
+                          boxSizing: 'border-box'
+                        }}
                         onMouseDown={(e) => handleCellMouseDown(rIdx, colIdx, col.id, e)}
                         onMouseEnter={() => handleCellMouseEnter(rIdx, colIdx)}
                         onDoubleClick={() => setEditingCell({ rowIdx: rIdx, colId: col.id })}
@@ -1196,7 +1467,8 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                             style={{
                               textAlign: col.align || 'left',
                               backgroundColor: '#ffffff',
-                              boxShadow: 'inset 0 0 0 2px #107c41'
+                              boxShadow: 'inset 0 0 0 2px #107c41',
+                              height: '100%'
                             }}
                           />
                         ) : (
@@ -1209,12 +1481,17 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                               justifyContent: col.align === 'right' ? 'flex-end' : col.align === 'center' ? 'center' : 'flex-start',
                               padding: '2px 6px',
                               cursor: 'cell',
-                              position: 'relative'
+                              position: 'relative',
+                              overflow: 'hidden',
+                              whiteSpace: 'nowrap',
+                              textOverflow: 'ellipsis'
                             }}
                           >
                             <span style={{
                               fontWeight: isFormula ? 700 : 'inherit',
-                              color: isFormula ? '#107c41' : 'inherit'
+                              color: isFormula ? '#107c41' : 'inherit',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
                             }}>
                               {isCurrency
                                 ? (typeof evaluatedVal === 'number'
@@ -1223,11 +1500,12 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                                 : (evaluatedVal ?? '')}
                             </span>
 
-                            {/* Excel Corner Drag Handle */}
+                            {/* Excel Corner Drag Handle (extend cell/selection) */}
                             {isCellSelected && (
                               <div
                                 className="excel-corner-handle"
-                                title="AutoFill handle"
+                                onMouseDown={handleCornerHandleMouseDown}
+                                title="AutoFill handle: Drag to extend selection"
                               />
                             )}
                           </div>
@@ -1236,7 +1514,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
                     );
                   })}
 
-                  <td className="acdoca-td" style={{ textAlign: 'center', width: '24px', background: '#ffffff' }}>
+                  <td className="acdoca-td" style={{ textAlign: 'center', width: '24px', background: '#ffffff', height: `${rowHeight}px` }}>
                     <button
                       onClick={() => handleDeleteRow(rIdx)}
                       style={{ background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer' }}
@@ -1254,7 +1532,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
         </table>
       </div>
 
-      {/* 5. FOOTER STATUS BAR (Live Excel Metrics: Average, Count, Sum & Ledger Balance) */}
+      {/* 5. FOOTER STATUS BAR (Live Excel Metrics & 30s Server Auto-Sync Indicator) */}
       <div className="acdoca-footer">
         <div className="acdoca-footer-info">
           <span>Entries: <strong style={{ color: '#0f172a' }}>{displayedRows.length}</strong></span>
@@ -1276,6 +1554,17 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
             <span>Count: <strong>{selectionMetrics.count}</strong></span>
           </div>
         )}
+
+        {/* 30-Second Multi-Module Server Auto-Sync Status */}
+        <button
+          onClick={() => triggerSyncNow()}
+          className="acdoca-sync-pill"
+          style={{ border: 'none', cursor: 'pointer', background: 'transparent' }}
+          title="Click to force immediate sync to server (Auto-syncs every 30s)"
+        >
+          <RefreshCw size={11} className={syncStatus.isSyncing ? "animate-spin" : ""} style={{ color: '#166534' }} />
+          <span>Auto-Sync (30s): {syncStatus.isSyncing ? 'Syncing...' : syncStatus.secondsRemaining ? `in ${syncStatus.secondsRemaining}s` : 'Synced'}</span>
+        </button>
 
         <div className="acdoca-footer-totals">
           <span>Total Dr: <strong style={{ color: '#0284c7' }}>₹ {totalDebits.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></span>

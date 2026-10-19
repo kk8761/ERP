@@ -761,3 +761,93 @@
   font-family: monospace;
 }
 
+/* Excel Column Width Resizer (Drag right edge) */
+.excel-col-resizer {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 20;
+}
+
+.excel-col-resizer:hover,
+.excel-col-resizer.resizing {
+  background-color: #107c41;
+  opacity: 0.8;
+}
+
+/* Excel Row Height Resizer (Drag bottom edge of row number) */
+.excel-row-resizer {
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 100%;
+  height: 7px;
+  cursor: row-resize;
+  user-select: none;
+  z-index: 20;
+}
+
+.excel-row-resizer:hover,
+.excel-row-resizer.resizing {
+  background-color: #107c41;
+  opacity: 0.8;
+}
+
+/* Cell Size Presets Bar in Toolbar */
+.excel-cell-size-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.excel-cell-size-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .excel-cell-size-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .excel-cell-size-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+/* Auto-sync pill in spreadsheet footer */
+.acdoca-sync-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: #166534;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .acdoca-sync-pill {
+  color: #4ade80;
+  background: rgba(22, 101, 52, 0.25);
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+

@@ -112,3 +112,14 @@ def require_permission(required_permission: str):
             detail=f"Access denied. Missing required permission: '{required_permission}'"
         )
     return permission_dependency
+
+async def get_current_user_optional(
+    request: Request,
+    auth_header: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db)
+) -> Optional[User]:
+    try:
+        return await get_current_user(request, auth_header, db)
+    except Exception:
+        return None
+

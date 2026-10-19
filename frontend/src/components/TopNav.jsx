@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
   Search, Bell, HelpCircle, Sun, Moon, ChevronDown, 
   Store, User, Shield, LogOut, KeyRound, Sparkles,
-  ScanLine, PenTool, Wifi, WifiOff, Sliders, ShieldAlert, Eye, Check
+  ScanLine, PenTool, Wifi, WifiOff, Sliders, ShieldAlert, Eye, Check,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ModuleSearchModal from './ModuleSearchModal';
 import ScreenshotIncidentModal from './ScreenshotIncidentModal';
+import { triggerSyncNow } from '../services/syncManager';
 
 export default function TopNav({
   onToggleAI,
@@ -30,6 +32,23 @@ export default function TopNav({
   const [screenshotIncidents, setScreenshotIncidents] = useState([]);
   const [unreviewedCount, setUnreviewedCount] = useState(0);
   const [selectedIncident, setSelectedIncident] = useState(null);
+
+  // 30-Second Server Auto-Sync State across all modules
+  const [syncState, setSyncState] = useState({
+    isSyncing: false,
+    secondsRemaining: 30,
+    lastSyncTimestamp: null
+  });
+
+  useEffect(() => {
+    const handleSyncUpdate = (e) => {
+      if (e.detail) {
+        setSyncState(prev => ({ ...prev, ...e.detail }));
+      }
+    };
+    window.addEventListener('nexaerp:sync_update', handleSyncUpdate);
+    return () => window.removeEventListener('nexaerp:sync_update', handleSyncUpdate);
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -305,23 +324,42 @@ export default function TopNav({
           <span>{currentTime || 'Wednesday, 15 Oct 2026 10:30 AM'}</span>
         </div>
 
-        {/* Offline / Cloud Sync Status Badge from NexaERP */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          fontSize: '11.5px',
-          fontWeight: 600,
-          padding: '5px 10px',
-          borderRadius: 'var(--radius-sm)',
-          backgroundColor: isOnline ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.15)',
-          color: isOnline ? '#10b981' : '#d97706',
-          border: `1px solid ${isOnline ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.3)'}`
-        }}
-        title={isOnline ? "All enterprise records synchronized with cloud ledger" : "Working in Offline Mode. Transactions will auto-sync on reconnect."}
+        {/* Enterprise Multi-Module 30-Second Cloud Sync Status Badge */}
+        <div 
+          onClick={() => triggerSyncNow()}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '11.5px',
+            fontWeight: 600,
+            padding: '5px 10px',
+            borderRadius: 'var(--radius-sm)',
+            backgroundColor: !isOnline ? 'rgba(245, 158, 11, 0.15)' : syncState.isSyncing ? 'rgba(2, 132, 199, 0.15)' : 'rgba(16, 185, 129, 0.1)',
+            color: !isOnline ? '#d97706' : syncState.isSyncing ? '#0284c7' : '#10b981',
+            border: `1px solid ${!isOnline ? 'rgba(245, 158, 11, 0.3)' : syncState.isSyncing ? 'rgba(2, 132, 199, 0.3)' : 'rgba(16, 185, 129, 0.25)'}`,
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            userSelect: 'none'
+          }}
+          title={isOnline ? "All ERP modules sync with server every 30s. Click to sync now." : "Working in Offline Mode. Transactions will auto-sync on reconnect."}
         >
-          {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
-          <span>{isOnline ? 'Cloud Synced' : 'Offline'}</span>
+          {syncState.isSyncing ? (
+            <RefreshCw size={13} className="animate-spin" />
+          ) : isOnline ? (
+            <RefreshCw size={13} />
+          ) : (
+            <WifiOff size={13} />
+          )}
+          <span>
+            {!isOnline 
+              ? 'Offline' 
+              : syncState.isSyncing 
+              ? 'Syncing...' 
+              : syncState.secondsRemaining > 0 
+              ? `Sync: in ${syncState.secondsRemaining}s` 
+              : 'Synced'}
+          </span>
         </div>
 
         {/* Universal Barcode Scanner Quick Launch */}
