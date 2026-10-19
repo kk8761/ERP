@@ -15,12 +15,26 @@ from app.config import settings
 async def setup_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        for col, col_type in [("sender_email", "VARCHAR(150)"), ("sender_name", "VARCHAR(150)")]:
+        for col, col_type in [
+            ("sender_email", "VARCHAR(150)"), 
+            ("sender_name", "VARCHAR(150)"),
+            ("mfa_enabled", "BOOLEAN DEFAULT 0"),
+            ("mfa_secret", "VARCHAR(64)")
+        ]:
             try:
                 await conn.execute(text(f"ALTER TABLE outgoing_email_logs ADD COLUMN {col} {col_type}"))
             except Exception:
                 pass
+            try:
+                await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
     yield
+
+@pytest.fixture(autouse=True)
+def mock_fast_smtp_during_tests(monkeypatch):
+    """Ensure tests run locally without hanging on external SMTP network connections."""
+    monkeypatch.setattr(settings, "SMTP_HOST", None)
 
 @pytest_asyncio.fixture(scope="function")
 async def client():
@@ -36,6 +50,15 @@ async def admin_auth_token(client: AsyncClient):
     })
     assert res.status_code == 200
     data = res.json()
+    if data.get("mfa_required"):
+        import pyotp
+        totp = pyotp.TOTP(data["secret"])
+        v_res = await client.post("/api/auth/verify-2fa", json={
+            "temp_token": data["temp_token"],
+            "code": totp.now()
+        })
+        assert v_res.status_code == 200
+        return v_res.json()["access_token"]
     return data["access_token"]
 
 @pytest_asyncio.fixture(scope="function")
@@ -46,4 +69,13 @@ async def cashier_auth_token(client: AsyncClient):
     })
     assert res.status_code == 200
     data = res.json()
+    if data.get("mfa_required"):
+        import pyotp
+        totp = pyotp.TOTP(data["secret"])
+        v_res = await client.post("/api/auth/verify-2fa", json={
+            "temp_token": data["temp_token"],
+            "code": totp.now()
+        })
+        assert v_res.status_code == 200
+        return v_res.json()["access_token"]
     return data["access_token"]

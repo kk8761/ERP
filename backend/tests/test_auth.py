@@ -18,9 +18,23 @@ async def test_login_success(client: AsyncClient):
     })
     assert response.status_code == 200
     data = response.json()
-    assert "access_token" in data
-    assert data["user"]["email"] == settings.BOOTSTRAP_ADMIN_EMAIL
-    assert data["user"]["is_superuser"] is True
+    assert data.get("mfa_required") is True
+    assert "temp_token" in data
+    assert "qr_code_base64" in data
+    assert "secret" in data
+
+    # Verify 2FA temporary code
+    import pyotp
+    totp = pyotp.TOTP(data["secret"])
+    v_res = await client.post("/api/auth/verify-2fa", json={
+        "temp_token": data["temp_token"],
+        "code": totp.now()
+    })
+    assert v_res.status_code == 200
+    v_data = v_res.json()
+    assert "access_token" in v_data
+    assert v_data["user"]["email"] == settings.BOOTSTRAP_ADMIN_EMAIL
+    assert v_data["user"]["is_superuser"] is True
 
 @pytest.mark.asyncio
 async def test_login_invalid_credentials(client: AsyncClient):

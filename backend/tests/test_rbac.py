@@ -44,7 +44,17 @@ async def test_cashier_denied_sensitive_operations(client: AsyncClient, admin_au
         "email": clean_email,
         "password": "CashierPassword123!"
     })
-    token = login_res.json()["access_token"]
+    data = login_res.json()
+    if data.get("mfa_required"):
+        import pyotp
+        totp = pyotp.TOTP(data["secret"])
+        v_res = await client.post("/api/auth/verify-2fa", json={
+            "temp_token": data["temp_token"],
+            "code": totp.now()
+        })
+        token = v_res.json()["access_token"]
+    else:
+        token = data["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     # Cashier cannot view audit logs (Missing audit_logs.view permission) -> 403 Forbidden

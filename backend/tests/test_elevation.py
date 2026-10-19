@@ -31,7 +31,17 @@ async def test_jit_elevation_lifecycle_and_no_self_approval(
         "email": elev_email,
         "password": "Password12345!"
     })
-    candidate_token = login_res.json()["access_token"]
+    data = login_res.json()
+    if data.get("mfa_required"):
+        import pyotp
+        totp = pyotp.TOTP(data["secret"])
+        v_res = await client.post("/api/auth/verify-2fa", json={
+            "temp_token": data["temp_token"],
+            "code": totp.now()
+        })
+        candidate_token = v_res.json()["access_token"]
+    else:
+        candidate_token = data["access_token"]
     candidate_headers = {"Authorization": f"Bearer {candidate_token}"}
 
     # 1. Before elevation, candidate is forbidden from inspecting audit logs
