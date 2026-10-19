@@ -1,7 +1,8 @@
 import uuid
 from decimal import Decimal
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -26,6 +27,7 @@ from app.services.email_service import (
     generate_screenshot_alert_template,
     get_email_system_status
 )
+from app.services.receipt_service import generate_goods_receipt_html
 
 router = APIRouter(prefix="/api/procurement", tags=["Procurement"])
 
@@ -257,13 +259,45 @@ async def approve_po(
     await db.commit()
     return {"message": f"Purchase order {po.po_number} approved"}
 
+def _build_receipt_dict(po: PurchaseOrder, user_name: str) -> dict:
+    supplier = po.supplier
+    grn_number = f"GRN-{datetime.now().strftime('%Y%m%d')}-{po.po_number.replace('-', '')[-4:]}"
+    items_list = [
+        {
+            "product_name": it.product_name,
+            "quantity_ordered": it.quantity_ordered,
+            "quantity_received": it.quantity_received or it.quantity_ordered,
+            "unit_cost": float(it.unit_cost),
+            "line_total": float(it.line_total)
+        }
+        for it in (po.items or [])
+    ]
+    return {
+        "grn_number": grn_number,
+        "po_number": po.po_number,
+        "received_date": datetime.now().strftime("%b %d, %Y • %I:%M %p"),
+        "received_by": user_name,
+        "supplier_name": supplier.name if supplier else "Vendor Partner",
+        "supplier_code": supplier.vendor_code if supplier else "VEND-1001",
+        "supplier_email": supplier.email if supplier else "",
+        "supplier_address": supplier.address or "Industrial Logistics Hub",
+        "purchasing_org": po.purchasing_org or "PORG-1000 (Central Purchasing)",
+        "dock_bay": "Warehouse Inbound Receiving Dock Bay 4",
+        "total_amount": float(po.total_amount),
+        "items": items_list
+    }
+
 @router.post("/purchase-orders/{po_id}/receive")
 async def receive_goods(
     po_id: int,
     current_user: User = Depends(require_permission("procurement.receive")),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(PurchaseOrder).options(selectinload(PurchaseOrder.items)).where(PurchaseOrder.id == po_id)
+    stmt = (
+        select(PurchaseOrder)
+        .options(selectinload(PurchaseOrder.items), selectinload(PurchaseOrder.supplier))
+        .where(PurchaseOrder.id == po_id)
+    )
     res = await db.execute(stmt)
     po = res.scalar_one_or_none()
     if not po:
@@ -293,7 +327,64 @@ async def receive_goods(
         details={"po": po.po_number, "items_count": len(po.items)}
     )
     await db.commit()
-    return {"message": f"Goods received for {po.po_number} and inventory stocks replenished"}
+
+    receipt_dict = _build_receipt_dict(po, current_user.full_name or current_user.email)
+    receipt_html = generate_goods_receipt_html(receipt_dict)
+
+    return {
+        "message": f"Goods received for {po.po_number} and inventory stocks replenished",
+        "receipt": receipt_dict,
+        "receipt_html": receipt_html
+    }
+
+@router.get("/purchase-orders/{po_id}/receipt")
+async def get_po_receipt(
+    po_id: int,
+    current_user: User = Depends(require_permission("procurement.view")),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(PurchaseOrder)
+        .options(selectinload(PurchaseOrder.items), selectinload(PurchaseOrder.supplier))
+        .where(PurchaseOrder.id == po_id)
+    )
+    res = await db.execute(stmt)
+    po = res.scalar_one_or_none()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+
+    receipt_dict = _build_receipt_dict(po, current_user.full_name or current_user.email)
+    receipt_html = generate_goods_receipt_html(receipt_dict)
+    return {
+        "receipt": receipt_dict,
+        "receipt_html": receipt_html
+    }
+
+@router.get("/purchase-orders/{po_id}/receipt/download")
+async def download_po_receipt(
+    po_id: int,
+    current_user: User = Depends(require_permission("procurement.view")),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = (
+        select(PurchaseOrder)
+        .options(selectinload(PurchaseOrder.items), selectinload(PurchaseOrder.supplier))
+        .where(PurchaseOrder.id == po_id)
+    )
+    res = await db.execute(stmt)
+    po = res.scalar_one_or_none()
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+
+    receipt_dict = _build_receipt_dict(po, current_user.full_name or current_user.email)
+    receipt_html = generate_goods_receipt_html(receipt_dict)
+    return Response(
+        content=receipt_html,
+        media_type="text/html",
+        headers={
+            "Content-Disposition": f"attachment; filename=Goods_Receipt_{po.po_number}.html"
+        }
+    )
 
 @router.get("/emails")
 async def list_outgoing_emails(

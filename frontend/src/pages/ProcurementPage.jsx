@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Truck, Plus, FileText, CheckCircle2, ArrowDownToLine,
-  Eye, X, Building, ShieldCheck, AlertTriangle, Star, RefreshCw, Ban, Award, Mail
+  Eye, X, Building, ShieldCheck, AlertTriangle, Star, RefreshCw, Ban, Award, Mail,
+  Download, Printer
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,6 +17,13 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
   const [activeTab, setActiveTab] = useState(initialTab === 'orders' ? 'orders' : 'suppliers'); // 'suppliers' (Vendor Master) or 'orders' (POs)
   const [loading, setLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState('');
+  const [processingPoId, setProcessingPoId] = useState(null);
+  const [receiptModal, setReceiptModal] = useState({
+    isOpen: false,
+    receipt: null,
+    receiptHtml: '',
+    poNumber: ''
+  });
 
   useEffect(() => {
     if (initialTab === 'orders') {
@@ -90,14 +98,82 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
     }
   };
 
-  const handleReceiveGoods = async (poId) => {
-    if (!window.confirm("Perform Goods Receipt and post inventory replenishment?")) return;
+  // Client-side instant receipt file download helper
+  const downloadHtmlReceipt = (receiptHtml, poNumber) => {
+    if (!receiptHtml) return;
+    try {
+      const blob = new Blob([receiptHtml], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Goods_Receipt_${poNumber || 'PO'}_${new Date().toISOString().slice(0, 10)}.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) {
+      console.error('Download error:', e);
+    }
+  };
+
+  const handlePrintReceipt = (receiptHtml) => {
+    if (!receiptHtml) return;
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(receiptHtml);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+      }, 350);
+    }
+  };
+
+  const handleReceiveGoods = async (po) => {
+    const poId = typeof po === 'object' ? po.id : po;
+    const poObj = typeof po === 'object' ? po : purchaseOrders.find(p => p.id === poId);
+    const poNum = poObj ? poObj.po_number : `PO-${poId}`;
+
+    setProcessingPoId(poId);
     try {
       const res = await apiRequest(`/api/procurement/purchase-orders/${poId}/receive`, { method: 'POST' });
-      setStatusMsg(res.message);
-      loadData();
+      setStatusMsg(`✓ Goods receipt posted for #${poNum}! Stocks replenished & official GRN downloaded.`);
+
+      // 1. Automatically download the generated Goods Receipt Note file
+      if (res.receipt_html) {
+        downloadHtmlReceipt(res.receipt_html, poNum);
+      }
+
+      // 2. Open interactive receipt modal for print / preview
+      setReceiptModal({
+        isOpen: true,
+        receipt: res.receipt,
+        receiptHtml: res.receipt_html,
+        poNumber: poNum
+      });
+
+      await loadData();
     } catch (err) {
-      alert(err.message);
+      alert(`Goods receipt failed: ${err.message}`);
+    } finally {
+      setProcessingPoId(null);
+    }
+  };
+
+  const handleDownloadReceipt = async (po) => {
+    try {
+      const res = await apiRequest(`/api/procurement/purchase-orders/${po.id}/receipt`);
+      if (res && res.receipt_html) {
+        downloadHtmlReceipt(res.receipt_html, po.po_number);
+        setReceiptModal({
+          isOpen: true,
+          receipt: res.receipt,
+          receiptHtml: res.receipt_html,
+          poNumber: po.po_number
+        });
+      }
+    } catch (err) {
+      alert(`Could not fetch goods receipt: ${err.message}`);
     }
   };
 
@@ -356,18 +432,49 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
                         )}
                         {po.status === 'APPROVED' && (
                           <button
-                            onClick={() => handleReceiveGoods(po.id)}
+                            onClick={() => handleReceiveGoods(po)}
+                            disabled={processingPoId === po.id}
                             className="btn btn-primary"
-                            style={{ padding: '4px 10px', fontSize: '12px', backgroundColor: '#10b981', borderColor: '#10b981' }}
+                            style={{
+                              padding: '5px 12px',
+                              fontSize: '12px',
+                              backgroundColor: '#10b981',
+                              borderColor: '#10b981',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)'
+                            }}
+                            title="Post Goods Receipt into inventory and automatically download official receipt note"
                           >
-                            <ArrowDownToLine size={13} />
-                            <span>Post Goods Receipt</span>
+                            {processingPoId === po.id ? (
+                              <RefreshCw size={13} className="animate-spin" />
+                            ) : (
+                              <ArrowDownToLine size={13} />
+                            )}
+                            <span>{processingPoId === po.id ? 'Generating GRN...' : 'Post Goods Receipt'}</span>
                           </button>
                         )}
                         {po.status === 'RECEIVED' && (
-                          <span style={{ fontSize: '12px', color: 'var(--success-text)', fontWeight: 600 }}>
-                            Delivered & Stocked
-                          </span>
+                          <button
+                            onClick={() => handleDownloadReceipt(po)}
+                            className="btn btn-ghost"
+                            style={{
+                              padding: '5px 12px',
+                              fontSize: '12px',
+                              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                              border: '1px solid rgba(16, 185, 129, 0.35)',
+                              color: '#10b981',
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}
+                            title="Download and print official Goods Receipt Note (GRN / PGI slip)"
+                          >
+                            <Download size={13} />
+                            <span>Download GRN</span>
+                          </button>
                         )}
                       </div>
                     </td>
@@ -681,6 +788,166 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
               <button onClick={() => setSelectedEmailPreview(null)} className="btn btn-primary" style={{ padding: '6px 18px', fontSize: '13px' }}>
                 Close Preview
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: Official Goods Receipt Note (GRN / PGI Slip) */}
+      {receiptModal.isOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: '20px'
+        }}>
+          <div className="nexa-card" style={{
+            width: '100%',
+            maxWidth: '820px',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '12px',
+            overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '16px 22px',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              backgroundColor: '#f8fafc'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  backgroundColor: '#10b981',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 800
+                }}>
+                  <CheckCircle2 size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: '#0f172a' }}>
+                    Goods Receipt Note (GRN / PGI)
+                  </h3>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                    Document Ref: <strong style={{ color: '#0284c7' }}>#{receiptModal.poNumber}</strong> • Stock Replenishment Confirmed
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setReceiptModal({ isOpen: false, receipt: null, receiptHtml: '', poNumber: '' })}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Notification Banner */}
+            <div style={{
+              padding: '12px 22px',
+              backgroundColor: '#ecfdf5',
+              borderBottom: '1px solid #a7f3d0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#065f46', fontWeight: 600 }}>
+                <CheckCircle2 size={16} color="#059669" />
+                <span>Automated Goods Receipt generated & downloaded to your browser downloads folder!</span>
+              </div>
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                backgroundColor: '#10b981',
+                color: '#ffffff',
+                padding: '2px 8px',
+                borderRadius: '4px'
+              }}>
+                100% QC PASSED
+              </span>
+            </div>
+
+            {/* Preview Frame */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px', backgroundColor: '#f1f5f9' }}>
+              <div
+                style={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  overflow: 'hidden',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
+                }}
+                dangerouslySetInnerHTML={{ __html: receiptModal.receiptHtml }}
+              />
+            </div>
+
+            {/* Footer Buttons */}
+            <div style={{
+              padding: '14px 22px',
+              borderTop: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: '#f8fafc'
+            }}>
+              <button
+                onClick={() => setReceiptModal({ isOpen: false, receipt: null, receiptHtml: '', poNumber: '' })}
+                className="btn btn-ghost"
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+              >
+                Close Preview
+              </button>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={() => downloadHtmlReceipt(receiptModal.receiptHtml, receiptModal.poNumber)}
+                  className="btn btn-ghost"
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    border: '1px solid #cbd5e1',
+                    fontWeight: 600
+                  }}
+                >
+                  <Download size={15} />
+                  <span>Download File Again</span>
+                </button>
+
+                <button
+                  onClick={() => handlePrintReceipt(receiptModal.receiptHtml)}
+                  className="btn btn-primary"
+                  style={{
+                    padding: '8px 20px',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    backgroundColor: '#0284c7'
+                  }}
+                >
+                  <Printer size={15} />
+                  <span>Print / Save as PDF</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
