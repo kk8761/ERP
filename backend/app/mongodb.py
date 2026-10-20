@@ -86,7 +86,7 @@ async def check_mongodb_status() -> Dict[str, Any]:
     try:
         await _mongo_client.admin.command("ping")
         db = get_mongodb_database()
-        collections = await db.list_collection_names() if db else []
+        collections = await db.list_collection_names() if db is not None else []
         return {
             "status": "connected",
             "connected": True,
