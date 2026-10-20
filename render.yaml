@@ -44,7 +44,7 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://nexaerp-backend.onrender.com
+        value: https://nexaerp-backend-mlae.onrender.com
 
 databases:
   # Free Managed PostgreSQL Database on Render
