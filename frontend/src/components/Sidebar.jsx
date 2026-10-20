@@ -5,7 +5,7 @@ import {
   Boxes, Truck, ScanLine, Wallet, BookOpen, Clock, Calendar,
   ShieldAlert, Sparkles, BarChart3, Sliders, ArrowLeftRight,
   Factory, Layers, Cpu, ShieldCheck, Award, TrendingDown,
-  Database, KeyRound, FileSpreadsheet, Mail
+  Database, KeyRound, FileSpreadsheet, Mail, Camera
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -108,6 +108,7 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
         { id: 'ai_tool', label: 'AI Assistant', icon: Sparkles, action: onToggleAI, perm: 'ai.use' },
         { id: 'reports', label: 'Analytics & Reports', icon: BarChart3, perm: 'reports.view' },
         { id: 'admin', label: 'Security & Audit', icon: ShieldCheck, perm: 'audit_logs.view' },
+        { id: 'screenshots', label: 'DLP Screenshot Vault', icon: Camera, perm: 'audit_logs.view' },
         { id: 'disaster_recovery', label: 'Disaster Recovery & PITR', icon: Database, perm: 'settings.manage' },
         { id: 'settings', label: 'System Settings', icon: Sliders, perm: 'settings.manage' }
       ]

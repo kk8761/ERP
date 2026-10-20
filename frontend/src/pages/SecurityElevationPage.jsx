@@ -2,26 +2,31 @@ import React, { useState, useEffect } from 'react';
 import {
   ShieldAlert, KeyRound, Clock, CheckCircle2, XCircle,
   FileText, Plus, ShieldCheck, AlertTriangle, RefreshCw, X,
-  Users, UserPlus, UserX, UserCheck, Trash2, Edit
+  Users, UserPlus, UserX, UserCheck, Trash2, Edit, Camera, Eye, Search, Monitor, ExternalLink
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import ScreenshotIncidentModal from '../components/ScreenshotIncidentModal';
 
 export default function SecurityElevationPage({ initialTab = 'users' }) {
   const { user, hasPermission, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState(
-    ['users', 'elevation', 'audit'].includes(initialTab) ? initialTab : 'users'
-  ); // 'users', 'elevation', or 'audit'
+    ['users', 'elevation', 'audit', 'screenshots'].includes(initialTab) ? initialTab : 'users'
+  ); // 'users', 'elevation', 'audit', or 'screenshots'
   const [usersList, setUsersList] = useState([]);
   const [requests, setRequests] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [screenshotIncidents, setScreenshotIncidents] = useState([]);
+  const [screenshotFilter, setScreenshotFilter] = useState('ALL'); // 'ALL', 'UNREVIEWED', 'REVIEWED'
+  const [screenshotSearch, setScreenshotSearch] = useState('');
+  const [selectedScreenshotIncident, setSelectedScreenshotIncident] = useState(null);
   const [permissions, setPermissions] = useState([]);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState('');
 
   useEffect(() => {
-    if (['users', 'elevation', 'audit'].includes(initialTab)) {
+    if (['users', 'elevation', 'audit', 'screenshots'].includes(initialTab)) {
       setActiveTab(initialTab);
     } else {
       setActiveTab('users');
@@ -63,8 +68,12 @@ export default function SecurityElevationPage({ initialTab = 'users' }) {
       }
 
       if (hasPermission('audit_logs.view') || user?.is_superuser) {
-        const logs = await apiRequest('/api/admin/audit-logs').catch(() => []);
+        const [logs, screenshots] = await Promise.all([
+          apiRequest('/api/admin/audit-logs').catch(() => []),
+          apiRequest('/api/security/screenshot-incidents?limit=100').catch(() => [])
+        ]);
         setAuditLogs(logs);
+        setScreenshotIncidents(screenshots);
       }
     } catch (e) {
       console.error('Failed to load security data:', e);
@@ -75,6 +84,13 @@ export default function SecurityElevationPage({ initialTab = 'users' }) {
 
   useEffect(() => {
     loadSecurityData();
+    const handleLiveIncident = () => {
+      loadSecurityData();
+    };
+    window.addEventListener('screenshot-incident-logged', handleLiveIncident);
+    return () => {
+      window.removeEventListener('screenshot-incident-logged', handleLiveIncident);
+    };
   }, []);
 
   const handleReview = async (requestId, decision) => {
@@ -177,6 +193,21 @@ export default function SecurityElevationPage({ initialTab = 'users' }) {
     }
   };
 
+  const filteredScreenshotIncidents = screenshotIncidents.filter((inc) => {
+    if (screenshotFilter === 'UNREVIEWED' && inc.is_reviewed) return false;
+    if (screenshotFilter === 'REVIEWED' && !inc.is_reviewed) return false;
+    if (screenshotSearch.trim()) {
+      const q = screenshotSearch.toLowerCase();
+      const matchName = (inc.user_name || '').toLowerCase().includes(q);
+      const matchEmail = (inc.user_email || '').toLowerCase().includes(q);
+      const matchUrl = (inc.page_url || '').toLowerCase().includes(q);
+      const matchIp = (inc.ip_address || '').toLowerCase().includes(q);
+      const matchAction = (inc.action_type || '').toLowerCase().includes(q);
+      return matchName || matchEmail || matchUrl || matchIp || matchAction;
+    }
+    return true;
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Title & Actions */}
@@ -250,6 +281,30 @@ export default function SecurityElevationPage({ initialTab = 'users' }) {
           >
             <ShieldAlert size={16} />
             <span>Security Audit Trail ({auditLogs.length})</span>
+          </button>
+        )}
+
+        {(hasPermission('audit_logs.view') || user?.is_superuser) && (
+          <button
+            onClick={() => setActiveTab('screenshots')}
+            className={`btn ${activeTab === 'screenshots' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ padding: '7px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Camera size={16} />
+            <span>DLP Screenshot Evidence ({screenshotIncidents.length})</span>
+            {screenshotIncidents.filter(i => !i.is_reviewed).length > 0 && (
+              <span style={{
+                backgroundColor: 'var(--danger)',
+                color: '#ffffff',
+                fontSize: '11px',
+                fontWeight: 700,
+                borderRadius: '10px',
+                padding: '1px 7px',
+                lineHeight: '16px'
+              }}>
+                {screenshotIncidents.filter(i => !i.is_reviewed).length}
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -485,6 +540,204 @@ export default function SecurityElevationPage({ initialTab = 'users' }) {
         </div>
       )}
 
+      {/* Tab 4: DLP Screenshot Evidences Vault */}
+      {activeTab === 'screenshots' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Summary Metric Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+            <div className="nexa-card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Camera size={22} color="var(--primary)" />
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Monitored Captures</div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)' }}>{screenshotIncidents.length}</div>
+              </div>
+            </div>
+
+            <div className="nexa-card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: 'var(--radius-sm)', backgroundColor: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <AlertTriangle size={22} color="#dc2626" />
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pending SOC Review</div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: '#dc2626' }}>
+                  {screenshotIncidents.filter(i => !i.is_reviewed).length}
+                </div>
+              </div>
+            </div>
+
+            <div className="nexa-card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: 'var(--radius-sm)', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CheckCircle2 size={22} color="#16a34a" />
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Reviewed & Verified</div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: '#16a34a' }}>
+                  {screenshotIncidents.filter(i => i.is_reviewed).length}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Table Container */}
+          <div className="nexa-card" style={{ overflow: 'hidden' }}>
+            {/* Header & Controls */}
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '15px', color: 'var(--text-main)' }}>
+                  Monitored DLP Screenshot Evidence Vault
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Real-time visual evidence captured during employee print-screen and desktop capture actions
+                </div>
+              </div>
+
+              {/* Filters & Search */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-subtle)', padding: '3px', borderRadius: 'var(--radius-sm)' }}>
+                  <button
+                    onClick={() => setScreenshotFilter('ALL')}
+                    className={`btn btn-ghost ${screenshotFilter === 'ALL' ? 'btn-primary' : ''}`}
+                    style={{ padding: '4px 10px', fontSize: '11.5px', height: '28px' }}
+                  >
+                    All ({screenshotIncidents.length})
+                  </button>
+                  <button
+                    onClick={() => setScreenshotFilter('UNREVIEWED')}
+                    className={`btn btn-ghost ${screenshotFilter === 'UNREVIEWED' ? 'btn-primary' : ''}`}
+                    style={{ padding: '4px 10px', fontSize: '11.5px', height: '28px' }}
+                  >
+                    Needs Review ({screenshotIncidents.filter(i => !i.is_reviewed).length})
+                  </button>
+                  <button
+                    onClick={() => setScreenshotFilter('REVIEWED')}
+                    className={`btn btn-ghost ${screenshotFilter === 'REVIEWED' ? 'btn-primary' : ''}`}
+                    style={{ padding: '4px 10px', fontSize: '11.5px', height: '28px' }}
+                  >
+                    Reviewed ({screenshotIncidents.filter(i => i.is_reviewed).length})
+                  </button>
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by user, IP, or page..."
+                    value={screenshotSearch}
+                    onChange={(e) => setScreenshotSearch(e.target.value)}
+                    className="form-input"
+                    style={{ paddingLeft: '30px', height: '32px', fontSize: '12px', width: '220px' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="nexa-table-wrapper">
+              <table className="nexa-table">
+                <thead>
+                  <tr>
+                    <th>Evidence ID</th>
+                    <th>Captured Time</th>
+                    <th>Employee & Operator</th>
+                    <th>Trigger Vector</th>
+                    <th>Active Page / Context</th>
+                    <th>Device & Resolution</th>
+                    <th>Visual Snapshot</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredScreenshotIncidents.length === 0 ? (
+                    <tr>
+                      <td colSpan="9" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-secondary)' }}>
+                        <Camera size={32} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
+                        <div style={{ fontWeight: 600, fontSize: '14px' }}>No screenshot evidence records found</div>
+                        <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                          {screenshotSearch ? 'No captures match your current search query.' : 'No data loss prevention screen capture attempts have been recorded.'}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredScreenshotIncidents.map((inc) => (
+                      <tr key={inc.id}>
+                        <td style={{ fontWeight: 700, fontFamily: 'monospace', color: 'var(--primary)' }}>
+                          #INC-{inc.id}
+                        </td>
+                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                          {new Date(inc.captured_at).toLocaleString()}
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, fontSize: '13px' }}>{inc.user_name || 'Employee'}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{inc.user_email}</div>
+                        </td>
+                        <td>
+                          <span className="nexa-badge" style={{ backgroundColor: 'var(--bg-subtle)', fontSize: '11px' }}>
+                            {inc.action_type || 'PRINT_SCREEN_KEY'}
+                          </span>
+                        </td>
+                        <td>
+                          <code style={{ fontSize: '11px', padding: '2px 6px', backgroundColor: 'var(--bg-subtle)', borderRadius: '4px' }}>
+                            {inc.page_url || '/'}
+                          </code>
+                        </td>
+                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          <div>{inc.ip_address || '127.0.0.1'}</div>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{inc.screen_resolution || '1920×1080'}</div>
+                        </td>
+                        <td>
+                          {inc.image_data ? (
+                            <div
+                              onClick={() => setSelectedScreenshotIncident(inc)}
+                              style={{
+                                width: '56px',
+                                height: '36px',
+                                borderRadius: '4px',
+                                overflow: 'hidden',
+                                border: '1px solid var(--border-color)',
+                                cursor: 'pointer',
+                                position: 'relative',
+                                background: '#111'
+                              }}
+                              title="Click to view full evidence snapshot"
+                            >
+                              <img
+                                src={inc.image_data}
+                                alt="Capture preview"
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              />
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>No image</span>
+                          )}
+                        </td>
+                        <td>
+                          <span className={`nexa-badge ${inc.is_reviewed ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: '11px' }}>
+                            {inc.is_reviewed ? '✓ Reviewed' : '● Needs Review'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            onClick={() => setSelectedScreenshotIncident(inc)}
+                            className="btn btn-primary"
+                            style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          >
+                            <Eye size={13} />
+                            <span>Inspect Evidence</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Add New User */}
       {showCreateUserModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
@@ -665,6 +918,15 @@ export default function SecurityElevationPage({ initialTab = 'users' }) {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Evidence Viewer Modal */}
+      {selectedScreenshotIncident && (
+        <ScreenshotIncidentModal
+          incident={selectedScreenshotIncident}
+          onClose={() => setSelectedScreenshotIncident(null)}
+          onReviewed={() => loadSecurityData()}
+        />
       )}
     </div>
   );

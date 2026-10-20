@@ -289,6 +289,9 @@ function MainApp() {
         return <SecurityElevationPage initialTab="elevation" />;
       case 'admin':
         return <SecurityElevationPage initialTab="audit" />;
+      case 'screenshots':
+      case 'dlp_evidence':
+        return <SecurityElevationPage initialTab="screenshots" />;
 
       // Mail Center & AI Email Hub
       case 'email_hub':

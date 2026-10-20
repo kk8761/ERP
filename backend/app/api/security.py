@@ -25,6 +25,22 @@ from app.config import settings
 
 router = APIRouter(prefix="/api/security", tags=["Security & DLP"])
 
+def _is_security_admin(user: User) -> bool:
+    """Evaluates whether the user possesses enterprise security oversight access."""
+    if getattr(user, "is_superuser", False):
+        return True
+    perms = getattr(user, "effective_permissions", set()) or set()
+    admin_perms = {"audit_logs.view", "audit.view", "roles.manage", "settings.manage", "users.manage", "users.view", "system.admin"}
+    if bool(perms & admin_perms):
+        return True
+    roles = getattr(user, "roles", []) or []
+    for ur in roles:
+        r_name = getattr(ur.role, "name", "") if hasattr(ur, "role") else ""
+        if r_name in ("System Administrator", "Administrator", "Branch Manager", "Security Officer"):
+            return True
+    return False
+
+
 @router.post("/screenshot-incident", response_model=ScreenshotIncidentOut, status_code=status.HTTP_201_CREATED)
 async def log_screenshot_incident(
     payload: ScreenshotIncidentCreate,
@@ -142,11 +158,7 @@ async def list_screenshot_incidents(
     Administrator query to list and review captured screenshot DLP security incidents.
     Requires administrative permissions or superuser access.
     """
-    is_admin = (
-        current_user.is_superuser or
-        "audit.view" in getattr(current_user, "effective_permissions", set()) or
-        "system.admin" in getattr(current_user, "effective_permissions", set())
-    )
+    is_admin = _is_security_admin(current_user)
     if not is_admin:
         # Non-admins can only see their own recorded incidents
         stmt = (
@@ -265,11 +277,7 @@ async def get_security_notifications(
     Returns unified security notifications for System Administrators,
     combining SQL injection / IDS intrusion intercepts and DLP screenshot alerts.
     """
-    is_admin = (
-        current_user.is_superuser or
-        "audit.view" in getattr(current_user, "effective_permissions", set()) or
-        "system.admin" in getattr(current_user, "effective_permissions", set())
-    )
+    is_admin = _is_security_admin(current_user)
     if not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

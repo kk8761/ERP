@@ -690,6 +690,37 @@ export default function TopNav({
                   ))
                 )}
               </div>
+
+              {/* Popover Footer */}
+              <div style={{
+                padding: '10px 14px',
+                borderTop: '1px solid var(--border-color)',
+                backgroundColor: 'var(--bg-app)',
+                display: 'flex',
+                justifyContent: 'center'
+              }}>
+                <button
+                  onClick={() => {
+                    setNotifOpen(false);
+                    onNavigate('screenshots');
+                  }}
+                  className="btn btn-ghost"
+                  style={{
+                    width: '100%',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--primary-color)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '6px 12px'
+                  }}
+                >
+                  <Eye size={14} />
+                  <span>Open DLP Screenshot Evidence Vault →</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
