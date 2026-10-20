@@ -20,6 +20,7 @@ import ManufacturingPage from './pages/ManufacturingPage';
 import GRCPage from './pages/GRCPage';
 import PredictiveAIPage from './pages/PredictiveAIPage';
 import EmailHubPage from './pages/EmailHubPage';
+import InstanceActivationPage from './pages/InstanceActivationPage';
 import BarcodeScannerModal from './components/BarcodeScannerModal';
 import SignatureCaptureModal from './components/SignatureCaptureModal';
 import ActionNotAllowedModal from './components/ActionNotAllowedModal';
@@ -38,6 +39,25 @@ function MainApp() {
   const [cursorPill, setCursorPill] = useState(null);
   const [dlpAlert, setDlpAlert] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('nexaerp_theme') || 'light');
+  
+  // Cloud Instance Activation Lifecycle (Ephemeral Compute + Permanent Persistent Storage)
+  const [isInstanceActive, setIsInstanceActive] = useState(() => {
+    try {
+      const activeUser = localStorage.getItem('nexaerp_user');
+      const userId = activeUser ? JSON.parse(activeUser)?.id : null;
+      if (!userId) return false;
+      return sessionStorage.getItem(`nexaerp_instance_activated_${userId}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleActivateInstance = () => {
+    if (user?.id) {
+      sessionStorage.setItem(`nexaerp_instance_activated_${user.id}`, 'true');
+    }
+    setIsInstanceActive(true);
+  };
 
   // Initialize Enterprise 30-Second Multi-Module Server Auto-Sync
   useEffect(() => {
@@ -170,6 +190,15 @@ function MainApp() {
     return <LoginPage />;
   }
 
+  // Enterprise Gateway: Post-login Company Overview & Instance Activation Portal
+  if (!isInstanceActive) {
+    return (
+      <InstanceActivationPage
+        onActivate={handleActivateInstance}
+      />
+    );
+  }
+
   const renderContent = () => {
     switch (currentTab) {
       // Dashboard Home
@@ -299,6 +328,15 @@ function MainApp() {
       case 'inbox':
       case 'mail':
         return <EmailHubPage onNavigate={setCurrentTab} />;
+
+      // Company Overview & Instance Architecture Portal
+      case 'company_portal':
+      case 'instance_info':
+        return (
+          <InstanceActivationPage
+            onActivate={() => setCurrentTab('dashboard')}
+          />
+        );
 
       default:
         return <DashboardPage onNavigate={setCurrentTab} />;

@@ -3,7 +3,7 @@ import {
   Search, Bell, HelpCircle, Sun, Moon, ChevronDown, 
   Store, User, Shield, LogOut, KeyRound, Sparkles,
   ScanLine, PenTool, Wifi, WifiOff, Sliders, ShieldAlert, Eye, Check,
-  RefreshCw, Mail
+  RefreshCw, Mail, Building2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ModuleSearchModal from './ModuleSearchModal';
@@ -379,6 +379,37 @@ export default function TopNav({
               ? `Sync: in ${syncState.secondsRemaining}s` 
               : 'Synced'}
           </span>
+        </div>
+
+        {/* Enterprise Cloud Instance & Persistent Storage Status Badge */}
+        <div 
+          onClick={() => onNavigate('company_portal')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '11.5px',
+            fontWeight: 600,
+            padding: '5px 10px',
+            borderRadius: 'var(--radius-sm)',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            color: '#10b981',
+            border: '1px solid rgba(16, 185, 129, 0.25)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            userSelect: 'none',
+            whiteSpace: 'nowrap'
+          }}
+          title="Compute: Ephemeral Cloud Container | Storage: 100% Guaranteed Permanent ACID Data Storage. Click to view company overview & instance portal."
+        >
+          <span style={{
+            width: '7px',
+            height: '7px',
+            borderRadius: '50%',
+            backgroundColor: '#10b981',
+            boxShadow: '0 0 6px #10b981'
+          }} />
+          <span>Instance Active (Persistent DB)</span>
         </div>
 
         {/* Universal Barcode Scanner Quick Launch */}
@@ -820,6 +851,15 @@ export default function TopNav({
               >
                 <Sliders size={15} color="var(--primary)" />
                 <span>System Settings</span>
+              </button>
+
+              <button
+                onClick={() => { setProfileOpen(false); onNavigate('company_portal'); }}
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'flex-start', fontSize: '13px' }}
+              >
+                <Building2 size={15} color="var(--primary)" />
+                <span>Company & Instance Portal</span>
               </button>
 
               <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />

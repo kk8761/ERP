@@ -77,6 +77,9 @@ export function AuthProvider({ children }) {
     } catch (e) {
       // Ignore logout errors
     } finally {
+      if (user?.id) {
+        sessionStorage.removeItem(`nexaerp_instance_activated_${user.id}`);
+      }
       localStorage.removeItem('token');
       localStorage.removeItem('nexaerp_token');
       localStorage.removeItem('nexaerp_user');
