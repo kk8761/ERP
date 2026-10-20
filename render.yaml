@@ -17,7 +17,7 @@ services:
           name: nexaerp-postgres
           property: connectionString
       - key: MONGODB_URI
-        value: "mongodb+srv://karthikkarri2005_db_user:EJgb7Emn9ZpdPzYi@cluster0.gn97yeu.mongodb.net/?retryWrites=true&w=majority"
+        sync: false
       - key: MONGODB_DB_NAME
         value: nexaerp
       - key: GROQ_API_KEY
