@@ -3,6 +3,7 @@
  * Intercepts unauthorized screen captures (PrintScreen, Snipping tool, Print-to-PDF)
  * Takes a viewport snapshot and transmits evidence to the security administration.
  */
+import { apiRequest } from './api';
 
 // Generate base64 screenshot canvas representation of current document
 export async function captureViewportSnapshot() {
@@ -118,7 +119,7 @@ export async function captureViewportSnapshot() {
  */
 export async function reportScreenshotIncident({ actionType = 'PRINT_SCREEN_KEY', onIncidentLogged }) {
   try {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('nexaerp_token') || localStorage.getItem('token');
     if (!token) return;
 
     const base64Image = await captureViewportSnapshot();
@@ -130,17 +131,12 @@ export async function reportScreenshotIncident({ actionType = 'PRINT_SCREEN_KEY'
       captured_at: new Date().toISOString()
     };
 
-    const res = await fetch('/api/security/screenshot-incident', {
+    const saved = await apiRequest('/api/security/screenshot-incident', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
       body: JSON.stringify(payload)
     });
 
-    if (res.ok) {
-      const saved = await res.json();
+    if (saved) {
       window.dispatchEvent(new CustomEvent('screenshot-incident-logged', { detail: saved }));
       if (onIncidentLogged) onIncidentLogged(saved);
       return saved;

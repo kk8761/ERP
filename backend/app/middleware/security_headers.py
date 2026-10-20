@@ -188,8 +188,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 _ip_request_history[client_ip] = valid_history
 
                 # Determine limit based on endpoint sensitivity
-                if path == "/api/auth/login":
-                    limit = 30 # Up to 30 login attempts/min per IP
+                if path in ("/api/auth/login", "/api/auth/verify-2fa") or path.startswith("/api/auth/mfa/"):
+                    limit = 10 # Up to 10 authentication/MFA attempts/min per IP
                 elif path.startswith("/api/ai/"):
                     limit = 60 # Up to 60 AI calls/min per IP
                 else:
@@ -226,11 +226,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "img-src 'self' data: https:; "
+            "img-src 'self' data: https: blob:; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-            "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5173 http://test;"
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "script-src 'self' 'unsafe-inline'; "
+            "connect-src 'self' https: wss: http://localhost:8000 http://127.0.0.1:8000 http://localhost:5173 http://test;"
         )
 
         return response

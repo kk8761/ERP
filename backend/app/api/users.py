@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.auth.dependencies import get_current_user, require_permission
-from app.auth.security import hash_password
+from app.auth.security import hash_password, validate_password_strength
 from app.models.auth import User, Role, Permission, UserRole, RolePermission
 from app.models.org import Branch
 from app.schemas.auth import UserOut, UserCreate, UserUpdate
@@ -29,10 +29,15 @@ async def list_users(
     res = await db.execute(stmt)
     users = res.scalars().all()
 
+    # Pre-fetch all branch names for dynamic lookup
+    b_res = await db.execute(select(Branch))
+    branch_map = {b.id: b.name for b in b_res.scalars().all()}
+
     out = []
     for u in users:
         role_names = [ur.role.name for ur in u.roles if ur.role]
         effective_perms = await get_user_effective_permissions(u, db)
+        b_name = branch_map.get(u.branch_id, "Main Store" if not u.branch_id else f"Branch #{u.branch_id}")
         out.append(UserOut(
             id=u.id,
             email=u.email,
@@ -40,7 +45,7 @@ async def list_users(
             is_active=u.is_active,
             is_superuser=u.is_superuser,
             branch_id=u.branch_id,
-            branch_name="Main Store",
+            branch_name=b_name,
             department_id=u.department_id,
             roles=role_names,
             effective_permissions=list(effective_perms)
@@ -56,6 +61,15 @@ async def create_user(
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="User with this email already exists")
+
+    # Enforce enterprise password complexity requirements
+    try:
+        validate_password_strength(data.password)
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(val_err)
+        )
 
     hashed_pw = hash_password(data.password)
     user = User(
@@ -85,6 +99,13 @@ async def create_user(
     stmt = select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user.id)
     r_user = (await db.execute(stmt)).scalar_one()
 
+    b_name = "Main Store"
+    if r_user.branch_id:
+        b_res = await db.execute(select(Branch).where(Branch.id == r_user.branch_id))
+        b_obj = b_res.scalar_one_or_none()
+        if b_obj:
+            b_name = b_obj.name
+
     return UserOut(
         id=r_user.id,
         email=r_user.email,
@@ -92,6 +113,7 @@ async def create_user(
         is_active=r_user.is_active,
         is_superuser=r_user.is_superuser,
         branch_id=r_user.branch_id,
+        branch_name=b_name,
         roles=[ur.role.name for ur in r_user.roles if ur.role],
         effective_permissions=list(await get_user_effective_permissions(r_user, db))
     )
@@ -141,6 +163,13 @@ async def update_user(
     res = await db.execute(stmt)
     r_user = res.scalar_one()
 
+    b_name = "Main Store"
+    if r_user.branch_id:
+        b_res = await db.execute(select(Branch).where(Branch.id == r_user.branch_id))
+        b_obj = b_res.scalar_one_or_none()
+        if b_obj:
+            b_name = b_obj.name
+
     return UserOut(
         id=r_user.id,
         email=r_user.email,
@@ -148,6 +177,7 @@ async def update_user(
         is_active=r_user.is_active,
         is_superuser=r_user.is_superuser,
         branch_id=r_user.branch_id,
+        branch_name=b_name,
         roles=[ur.role.name for ur in r_user.roles if ur.role],
         effective_permissions=list(await get_user_effective_permissions(r_user, db))
     )

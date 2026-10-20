@@ -111,12 +111,13 @@ async def get_company_knowledge(
 @router.post("/knowledge", response_model=KnowledgeDocOut, status_code=status.HTTP_201_CREATED)
 async def add_company_knowledge(
     doc_in: KnowledgeDocCreate,
-    current_user: User = Depends(require_permission("ai.use")),
+    current_user: User = Depends(require_permission("settings.manage")),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Adds a new corporate policy or standard operating procedure for the user's company.
     Immediately indexed and available for RAG retrieval.
+    Requires 'settings.manage' permission.
     """
     org_id, org_name, _ = await _resolve_user_tenant(db, current_user)
     created_doc = await create_company_document(
@@ -145,11 +146,12 @@ async def add_company_knowledge(
 async def update_knowledge_doc(
     doc_id: int,
     doc_update: KnowledgeDocUpdate,
-    current_user: User = Depends(require_permission("ai.use")),
+    current_user: User = Depends(require_permission("settings.manage")),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Updates an existing company knowledge document. Ensures user belongs to the same organization.
+    Requires 'settings.manage' permission.
     """
     org_id, _, _ = await _resolve_user_tenant(db, current_user)
     updated = await update_company_document(
@@ -182,11 +184,12 @@ async def update_knowledge_doc(
 @router.delete("/knowledge/{doc_id}")
 async def delete_knowledge_doc(
     doc_id: int,
-    current_user: User = Depends(require_permission("ai.use")),
+    current_user: User = Depends(require_permission("settings.manage")),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Deletes a company knowledge document (strictly scoped to user's company).
+    Requires 'settings.manage' permission.
     """
     org_id, _, _ = await _resolve_user_tenant(db, current_user)
     deleted = await delete_company_document(db=db, organization_id=org_id, doc_id=doc_id)
@@ -209,11 +212,12 @@ async def delete_knowledge_doc(
 
 @router.post("/knowledge/reset-defaults")
 async def reset_company_defaults(
-    current_user: User = Depends(require_permission("ai.use")),
+    current_user: User = Depends(require_permission("settings.manage")),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Initializes or resets default company policies and SOPs for the organization.
+    Requires 'settings.manage' permission.
     """
     org_id, org_name, _ = await _resolve_user_tenant(db, current_user)
     docs = await ensure_organization_knowledge_seeded(db, organization_id=org_id)

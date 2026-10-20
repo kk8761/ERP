@@ -2,6 +2,7 @@ import os
 import re
 import json
 import uuid
+import asyncio
 import urllib.request
 import urllib.error
 from decimal import Decimal
@@ -277,6 +278,7 @@ async def _try_execute_action(
     prompt: str,
     user_id: int,
     user_email: str,
+    user_role: str = "Employee",
     branch_id: Optional[int] = None,
     organization_id: int = 1
 ) -> Optional[Dict[str, Any]]:
@@ -371,21 +373,30 @@ async def _try_execute_action(
             line_total=line_total
         )
 
+        is_admin = (user_role == "Administrator")
+        po_status = "APPROVED" if is_admin else "PENDING_APPROVAL"
+        notes = (
+            f"Auto-generated via AI Assistant command by {user_email} (Pre-approved by Administrator)"
+            if is_admin else
+            f"Drafted via AI Assistant command by {user_email} (Awaiting Manager Review per Corporate Procurement Matrix DOC-CORP-001)"
+        )
+
         new_po = PurchaseOrder(
             po_number=po_number,
             branch_id=branch_id,
             supplier_id=target_supplier.id,
             created_by_user_id=user_id,
-            status="APPROVED",
+            status=po_status,
             total_amount=line_total,
-            notes=f"Auto-generated via AI Assistant command by {user_email}",
+            notes=notes,
             items=[po_item]
         )
         db.add(new_po)
         await db.flush()
 
         email_sent = False
-        if target_supplier.email:
+        # Only dispatch live external vendor notification if the user is authorized administrator
+        if is_admin and target_supplier.email:
             template = generate_po_email_template(
                 po_number=po_number,
                 vendor_name=target_supplier.name,
@@ -417,20 +428,25 @@ async def _try_execute_action(
         await record_audit_log(
             db, action="AI_ACTION_CREATE_PO", entity_name="PurchaseOrder",
             entity_id=str(new_po.id), user_id=user_id, user_email=user_email,
-            details={"po_number": po_number, "supplier": target_supplier.name, "amount": float(line_total), "org_id": organization_id}
+            details={"po_number": po_number, "status": po_status, "supplier": target_supplier.name, "amount": float(line_total), "org_id": organization_id}
         )
         await db.commit()
 
-        email_status_str = f"📧 **B2B Purchase Order Dispatched** via Email to `{target_supplier.email}` (External Partner System Notification)." if email_sent else "ℹ️ Vendor email not on file; record saved for manual dispatch."
+        if is_admin:
+            email_status_str = f"📧 **B2B Purchase Order Dispatched** via Email to `{target_supplier.email}`." if email_sent else "ℹ️ Vendor email not on file; record saved for manual dispatch."
+            status_desc = "`APPROVED` (Ready for Inbound Receiving)"
+        else:
+            email_status_str = f"⏳ **Order Queued for Sign-off**: In compliance with Corporate Policy DOC-CORP-001, external supplier email will be dispatched once reviewed and approved by a Branch Manager or Procurement Admin."
+            status_desc = "`PENDING_APPROVAL` (Awaiting Manager Review)"
 
         answer = (
-            f"✅ **Purchase Order Executed Successfully!**\n\n"
+            f"✅ **Purchase Order Drafted Successfully!**\n\n"
             f"- **PO Reference Number**: `{po_number}`\n"
             f"- **Counterparty Vendor**: **{target_supplier.name}**\n"
             f"- **Line Items**: {qty} x {target_prod.name} @ ₹ {float(unit_cost):,.2f} = **₹ {float(line_total):,.2f}**\n"
-            f"- **Status**: `APPROVED` (Ready for Inbound Receiving)\n\n"
+            f"- **Status**: {status_desc}\n\n"
             f"{email_status_str}\n\n"
-            f"*Company Governance Note: Executed per Corporate Procurement Authority Matrix (DOC-CORP-001).* "
+            f"*Company Governance Note: Controlled under Corporate Procurement Authority Matrix (DOC-CORP-001).* "
         )
 
         return {
@@ -1060,6 +1076,7 @@ async def process_ai_query(
         prompt=prompt_clean,
         user_id=user_id,
         user_email=user_email,
+        user_role=user_role,
         branch_id=branch_id,
         organization_id=organization_id
     )
@@ -1145,8 +1162,8 @@ async def process_ai_query(
         f"{prompt_clean}"
     )
 
-    # Call LLM gateway (Groq, Gemini, OpenAI) with failover
-    llm_response = _call_groq_llm(system_prompt=system_prompt, user_prompt=user_prompt)
+    # Call LLM gateway (Groq, Gemini, OpenAI) with failover in background worker thread to prevent event-loop blocking
+    llm_response = await asyncio.to_thread(_call_groq_llm, system_prompt, user_prompt)
 
     rag_source_citations = [
         f"{d['id']} - {d['title']} ({d.get('confidence_score', 80)}% match)"

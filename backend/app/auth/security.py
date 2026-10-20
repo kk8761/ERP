@@ -20,6 +20,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     except Exception:
         return False
 
+def validate_password_strength(password: str) -> None:
+    """Validates that a password meets enterprise complexity requirements."""
+    if not password or len(password) < 8:
+        raise ValueError("Password must be at least 8 characters long.")
+    if not any(c.isupper() for c in password):
+        raise ValueError("Password must contain at least one uppercase letter (A-Z).")
+    if not any(c.islower() for c in password):
+        raise ValueError("Password must contain at least one lowercase letter (a-z).")
+    if not any(c.isdigit() for c in password) and not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password):
+        raise ValueError("Password must contain at least one number or special character.")
+
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """Generates a signed JWT access token with a unique jti identifier."""
     to_encode = data.copy()

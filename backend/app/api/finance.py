@@ -94,9 +94,21 @@ async def create_journal_entry(
     current_user: User = Depends(require_permission("finance.post")),
     db: AsyncSession = Depends(get_db)
 ):
+    if not data.lines or len(data.lines) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Double-entry bookkeeping requires at least two line items (at least one debit and one credit)."
+        )
+
     # Verify double-entry balance: total debit must equal total credit
     total_debit = sum(line.debit for line in data.lines)
     total_credit = sum(line.credit for line in data.lines)
+
+    if total_debit <= Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Total journal entry amount must be greater than zero."
+        )
 
     if total_debit != total_credit:
         raise HTTPException(

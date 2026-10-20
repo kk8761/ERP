@@ -16,8 +16,9 @@ from pydantic import BaseModel, ConfigDict
 import json
 from app.config import settings
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_permission
 from app.models.auth import User
+from app.services.audit_service import record_audit_log
 from app.models.email_log import OutgoingEmailLog, ReceivedEmail, EmailDraft
 from app.models.procurement import Supplier, PurchaseOrder, PurchaseOrderItem
 from app.models.sales import Customer, SalesOrder, SalesOrderItem
@@ -1111,9 +1112,10 @@ async def get_smtp_configuration(
 @router.post("/smtp-config")
 async def update_smtp_configuration(
     payload: SMTPSettingsRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("settings.manage")),
+    db: AsyncSession = Depends(get_db)
 ):
-    """Updates SMTP configuration both in-memory and persisted into the .env file."""
+    """Updates SMTP configuration both in-memory and persisted into the .env file. Requires 'settings.manage'."""
     # Update in-memory settings
     settings.SMTP_HOST = payload.smtp_host.strip() if payload.smtp_host else None
     settings.SMTP_PORT = payload.smtp_port
@@ -1140,6 +1142,16 @@ async def update_smtp_configuration(
 
     _update_env_file(env_updates)
 
+    await record_audit_log(
+        db,
+        action="SMTP_CONFIG_UPDATE",
+        entity_name="SMTPConfiguration",
+        user_id=current_user.id,
+        user_email=current_user.email,
+        details={"host": settings.SMTP_HOST, "port": settings.SMTP_PORT, "username": settings.SMTP_USERNAME}
+    )
+    await db.commit()
+
     return {
         "status": "CONFIGURED",
         "message": "SMTP relay configuration updated and persisted.",
@@ -1154,9 +1166,10 @@ async def update_smtp_configuration(
 @router.post("/smtp-test")
 async def test_smtp_relay(
     payload: SMTPTestRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("settings.manage")),
+    db: AsyncSession = Depends(get_db)
 ):
-    """Attempts immediate live delivery of a test email via the configured or provided SMTP parameters."""
+    """Attempts immediate live delivery of a test email via the configured or provided SMTP parameters. Requires 'settings.manage'."""
     host = (payload.smtp_host or settings.SMTP_HOST or "").strip()
     port = payload.smtp_port or settings.SMTP_PORT or 587
     username = (payload.smtp_username or settings.SMTP_USERNAME or "").strip()
@@ -1279,5 +1292,15 @@ async def test_smtp_relay(
                 except Exception:
                     pass
 
-    return await asyncio.to_thread(_sync_test)
+    res = await asyncio.to_thread(_sync_test)
+    await record_audit_log(
+        db,
+        action="SMTP_TEST_RELAY",
+        entity_name="SMTPConfiguration",
+        user_id=current_user.id,
+        user_email=current_user.email,
+        details={"host": host, "port": port, "recipient": recipient, "success": res.get("success", False)}
+    )
+    await db.commit()
+    return res
 

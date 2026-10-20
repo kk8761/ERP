@@ -14,7 +14,7 @@ from app.config import settings
 from app.models.auth import User, RevokedToken, UserRole
 from app.models.org import Branch
 from app.schemas.auth import LoginRequest, TokenResponse, LoginResponse, Verify2FARequest, UserOut, PasswordChangeRequest
-from app.auth.security import verify_password, hash_password, create_access_token, decode_token
+from app.auth.security import verify_password, hash_password, create_access_token, decode_token, validate_password_strength
 from app.auth.dependencies import get_current_user
 from app.authorization.rbac_engine import get_user_effective_permissions
 from app.services.audit_service import record_audit_log
@@ -415,6 +415,14 @@ async def change_password(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password verification failed",
+        )
+
+    try:
+        validate_password_strength(data.new_password)
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(val_err)
         )
 
     current_user.password_hash = hash_password(data.new_password)
