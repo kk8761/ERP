@@ -396,10 +396,18 @@ async def send_email_endpoint(
             await db.delete(draft_item)
 
     await db.commit()
+    smtp_res = getattr(log_entry, "smtp_result", {}) or {}
+    is_simulated = smtp_res.get("is_simulated", False) or (smtp_res.get("mode") != "SMTP_RELAY")
+    mode = smtp_res.get("mode", "SIMULATED")
+
     return {
         "status": "DISPATCHED",
         "log_id": log_entry.id,
         "delivery_status": log_entry.status,
+        "mode": mode,
+        "is_simulated": is_simulated,
+        "message": smtp_res.get("message", "Email logged in system ledger."),
+        "error": smtp_res.get("error"),
         "recipient": log_entry.recipient_email,
         "sender": log_entry.sender_email,
         "cc_recipient": current_user.email if payload.cc_me else None,

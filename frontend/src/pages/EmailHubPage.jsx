@@ -688,10 +688,11 @@ ${itemsText || '  • Standard Procured Items'}
         body: JSON.stringify(composeData)
       });
 
-      if (res.is_simulated) {
-        showToast('Email dispatched in SIMULATED mode. Connect live SMTP to deliver to personal inboxes.', 'warning');
+      if (res.is_simulated || res.delivery_status === 'SIMULATED' || res.delivery_status === 'FAILED') {
+        const warningMsg = res.message || res.error || 'Email saved to ERP ledger, but not delivered to external inbox. Configure your Gmail App Password in "Relay: Setup Gmail" above.';
+        showToast(warningMsg, 'warning');
       } else {
-        showToast(`Email delivered via live SMTP to ${res.recipient}!`);
+        showToast(`✓ Email delivered via live SMTP relay to ${res.recipient}!`);
       }
       setIsComposeOpen(false);
       setComposeData({

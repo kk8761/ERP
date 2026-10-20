@@ -170,11 +170,13 @@ def _send_smtp_sync(
         if is_public_internet_email(b) and b not in envelope_recipients:
             envelope_recipients.append(b)
 
-    if not settings.SMTP_HOST:
+    # If no SMTP host or credentials configured, gracefully record in simulated ledger
+    if not settings.SMTP_HOST or not settings.SMTP_USERNAME or not settings.SMTP_PASSWORD:
         return {
             "success": True,
             "mode": "SIMULATED",
-            "message": "Simulated transmission: No external SMTP relay configured (dev mode).",
+            "is_simulated": True,
+            "message": "Simulated mode: External SMTP relay is not configured. Email saved to ERP audit ledger.",
             "raw_headers": raw_headers,
             "envelope_recipients": envelope_recipients
         }
@@ -184,38 +186,62 @@ def _send_smtp_sync(
         return {
             "success": True,
             "mode": "SIMULATED_INTERNAL_DOMAIN",
+            "is_simulated": True,
             "message": "Internal recipient domain(s): archived in internal ERP ledger without public relay dispatch.",
             "raw_headers": raw_headers,
             "envelope_recipients": []
         }
 
     try:
+        clean_pwd = settings.SMTP_PASSWORD.replace(" ", "").strip() if settings.SMTP_PASSWORD else ""
         if settings.SMTP_PORT == 465:
-            server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30)
+            server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=25)
         else:
-            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30)
+            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=25)
             if settings.SMTP_USE_TLS:
                 server.starttls()
 
-        if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
-            server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+        if settings.SMTP_USERNAME and clean_pwd:
+            server.login(settings.SMTP_USERNAME, clean_pwd)
 
-        envelope_from = settings.SMTP_FROM_EMAIL or from_email
+        envelope_from = settings.SMTP_FROM_EMAIL or settings.SMTP_USERNAME or from_email
         server.sendmail(envelope_from, envelope_recipients, msg.as_string())
         server.quit()
         return {
             "success": True,
             "mode": "SMTP_RELAY",
-            "message": f"Successfully delivered via {settings.SMTP_HOST}:{settings.SMTP_PORT}",
+            "is_simulated": False,
+            "message": f"Successfully delivered via live SMTP relay ({settings.SMTP_HOST}:{settings.SMTP_PORT})",
+            "raw_headers": raw_headers,
+            "envelope_recipients": envelope_recipients
+        }
+    except smtplib.SMTPAuthenticationError as auth_err:
+        err_msg = (
+            "Gmail Authentication Failed (535): Google requires a 16-character App Password when 2-Step Verification is enabled. "
+            "Your regular password or an invalid password will not be accepted. "
+            "Please configure your Google App Password in Mail Relay Settings."
+            if "gmail" in (settings.SMTP_HOST or "").lower()
+            else f"SMTP Authentication Error ({getattr(auth_err, 'smtp_code', 535)}): {str(auth_err)}"
+        )
+        print(f"[Email Service] SMTP Authentication Notice: {err_msg}")
+        return {
+            "success": True,
+            "mode": "SIMULATED_FALLBACK",
+            "is_simulated": True,
+            "error": err_msg,
+            "message": err_msg,
             "raw_headers": raw_headers,
             "envelope_recipients": envelope_recipients
         }
     except Exception as exc:
-        print(f"[Email Service] SMTP Transmission Notice: {exc}. Routing to simulated relay delivery.")
+        err_msg = f"Live delivery via {settings.SMTP_HOST}:{settings.SMTP_PORT} failed: {str(exc)}. Saved in ERP ledger."
+        print(f"[Email Service] SMTP Notice: {err_msg}")
         return {
             "success": True,
             "mode": "SIMULATED_FALLBACK",
-            "message": f"Successfully delivered via enterprise fallback relay (attempted {settings.SMTP_HOST or 'direct MX'}).",
+            "is_simulated": True,
+            "error": err_msg,
+            "message": err_msg,
             "raw_headers": raw_headers,
             "envelope_recipients": envelope_recipients
         }
@@ -352,6 +378,7 @@ async def send_business_email(
     except Exception as e:
         pass
 
+    log_entry.smtp_result = smtp_result
     return log_entry
 
 def generate_po_email_template(
