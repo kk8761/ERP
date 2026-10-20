@@ -135,10 +135,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 origin = request.headers.get("origin")
                 if origin:
                     clean_origin = origin.lower().rstrip("/")
+                    trusted_domains = ["localhost", "127.0.0.1", "test", "onrender.com", "render.com", "vercel.app", "netlify.app"]
                     is_allowed_origin = (
-                        "localhost" in clean_origin or
-                        "127.0.0.1" in clean_origin or
-                        "test" in clean_origin or
+                        any(domain in clean_origin for domain in trusted_domains) or
+                        "*" in settings.cors_origins_list or
                         clean_origin in [o.lower().rstrip("/") for o in settings.cors_origins_list]
                     )
                     if not is_allowed_origin:
@@ -148,14 +148,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                         )
 
             # 3c. Proxy Header Tampering Verification
-            suspicious_headers = ["x-forwarded-host", "x-host", "x-forwarded-server"]
+            suspicious_headers = ["x-host", "x-forwarded-server"]
             for h in suspicious_headers:
                 val = request.headers.get(h)
-                if val and "localhost" not in val and "127.0.0.1" not in val and "test" not in val:
-                    return JSONResponse(
-                        status_code=403,
-                        content={"detail": "Proxy tampering or untrusted forwarder detected. Request blocked."}
-                    )
+                if val:
+                    val_lower = val.lower()
+                    allowed_proxy = ["localhost", "127.0.0.1", "test", "onrender.com", "render.com"]
+                    if not any(ap in val_lower for ap in allowed_proxy):
+                        return JSONResponse(
+                            status_code=403,
+                            content={"detail": "Proxy tampering or untrusted forwarder detected. Request blocked."}
+                        )
 
             # 3d. Timestamp Skew Verification for signed requests
             ts = request.headers.get("x-nexa-timestamp")
