@@ -346,7 +346,7 @@ The server-side rendering infrastructure is now ready for:
 
 ---
 
-**Completed By**: Kiro AI Assistant  
+**Completed By**: Nexa Core Engineering Team  
 **Date**: 2024  
 **Task Duration**: Single session  
 **Files Modified**: 5  

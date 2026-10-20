@@ -456,5 +456,5 @@ The implementation meets all requirements (10.6, 18.2, 18.4) and provides a robu
 ---
 
 **Implementation Date:** January 2024  
-**Developer:** Kiro AI  
+**Developer:** Nexa Core Engineering Team  
 **Status:** ✅ COMPLETED

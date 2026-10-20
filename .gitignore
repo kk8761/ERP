@@ -42,3 +42,10 @@ logs/
 .gradle/
 build/
 *.lock
+
+# AI Coding Tool Artifacts
+.kiro/
+.agents/
+.claude/
+.gemini/
+skills-lock.json

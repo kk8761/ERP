@@ -602,5 +602,5 @@ For issues or questions:
 
 - [Avalara API Documentation](https://developer.avalara.com/)
 - [Vertex API Documentation](https://developer.vertexinc.com/)
-- [Requirements Document](.kiro/specs/comprehensive-erp-enhancement/requirements.md)
-- [Design Document](.kiro/specs/comprehensive-erp-enhancement/design.md)
+- [Requirements Document](.Nexa Core Engineering Team/specs/comprehensive-erp-enhancement/requirements.md)
+- [Design Document](.Nexa Core Engineering Team/specs/comprehensive-erp-enhancement/design.md)

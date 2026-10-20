@@ -302,6 +302,6 @@ All requirements have been implemented, tested, and verified. The Chart of Accou
 
 ---
 
-**Completed by**: Kiro AI Assistant  
+**Completed by**: Nexa Core Engineering Team  
 **Date**: 2026-04-26  
 **Verification Status**: ✅ PASSED

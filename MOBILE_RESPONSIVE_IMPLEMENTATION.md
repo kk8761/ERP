@@ -445,7 +445,7 @@ Run `tests/mobile-responsive-test.html` to validate:
 
 ---
 
-**Implementation by:** Kiro AI  
+**Implementation by:** Nexa Core Engineering Team  
 **Task:** 40.1 Create responsive web interface  
 **Date:** January 2025  
 **Status:** ✅ Complete

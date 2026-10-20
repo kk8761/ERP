@@ -483,7 +483,7 @@ This implementation supports compliance with:
 
 - [NIST Zero Trust Architecture (SP 800-207)](https://csrc.nist.gov/publications/detail/sp/800-207/final)
 - [Zero Trust Security Model](https://www.nist.gov/publications/zero-trust-architecture)
-- [Requirement 15.2: Zero-Trust Security](../../.kiro/specs/comprehensive-erp-enhancement/requirements.md#requirement-15-enterprise-security-architecture)
+- [Requirement 15.2: Zero-Trust Security](../../.Nexa Core Engineering Team/specs/comprehensive-erp-enhancement/requirements.md#requirement-15-enterprise-security-architecture)
 
 ## Task Completion
 

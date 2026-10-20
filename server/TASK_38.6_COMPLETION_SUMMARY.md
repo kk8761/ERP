@@ -2,7 +2,7 @@
 
 ## Task Overview
 **Task**: 38.6 Implement anomaly detection  
-**Spec**: .kiro/specs/comprehensive-erp-enhancement/tasks.md  
+**Spec**: .Nexa Core Engineering Team/specs/comprehensive-erp-enhancement/tasks.md  
 **Requirements**: Requirement 15.7 - Enterprise Security Architecture  
 **Status**: ✅ COMPLETED
 
@@ -263,7 +263,7 @@ curl -X POST http://localhost:5000/api/anomaly-detection/respond \
 
 ### Modified Files
 1. `server/src/server.ts` - Added anomaly detection routes
-2. `.kiro/specs/comprehensive-erp-enhancement/tasks.md` - Updated task status
+2. `.Nexa Core Engineering Team/specs/comprehensive-erp-enhancement/tasks.md` - Updated task status
 
 ## Testing Results
 

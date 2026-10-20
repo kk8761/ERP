@@ -2,7 +2,7 @@
 
 **Status**: COMPLETED  
 **Date**: April 25, 2026  
-**Task Reference**: `.kiro/specs/comprehensive-erp-enhancement/tasks.md` - Task 5
+**Task Reference**: `.Nexa Core Engineering Team/specs/comprehensive-erp-enhancement/tasks.md` - Task 5
 
 ## Overview
 

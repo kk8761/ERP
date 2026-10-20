@@ -449,7 +449,7 @@ The implementation meets all requirements specified in Requirement 10.5 and prov
 
 ---
 
-**Implemented by**: Kiro AI  
+**Implemented by**: Nexa Core Engineering Team  
 **Date**: 2024  
 **Task**: 32.4 - Implement risk management  
 **Requirements**: 10.5

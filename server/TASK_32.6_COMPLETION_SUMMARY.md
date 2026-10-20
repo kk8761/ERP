@@ -226,5 +226,5 @@ The system now provides enterprise-grade financial compliance reporting capabili
 ---
 
 **Implementation Date**: December 2024  
-**Implemented By**: Kiro AI Assistant  
+**Implemented By**: Nexa Core Engineering Team  
 **Status**: ✅ COMPLETED
