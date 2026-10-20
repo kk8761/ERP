@@ -3,7 +3,7 @@ import {
   Search, Bell, HelpCircle, Sun, Moon, ChevronDown, 
   Store, User, Shield, LogOut, KeyRound, Sparkles,
   ScanLine, PenTool, Wifi, WifiOff, Sliders, ShieldAlert, Eye, Check,
-  RefreshCw, Mail, Building2
+  RefreshCw, Mail, Building2, Clock
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ModuleSearchModal from './ModuleSearchModal';
@@ -157,21 +157,22 @@ export default function TopNav({
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: '0 24px',
-      gap: '20px',
+      padding: '0 16px',
+      gap: '12px',
       position: 'sticky',
       top: 0,
-      zIndex: 100
+      zIndex: 100,
+      overflow: 'visible'
     }}>
       {/* Brand Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', minWidth: '220px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
         <div 
           onClick={() => onNavigate('dashboard')}
           style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
         >
           <div style={{
-            width: '38px',
-            height: '38px',
+            width: '36px',
+            height: '36px',
             borderRadius: '9px',
             background: '#010c22',
             display: 'flex',
@@ -193,7 +194,7 @@ export default function TopNav({
             <div style={{ 
               fontFamily: 'var(--font-brand)', 
               fontWeight: 800, 
-              fontSize: '18px', 
+              fontSize: '17px', 
               color: 'var(--text-main)', 
               lineHeight: 1.1,
               letterSpacing: '-0.3px'
@@ -207,8 +208,8 @@ export default function TopNav({
         </div>
       </div>
 
-      {/* Global Module & Function Search Bar with Filter and Search Button */}
-      <div style={{ flex: 1, maxWidth: '580px', position: 'relative' }}>
+      {/* Global Module & Function Search Bar */}
+      <div style={{ flex: '1 1 200px', maxWidth: '380px', minWidth: '140px', position: 'relative' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -307,77 +308,79 @@ export default function TopNav({
         </form>
       </div>
 
-      {/* Right Controls: Branch, DateTime, Alerts, Theme, Profile */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+      {/* Right Controls: Branch, Time, Sync, Badges, Tools, Theme, Profile & Sign Out */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto' }}>
         {/* Branch Selector */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
-          fontSize: '12.5px',
+          gap: '5px',
+          fontSize: '12px',
           fontWeight: 600,
           color: 'var(--text-main)',
-          padding: '6px 12px',
+          padding: '5px 8px',
           backgroundColor: 'var(--bg-subtle)',
           border: '1px solid var(--border-color)',
           borderRadius: 'var(--radius-sm)',
-          cursor: 'pointer'
+          cursor: 'pointer',
+          whiteSpace: 'nowrap'
         }}>
-          <Store size={15} color="var(--primary)" />
+          <Store size={14} color="var(--primary)" />
           <span>{user?.branch_name || 'Main Store'}</span>
-          <ChevronDown size={14} color="var(--text-muted)" />
         </div>
 
-        {/* Date Time Indicator */}
+        {/* Compact Clock Indicator */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
-          fontSize: '12px',
+          gap: '5px',
+          fontSize: '11.5px',
           color: 'var(--text-secondary)',
-          padding: '6px 12px',
+          padding: '5px 8px',
           backgroundColor: 'var(--bg-subtle)',
           borderRadius: 'var(--radius-sm)',
           border: '1px solid var(--border-color)',
           whiteSpace: 'nowrap'
         }}>
-          <span>{currentTime || 'Wednesday, 15 Oct 2026 10:30 AM'}</span>
+          <Clock size={13} color="var(--text-muted)" />
+          <span>{currentTime ? currentTime.split(' ').slice(-2).join(' ') : '10:30 AM'}</span>
         </div>
 
-        {/* Enterprise Multi-Module 30-Second Cloud Sync Status Badge */}
+        {/* 30-Second Cloud Sync Status Badge */}
         <div 
           onClick={() => triggerSyncNow()}
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            fontSize: '11.5px',
+            gap: '5px',
+            fontSize: '11px',
             fontWeight: 600,
-            padding: '5px 10px',
+            padding: '5px 8px',
             borderRadius: 'var(--radius-sm)',
             backgroundColor: !isOnline ? 'rgba(245, 158, 11, 0.15)' : syncState.isSyncing ? 'rgba(2, 132, 199, 0.15)' : 'rgba(16, 185, 129, 0.1)',
             color: !isOnline ? '#d97706' : syncState.isSyncing ? '#0284c7' : '#10b981',
             border: `1px solid ${!isOnline ? 'rgba(245, 158, 11, 0.3)' : syncState.isSyncing ? 'rgba(2, 132, 199, 0.3)' : 'rgba(16, 185, 129, 0.25)'}`,
             cursor: 'pointer',
             transition: 'all 0.2s ease',
-            userSelect: 'none'
+            userSelect: 'none',
+            whiteSpace: 'nowrap'
           }}
           title={isOnline ? "All ERP modules sync with server every 30s. Click to sync now." : "Working in Offline Mode. Transactions will auto-sync on reconnect."}
         >
           {syncState.isSyncing ? (
-            <RefreshCw size={13} className="animate-spin" />
+            <RefreshCw size={12} className="animate-spin" />
           ) : isOnline ? (
-            <RefreshCw size={13} />
+            <RefreshCw size={12} />
           ) : (
-            <WifiOff size={13} />
+            <WifiOff size={12} />
           )}
           <span>
             {!isOnline 
               ? 'Offline' 
               : syncState.isSyncing 
-              ? 'Syncing...' 
+              ? 'Syncing' 
               : syncState.secondsRemaining > 0 
-              ? `Sync: in ${syncState.secondsRemaining}s` 
+              ? `${syncState.secondsRemaining}s` 
               : 'Synced'}
           </span>
         </div>
@@ -388,10 +391,10 @@ export default function TopNav({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            fontSize: '11.5px',
+            gap: '5px',
+            fontSize: '11px',
             fontWeight: 600,
-            padding: '5px 10px',
+            padding: '5px 8px',
             borderRadius: 'var(--radius-sm)',
             backgroundColor: 'rgba(16, 185, 129, 0.1)',
             color: '#10b981',
@@ -401,16 +404,16 @@ export default function TopNav({
             userSelect: 'none',
             whiteSpace: 'nowrap'
           }}
-          title="Compute: Ephemeral Cloud Container | Storage: 100% Guaranteed Permanent ACID Data Storage. Click to view company overview & instance portal."
+          title="Compute: Ephemeral Cloud Container | Storage: 100% Guaranteed Permanent ACID Data Storage. Click to view company portal."
         >
           <span style={{
-            width: '7px',
-            height: '7px',
+            width: '6px',
+            height: '6px',
             borderRadius: '50%',
             backgroundColor: '#10b981',
             boxShadow: '0 0 6px #10b981'
           }} />
-          <span>Instance Active (Persistent DB)</span>
+          <span>Active (DB)</span>
         </div>
 
         {/* Universal Barcode Scanner Quick Launch */}
@@ -420,11 +423,11 @@ export default function TopNav({
           title="Scan Product Barcode / SKU (Camera & Optical)"
           style={{
             color: 'var(--text-main)',
-            padding: '7px 10px',
+            padding: '6px 8px',
             borderRadius: 'var(--radius-sm)'
           }}
         >
-          <ScanLine size={17} />
+          <ScanLine size={16} />
         </button>
 
         {/* Digital E-Signature Quick Launch */}
@@ -768,22 +771,24 @@ export default function TopNav({
         </button>
 
         {/* User Profile Chip */}
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: 'relative', flexShrink: 0 }}>
           <div
             onClick={() => setProfileOpen(!profileOpen)}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
+              gap: '8px',
               cursor: 'pointer',
               padding: '4px 8px',
               borderRadius: 'var(--radius-sm)',
-              transition: 'background var(--transition-fast)'
+              transition: 'background var(--transition-fast)',
+              backgroundColor: 'var(--bg-subtle)',
+              border: '1px solid var(--border-color)'
             }}
           >
             <div style={{
-              width: '36px',
-              height: '36px',
+              width: '32px',
+              height: '32px',
               borderRadius: '50%',
               backgroundColor: '#0064d2',
               color: '#ffffff',
@@ -791,19 +796,20 @@ export default function TopNav({
               alignItems: 'center',
               justifyContent: 'center',
               fontWeight: 700,
-              fontSize: '13px'
+              fontSize: '12px',
+              flexShrink: 0
             }}>
               {initials}
             </div>
             <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
                 {user?.full_name || 'Karthik Reddy'}
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                 {userRole}
               </div>
             </div>
-            <ChevronDown size={14} color="var(--text-muted)" />
+            <ChevronDown size={13} color="var(--text-muted)" />
           </div>
 
           {/* Profile Dropdown */}
@@ -813,13 +819,17 @@ export default function TopNav({
               style={{
                 position: 'absolute',
                 right: 0,
-                top: '48px',
+                top: '44px',
                 width: '230px',
                 zIndex: 200,
                 padding: '8px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '4px'
+                gap: '4px',
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.25)'
               }}
             >
               <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)', marginBottom: '4px' }}>
@@ -868,7 +878,13 @@ export default function TopNav({
               <button
                 onClick={() => { setProfileOpen(false); logout(); }}
                 className="btn btn-ghost"
-                style={{ width: '100%', justifyContent: 'flex-start', color: 'var(--danger)', fontSize: '13px' }}
+                style={{
+                  width: '100%',
+                  justifyContent: 'flex-start',
+                  color: 'var(--danger)',
+                  fontSize: '13px',
+                  fontWeight: 600
+                }}
               >
                 <LogOut size={15} />
                 <span>Sign Out</span>
@@ -876,6 +892,30 @@ export default function TopNav({
             </div>
           )}
         </div>
+
+        {/* Direct Quick Log Out Button */}
+        <button
+          onClick={logout}
+          className="btn btn-ghost"
+          title="Sign Out / Log Out"
+          style={{
+            padding: '6px 10px',
+            color: 'var(--danger)',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            flexShrink: 0
+          }}
+        >
+          <LogOut size={14} />
+          <span>Exit</span>
+        </button>
       </div>
 
       {/* Global Enterprise Module & Function Search Modal */}

@@ -5,12 +5,13 @@ import {
   Boxes, Truck, ScanLine, Wallet, BookOpen, Clock, Calendar,
   ShieldAlert, Sparkles, BarChart3, Sliders, ArrowLeftRight,
   Factory, Layers, Cpu, ShieldCheck, Award, TrendingDown,
-  Database, KeyRound, FileSpreadsheet, Mail, Camera, Building2
+  Database, KeyRound, FileSpreadsheet, Mail, Camera, Building2,
+  LogOut
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
-  const { hasPermission } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
 
   // Track accordion expand/collapse state
   const [expanded, setExpanded] = useState({
@@ -26,6 +27,14 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
   const toggleSection = (section) => {
     setExpanded(prev => ({ ...prev, [section]: !prev[section] }));
   };
+
+  const initials = user?.full_name
+    ? user.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+    : 'KR';
+
+  const userRole = user?.is_superuser
+    ? 'Administrator'
+    : (user?.roles?.[0] || 'Employee');
 
   const menuSections = [
     {
@@ -124,113 +133,191 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
       display: 'flex',
       flexDirection: 'column',
       height: 'calc(100vh - var(--header-height))',
-      overflowY: 'auto',
-      padding: '12px 10px',
       userSelect: 'none'
     }}>
-      {/* Home Button (Active primary blue pill matching screenshot) */}
-      <button
-        onClick={() => onNavigate('dashboard')}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          width: '100%',
-          padding: '10px 14px',
-          borderRadius: 'var(--radius-sm)',
-          fontSize: '13.5px',
-          fontWeight: 600,
-          border: 'none',
-          cursor: 'pointer',
-          marginBottom: '16px',
-          transition: 'all 0.15s ease',
-          backgroundColor: currentTab === 'dashboard' ? 'var(--primary-light)' : 'transparent',
-          color: currentTab === 'dashboard' ? 'var(--primary)' : 'var(--text-main)',
-          boxShadow: currentTab === 'dashboard' ? 'inset 0 0 0 1px var(--primary-border)' : 'none'
-        }}
-      >
-        <Home size={18} color={currentTab === 'dashboard' ? 'var(--primary)' : 'var(--text-secondary)'} />
-        <span>Home</span>
-      </button>
+      {/* Scrollable Navigation Area */}
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '12px 10px'
+      }}>
+        {/* Home Button */}
+        <button
+          onClick={() => onNavigate('dashboard')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            width: '100%',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '13.5px',
+            fontWeight: 600,
+            border: 'none',
+            cursor: 'pointer',
+            marginBottom: '16px',
+            transition: 'all 0.15s ease',
+            backgroundColor: currentTab === 'dashboard' ? 'var(--primary-light)' : 'transparent',
+            color: currentTab === 'dashboard' ? 'var(--primary)' : 'var(--text-main)',
+            boxShadow: currentTab === 'dashboard' ? 'inset 0 0 0 1px var(--primary-border)' : 'none'
+          }}
+        >
+          <Home size={18} color={currentTab === 'dashboard' ? 'var(--primary)' : 'var(--text-secondary)'} />
+          <span>Home</span>
+        </button>
 
-      {/* Accordion Categories */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        {menuSections.map((sec) => {
-          const isExp = expanded[sec.id];
-          return (
-            <div key={sec.id} style={{ marginBottom: '4px' }}>
-              {/* Category Header */}
-              <div
-                onClick={() => toggleSection(sec.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-sm)',
-                  cursor: 'pointer',
-                  color: 'var(--text-secondary)',
-                  fontSize: '12.5px',
-                  fontWeight: 600,
-                  transition: 'background 0.15s ease'
-                }}
-              >
-                <span>{sec.title}</span>
-                {isExp ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              </div>
-
-              {/* Category Items */}
-              {isExp && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '6px' }}>
-                  {sec.items
-                    .filter((item) => !item.perm || hasPermission(item.perm))
-                    .map((item) => {
-                      const isActive = currentTab === item.id;
-                      const Icon = item.icon;
-
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => {
-                            if (item.action) {
-                              item.action();
-                            } else {
-                              onNavigate(item.id);
-                            }
-                          }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                            width: '100%',
-                            padding: '8px 12px',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '13px',
-                            fontWeight: isActive ? 600 : 400,
-                            border: 'none',
-                            cursor: 'pointer',
-                            backgroundColor: isActive ? 'var(--primary-light)' : 'transparent',
-                            color: isActive ? 'var(--primary)' : 'var(--text-main)',
-                            textAlign: 'left',
-                            transition: 'all 0.15s ease'
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
-                          }}
-                        >
-                          <Icon size={16} color={isActive ? 'var(--primary)' : 'var(--text-secondary)'} />
-                          <span>{item.label}</span>
-                        </button>
-                      );
-                    })}
+        {/* Accordion Categories */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {menuSections.map((sec) => {
+            const isExp = expanded[sec.id];
+            return (
+              <div key={sec.id} style={{ marginBottom: '4px' }}>
+                {/* Category Header */}
+                <div
+                  onClick={() => toggleSection(sec.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    color: 'var(--text-secondary)',
+                    fontSize: '12.5px',
+                    fontWeight: 600,
+                    transition: 'background 0.15s ease'
+                  }}
+                >
+                  <span>{sec.title}</span>
+                  {isExp ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </div>
-              )}
+
+                {/* Category Items */}
+                {isExp && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '6px' }}>
+                    {sec.items
+                      .filter((item) => !item.perm || hasPermission(item.perm))
+                      .map((item) => {
+                        const isActive = currentTab === item.id;
+                        const Icon = item.icon;
+
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => {
+                              if (item.action) {
+                                item.action();
+                              } else {
+                                onNavigate(item.id);
+                              }
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: 'var(--radius-sm)',
+                              fontSize: '13px',
+                              fontWeight: isActive ? 600 : 400,
+                              border: 'none',
+                              cursor: 'pointer',
+                              backgroundColor: isActive ? 'var(--primary-light)' : 'transparent',
+                              color: isActive ? 'var(--primary)' : 'var(--text-main)',
+                              textAlign: 'left',
+                              transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            <Icon size={16} color={isActive ? 'var(--primary)' : 'var(--text-secondary)'} />
+                            <span>{item.label}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Sticky Bottom User Profile & Direct Sign Out */}
+      <div style={{
+        padding: '12px 10px',
+        borderTop: '1px solid var(--border-color)',
+        backgroundColor: 'var(--bg-subtle)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '8px',
+        flexShrink: 0
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+          <div style={{
+            width: '32px',
+            height: '32px',
+            borderRadius: '50%',
+            backgroundColor: '#0064d2',
+            color: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 700,
+            fontSize: '12px',
+            flexShrink: 0
+          }}>
+            {initials}
+          </div>
+          <div style={{ overflow: 'hidden', lineHeight: 1.2 }}>
+            <div style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              color: 'var(--text-main)',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+              overflow: 'hidden'
+            }}>
+              {user?.full_name || 'Karthik Reddy'}
             </div>
-          );
-        })}
+            <div style={{
+              fontSize: '10.5px',
+              color: 'var(--text-secondary)',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+              overflow: 'hidden'
+            }}>
+              {userRole}
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={logout}
+          title="Sign Out / Log Out"
+          className="btn btn-ghost"
+          style={{
+            padding: '6px 8px',
+            color: 'var(--danger)',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            borderRadius: 'var(--radius-sm)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '11px',
+            fontWeight: 700,
+            flexShrink: 0
+          }}
+        >
+          <LogOut size={14} />
+          <span>Exit</span>
+        </button>
       </div>
     </aside>
   );
