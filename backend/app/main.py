@@ -47,31 +47,6 @@ async def lifespan(app: FastAPI):
     import app.models
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Safe schema sync for newly added columns
-        for col, col_type in [
-            ("sender_email", "VARCHAR(150)"), ("sender_name", "VARCHAR(150)"), ("raw_headers", "TEXT"),
-            ("cc_recipients", "TEXT"), ("bcc_recipients", "TEXT"), ("attachments_data", "TEXT"), ("priority", "VARCHAR(20) DEFAULT 'NORMAL'")
-        ]:
-            try:
-                await conn.execute(text(f"ALTER TABLE outgoing_email_logs ADD COLUMN {col} {col_type}"))
-            except Exception:
-                pass # column already exists
-        for col, col_type in [
-            ("original_mail_id", "INTEGER"), ("original_message_body", "TEXT"), ("raw_headers", "TEXT"),
-            ("cc_recipients", "TEXT"), ("bcc_recipients", "TEXT"), ("attachments_data", "TEXT"),
-            ("priority", "VARCHAR(20) DEFAULT 'NORMAL'"), ("is_trash", "BOOLEAN DEFAULT 0"), ("is_archived", "BOOLEAN DEFAULT 0")
-        ]:
-            try:
-                await conn.execute(text(f"ALTER TABLE received_emails ADD COLUMN {col} {col_type}"))
-            except Exception:
-                pass # column already exists
-        for col, col_type in [
-            ("mfa_enabled", "BOOLEAN DEFAULT 0"), ("mfa_secret", "VARCHAR(64)")
-        ]:
-            try:
-                await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
-            except Exception:
-                pass # column already exists
 
     # 3. Auto-seed initial enterprise admin and catalog if database is fresh (e.g. newly provisioned Postgres on Render)
     try:
