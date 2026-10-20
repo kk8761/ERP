@@ -2,7 +2,7 @@ services:
   # NexaERP Enterprise FastAPI Backend
   - type: web
     name: nexaerp-backend
-    env: python
+    runtime: python
     plan: free
     region: oregon
     rootDir: backend
@@ -32,8 +32,9 @@ services:
         value: "*"
 
   # NexaERP Enterprise React Frontend
-  - type: static
+  - type: web
     name: nexaerp-frontend
+    runtime: static
     plan: free
     region: oregon
     rootDir: frontend
@@ -46,10 +47,7 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: nexaerp-backend
-          property: host
+        value: https://nexaerp-backend.onrender.com
 
 databases:
   # Free Managed PostgreSQL Database on Render
