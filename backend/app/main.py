@@ -70,12 +70,20 @@ app = FastAPI(
 app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS Middleware (Outer - handles browser preflight requests)
+# Uses allow_origin_regex to support all *.onrender.com preview URLs
+# without ever opening CORS to "*" (which would allow any website)
+_cors_exact_origins = [o.strip().rstrip("/") for o in settings.cors_origins_list if "*" not in o]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=_cors_exact_origins,
+    allow_origin_regex=(
+        r"https://[a-z0-9-]+\.onrender\.com$"
+        r"|https://[a-z0-9-]+\.vercel\.app$"
+        r"|https://[a-z0-9-]+\.netlify\.app$"
+    ),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "x-nexa-timestamp", "x-test-suite"],
     expose_headers=["Content-Disposition"]
 )
 

@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     SESSION_COOKIE_NAME: str = "nexaerp_session"
-    COOKIE_SECURE: bool = False
-    COOKIE_SAMESITE: str = "lax"
+    COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+    COOKIE_SAMESITE: str = os.getenv("COOKIE_SAMESITE", "lax")
 
     # Database (PostgreSQL / SQLite)
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./nexaerp.db")
@@ -24,19 +24,22 @@ class Settings(BaseSettings):
     MONGODB_URI: Optional[str] = os.getenv("MONGODB_URI", None)
     MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "nexaerp")
 
-    # CORS
-    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://*.onrender.com,https://*.vercel.app")
+    # CORS — explicit trusted origins only (never use "*" in production)
+    CORS_ORIGINS: str = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173"
+    )
 
     # Rate Limiting
     RATE_LIMIT_LOGIN_ATTEMPTS: int = 10
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
-    # Initial Admin Bootstrap
-    BOOTSTRAP_ADMIN_EMAIL: str = "admin@nexaerp.internal"
-    BOOTSTRAP_ADMIN_NAME: str = "Karthik Reddy"
-    BOOTSTRAP_ADMIN_PASSWORD: str = "Admin@NexaERP2026!"
-    BOOTSTRAP_ADMIN_BRANCH: str = "Main Store"
-    BOOTSTRAP_ADMIN_ORG: str = "Nexa Global Enterprises"
+    # Initial Admin Bootstrap — read from environment variables (NEVER hardcode in production)
+    BOOTSTRAP_ADMIN_EMAIL: str = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@nexaerp.internal")
+    BOOTSTRAP_ADMIN_NAME: str = os.getenv("BOOTSTRAP_ADMIN_NAME", "System Administrator")
+    BOOTSTRAP_ADMIN_PASSWORD: str = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "ChangeMe@FirstLogin!")
+    BOOTSTRAP_ADMIN_BRANCH: str = os.getenv("BOOTSTRAP_ADMIN_BRANCH", "Main Store")
+    BOOTSTRAP_ADMIN_ORG: str = os.getenv("BOOTSTRAP_ADMIN_ORG", "Nexa Global Enterprises")
 
     # AI Multi-Provider APIs (Groq, Gemini, OpenAI)
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
