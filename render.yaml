@@ -32,29 +32,7 @@ services:
         value: "*"
 
 
+
+
   # NexaERP Enterprise React Frontend
   - type: web
-    name: nexaerp-frontend
-    runtime: static
-    plan: free
-        rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    autoDeploy: true
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: VITE_API_URL
-        value: https://nexaerp-backend.onrender.com
-
-
-databases:
-  # Free Managed PostgreSQL Database on Render
-  - name: nexaerp-postgres
-    plan: free
-    region: oregon
-    databaseName: nexaerp
-    user: nexa_admin
-
