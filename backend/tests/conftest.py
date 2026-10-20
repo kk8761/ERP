@@ -52,7 +52,15 @@ async def admin_auth_token(client: AsyncClient):
     data = res.json()
     if data.get("mfa_required"):
         import pyotp
-        totp = pyotp.TOTP(data["secret"])
+        from sqlalchemy import select
+        from app.models.auth import User
+        secret = data.get("secret")
+        if not secret:
+            async with AsyncSessionLocal() as session:
+                u_res = await session.execute(select(User).where(User.email == settings.BOOTSTRAP_ADMIN_EMAIL))
+                user = u_res.scalar_one_or_none()
+                secret = user.mfa_secret if user else None
+        totp = pyotp.TOTP(secret)
         v_res = await client.post("/api/auth/verify-2fa", json={
             "temp_token": data["temp_token"],
             "code": totp.now()
@@ -71,7 +79,15 @@ async def cashier_auth_token(client: AsyncClient):
     data = res.json()
     if data.get("mfa_required"):
         import pyotp
-        totp = pyotp.TOTP(data["secret"])
+        from sqlalchemy import select
+        from app.models.auth import User
+        secret = data.get("secret")
+        if not secret:
+            async with AsyncSessionLocal() as session:
+                u_res = await session.execute(select(User).where(User.email == "cashier@nexaerp.internal"))
+                user = u_res.scalar_one_or_none()
+                secret = user.mfa_secret if user else None
+        totp = pyotp.TOTP(secret)
         v_res = await client.post("/api/auth/verify-2fa", json={
             "temp_token": data["temp_token"],
             "code": totp.now()

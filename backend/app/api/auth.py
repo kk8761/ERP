@@ -136,18 +136,24 @@ async def login(
     new_setup = False
     qr_b64 = None
     uri = None
+    secret_to_send = None
 
     if not user.mfa_secret:
         user.mfa_secret = pyotp.random_base32()
+        user.mfa_enabled = False
 
-    # Always generate provisioning URI and QR Code so employee can view/scan it anytime
-    totp = pyotp.TOTP(user.mfa_secret)
-    uri = totp.provisioning_uri(name=user.email, issuer_name="NexaERP")
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    new_setup = True
+    # STRICT SECURITY: QR code and secret key are ONLY generated and sent ONCE during initial registration.
+    # Once the employee has registered and verified their code (user.mfa_enabled == True),
+    # the QR code and secret key are NEVER displayed or sent in API responses again.
+    if not user.mfa_enabled:
+        totp = pyotp.TOTP(user.mfa_secret)
+        uri = totp.provisioning_uri(name=user.email, issuer_name="NexaERP")
+        img = qrcode.make(uri)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        secret_to_send = user.mfa_secret
+        new_setup = True
 
     # Generate temporary 2FA challenge token (5-minute expiration)
     temp_token = create_access_token(
@@ -170,7 +176,7 @@ async def login(
         mfa_required=True,
         mfa_setup=new_setup,
         temp_token=temp_token,
-        secret=user.mfa_secret,
+        secret=secret_to_send,
         qr_code_base64=qr_b64,
         provisioning_uri=uri,
         message="Scan QR code into Google or Microsoft Authenticator, then enter your 6-digit code." if new_setup else "Enter the temporary 6-digit verification code from your authenticator app."
@@ -314,6 +320,12 @@ async def refresh_mfa_qr(
     user = res.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if user.mfa_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Two-Factor Authentication is already enrolled for this profile. For security reasons, QR codes cannot be re-exposed on enrolled accounts."
+        )
 
     sec = pyotp.random_base32()
     user.mfa_secret = sec

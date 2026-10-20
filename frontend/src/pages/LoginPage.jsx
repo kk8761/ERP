@@ -464,8 +464,8 @@ export default function LoginPage() {
               <span style={{ color: '#0c4a6e', fontWeight: 700, fontFamily: 'monospace' }}>{email}</span>
             </div>
 
-            {/* Authenticator QR Code & Key Box */}
-            {mfaData?.qr_code_base64 && (
+            {/* Authenticator QR Code & Key Box (ONLY displayed on initial registration) */}
+            {mfaData?.mfa_setup && mfaData?.qr_code_base64 ? (
               <div style={{
                 padding: '16px',
                 backgroundColor: '#f8fafc',
@@ -479,7 +479,7 @@ export default function LoginPage() {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
                   <Smartphone size={17} color="#0284c7" />
-                  <span>Scan in Google or Microsoft Authenticator</span>
+                  <span>First-Time Setup: Scan in Authenticator</span>
                 </div>
 
                 <div style={{
@@ -497,7 +497,7 @@ export default function LoginPage() {
                 </div>
 
                 <div style={{ fontSize: '12px', color: '#475569', lineHeight: 1.4 }}>
-                  Open your Authenticator app, tap <strong>"+"</strong>, and point camera at this QR code.
+                  Scan once with <strong>Google Authenticator</strong> or <strong>Microsoft Authenticator</strong>. This QR code will not be shown again.
                 </div>
 
                 <div style={{
@@ -510,7 +510,7 @@ export default function LoginPage() {
                   padding: '5px 12px',
                   maxWidth: '100%'
                 }}>
-                  <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Key:</span>
+                  <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Manual Key:</span>
                   <code style={{ fontSize: '12.5px', fontWeight: 800, color: '#0369a1', letterSpacing: '1.2px' }}>
                     {mfaData?.secret}
                   </code>
@@ -523,25 +523,37 @@ export default function LoginPage() {
                     {copiedKey ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
                   </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleRefreshQr}
-                  disabled={refreshingQr}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: '11px',
-                    color: '#64748b',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <RotateCcw size={12} className={refreshingQr ? 'animate-spin' : ''} />
-                  <span>{refreshingQr ? 'Generating fresh QR...' : 'Need a fresh QR code? Click to regenerate'}</span>
-                </button>
+              </div>
+            ) : (
+              <div style={{
+                padding: '16px',
+                backgroundColor: '#f0f9ff',
+                border: '1px solid #bae6fd',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '50%',
+                  backgroundColor: '#e0f2fe',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <ShieldCheck size={24} color="#0284c7" />
+                </div>
+                <div style={{ fontSize: '13px', color: '#0369a1', lineHeight: 1.4 }}>
+                  <div style={{ fontWeight: 700, color: '#0c4a6e', marginBottom: '2px' }}>
+                    Two-Factor Security Enforced
+                  </div>
+                  <div>
+                    Open your <strong>Authenticator app</strong> on your registered device and enter your current 6-digit verification code.
+                  </div>
+                </div>
               </div>
             )}
 

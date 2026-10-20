@@ -12,6 +12,16 @@ async def test_health_check(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_login_success(client: AsyncClient):
+    from sqlalchemy import select
+    from app.models.auth import User
+    from app.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as session:
+        u_res = await session.execute(select(User).where(User.email == settings.BOOTSTRAP_ADMIN_EMAIL))
+        admin = u_res.scalar_one_or_none()
+        if admin:
+            admin.mfa_enabled = False
+            await session.commit()
+
     response = await client.post("/api/auth/login", json={
         "email": settings.BOOTSTRAP_ADMIN_EMAIL,
         "password": settings.BOOTSTRAP_ADMIN_PASSWORD
@@ -19,9 +29,10 @@ async def test_login_success(client: AsyncClient):
     assert response.status_code == 200
     data = response.json()
     assert data.get("mfa_required") is True
+    assert data.get("mfa_setup") is True
     assert "temp_token" in data
-    assert "qr_code_base64" in data
-    assert "secret" in data
+    assert data["qr_code_base64"] is not None
+    assert data["secret"] is not None
 
     # Verify 2FA temporary code
     import pyotp
@@ -35,6 +46,18 @@ async def test_login_success(client: AsyncClient):
     assert "access_token" in v_data
     assert v_data["user"]["email"] == settings.BOOTSTRAP_ADMIN_EMAIL
     assert v_data["user"]["is_superuser"] is True
+
+    # Subsequent login on enrolled account: QR code and secret MUST NOT be sent!
+    res_second = await client.post("/api/auth/login", json={
+        "email": settings.BOOTSTRAP_ADMIN_EMAIL,
+        "password": settings.BOOTSTRAP_ADMIN_PASSWORD
+    })
+    assert res_second.status_code == 200
+    data_second = res_second.json()
+    assert data_second.get("mfa_required") is True
+    assert data_second.get("mfa_setup") is False
+    assert data_second.get("qr_code_base64") is None
+    assert data_second.get("secret") is None
 
 @pytest.mark.asyncio
 async def test_login_invalid_credentials(client: AsyncClient):
