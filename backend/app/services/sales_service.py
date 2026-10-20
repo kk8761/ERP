@@ -31,6 +31,12 @@ async def create_sales_order(
                 detail=f"Product with ID {item_in.product_id} not found"
             )
 
+        if product.current_stock < item_in.quantity:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient stock for '{product.name}'. Available: {product.current_stock}, requested: {item_in.quantity}"
+            )
+
         unit_price = Decimal(str(product.selling_price))
         line_total = unit_price * item_in.quantity
         subtotal += line_total

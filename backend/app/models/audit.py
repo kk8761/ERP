@@ -16,3 +16,5 @@ class AuditLog(Base, TimestampMixin):
     ip_address: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="SUCCESS") # SUCCESS, FAILURE, DENIED
     details: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # JSON or formatted description
+    prev_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True) # Cryptographic hash chain
+    record_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True) # SHA-256 seal of this record

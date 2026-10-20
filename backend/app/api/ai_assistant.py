@@ -64,7 +64,7 @@ async def query_ai(
     """
     Enterprise RAG Assistant Query:
     Retrieves knowledge documents and ERP facts strictly partitioned to the user's company.
-    Calls Groq LLM (qwen/qwen3.8-27b) with tenant boundary enforcement.
+    Calls Multi-Provider LLM Gateway (Groq openai/gpt-oss-120b / Gemini / OpenAI) with tenant boundary enforcement.
     """
     org_id, org_name, branch_id = await _resolve_user_tenant(db, current_user)
 

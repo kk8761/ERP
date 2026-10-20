@@ -382,8 +382,8 @@ async def get_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    effective_perms = await get_user_effective_permissions(current_user, db)
-    role_names = [ur.role.name for ur in current_user.roles if ur.role]
+    from app.authorization.rbac_engine import get_user_effective_roles_and_permissions
+    role_names, effective_perms = await get_user_effective_roles_and_permissions(current_user, db)
 
     branch_name = "Main Store"
     if current_user.branch_id:

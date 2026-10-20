@@ -47,6 +47,29 @@ async def lifespan(app: FastAPI):
     import app.models
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migrate schema changes for audit_logs tamper-evident hash chaining
+        for col, col_type in [("prev_hash", "VARCHAR(64)"), ("record_hash", "VARCHAR(64)")]:
+            try:
+                await conn.execute(text(f"ALTER TABLE audit_logs ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
+        # Migrate schema changes for users and outgoing_email_logs
+        for col, col_type in [("mfa_enabled", "BOOLEAN DEFAULT 0"), ("mfa_secret", "VARCHAR(64)")]:
+            try:
+                await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
+        # Migrate schema changes for compliance_frameworks
+        for col, col_type in [
+            ("framework_code", "VARCHAR(50)"),
+            ("scope", "TEXT"),
+            ("compliance_rate", "FLOAT"),
+            ("next_audit_date", "VARCHAR(50)")
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE compliance_frameworks ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
 
     # 3. Auto-seed initial enterprise admin and catalog if database is fresh (e.g. newly provisioned Postgres on Render)
     try:
@@ -54,6 +77,17 @@ async def lifespan(app: FastAPI):
         await seed()
     except Exception as seed_err:
         logging.warning(f"[NexaERP] Startup auto-seed notice: {seed_err}")
+
+    # 4. Restore active IP quarantines from database into memory/WAF
+    try:
+        from app.database import AsyncSessionLocal
+        from app.services.intrusion_defense_service import sync_quarantined_ips_from_db
+        async with AsyncSessionLocal() as session:
+            q_count = await sync_quarantined_ips_from_db(session)
+            if q_count > 0:
+                logging.info(f"[NexaERP WAF] Restored {q_count} active quarantined IPs from database")
+    except Exception as q_err:
+        logging.warning(f"[NexaERP WAF] IP quarantine sync notice: {q_err}")
 
     yield
     await close_mongodb()

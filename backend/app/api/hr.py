@@ -411,28 +411,73 @@ async def process_payroll(
     current_user: User = Depends(require_permission("payroll.process")),
     db: AsyncSession = Depends(get_db)
 ):
-    net_pay = data.basic_pay + data.allowances - data.deductions
+    emp_res = await db.execute(select(Employee).where(Employee.id == data.employee_id))
+    emp = emp_res.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail=f"Employee with ID {data.employee_id} not found")
+
+    # If basic_pay was not explicitly supplied or 0, compute from contract structure
+    basic_pay = data.basic_pay if (data.basic_pay and data.basic_pay > 0) else (emp.basic_salary or Decimal("30000.00"))
+    
+    # Calculate allowances
+    if data.allowances and data.allowances > 0:
+        allowances = data.allowances
+    else:
+        allowances = (
+            (emp.hra or Decimal("0.00")) +
+            (emp.conveyance_allowance or Decimal("0.00")) +
+            (emp.special_allowance or Decimal("0.00")) +
+            (emp.medical_allowance or Decimal("0.00")) +
+            (emp.variable_pay or Decimal("0.00"))
+        )
+
+    # Calculate statutory deductions (PF, Professional Tax, TDS)
+    if data.deductions and data.deductions > 0:
+        deductions = data.deductions
+    else:
+        deductions = (
+            (emp.pf_deduction or Decimal("0.00")) +
+            (emp.professional_tax or Decimal("0.00")) +
+            (emp.tds_tax or Decimal("0.00"))
+        )
+
+    net_pay = max(Decimal("0.00"), basic_pay + allowances - deductions)
+
     pr = PayrollRecord(
         employee_id=data.employee_id,
         month_year=data.month_year,
-        basic_pay=data.basic_pay,
-        allowances=data.allowances,
-        deductions=data.deductions,
+        basic_pay=basic_pay,
+        allowances=allowances,
+        deductions=deductions,
         net_pay=net_pay,
         status="PROCESSED",
         payment_date=date.today()
     )
     db.add(pr)
+
+    # Update employee's active net salary cached record
+    emp.net_salary = net_pay
+
     await record_audit_log(
         db, action="PAYROLL_PROCESSED", entity_name="PayrollRecord",
         user_id=current_user.id, user_email=current_user.email,
-        details={"employee_id": data.employee_id, "net_pay": float(net_pay)}
+        details={
+            "employee_id": data.employee_id,
+            "employee_name": f"{emp.first_name} {emp.last_name}",
+            "basic_pay": float(basic_pay),
+            "allowances": float(allowances),
+            "deductions": float(deductions),
+            "net_pay": float(net_pay)
+        }
     )
     await db.commit()
     await db.refresh(pr)
+
     return PayrollOut(
         id=pr.id,
         employee_id=pr.employee_id,
+        employee_name=f"{emp.first_name} {emp.last_name}",
+        employee_code=emp.employee_code,
         month_year=pr.month_year,
         basic_pay=pr.basic_pay,
         allowances=pr.allowances,
@@ -441,3 +486,69 @@ async def process_payroll(
         status=pr.status,
         payment_date=pr.payment_date
     )
+
+@router.post("/payroll/process-all", response_model=List[PayrollOut])
+async def process_all_payroll(
+    month_year: str = Query("October 2026"),
+    current_user: User = Depends(require_permission("payroll.process")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Automated batch payroll execution for all active employees.
+    Computes statutory components, allowances, and tax deductions from employee master profiles.
+    """
+    res = await db.execute(select(Employee).where(Employee.is_active == True))
+    active_employees = res.scalars().all()
+
+    processed_records: List[PayrollOut] = []
+    for emp in active_employees:
+        basic_pay = emp.basic_salary or Decimal("30000.00")
+        allowances = (
+            (emp.hra or Decimal("0.00")) +
+            (emp.conveyance_allowance or Decimal("0.00")) +
+            (emp.special_allowance or Decimal("0.00")) +
+            (emp.medical_allowance or Decimal("0.00")) +
+            (emp.variable_pay or Decimal("0.00"))
+        )
+        deductions = (
+            (emp.pf_deduction or Decimal("0.00")) +
+            (emp.professional_tax or Decimal("0.00")) +
+            (emp.tds_tax or Decimal("0.00"))
+        )
+        net_pay = max(Decimal("0.00"), basic_pay + allowances - deductions)
+
+        pr = PayrollRecord(
+            employee_id=emp.id,
+            month_year=month_year,
+            basic_pay=basic_pay,
+            allowances=allowances,
+            deductions=deductions,
+            net_pay=net_pay,
+            status="PROCESSED",
+            payment_date=date.today()
+        )
+        db.add(pr)
+        emp.net_salary = net_pay
+        await db.flush()
+
+        processed_records.append(PayrollOut(
+            id=pr.id,
+            employee_id=emp.id,
+            employee_name=f"{emp.first_name} {emp.last_name}",
+            employee_code=emp.employee_code,
+            month_year=pr.month_year,
+            basic_pay=pr.basic_pay,
+            allowances=pr.allowances,
+            deductions=pr.deductions,
+            net_pay=pr.net_pay,
+            status=pr.status,
+            payment_date=pr.payment_date
+        ))
+
+    await record_audit_log(
+        db, action="PAYROLL_BATCH_PROCESSED", entity_name="PayrollRecord",
+        user_id=current_user.id, user_email=current_user.email,
+        details={"month_year": month_year, "employees_count": len(processed_records)}
+    )
+    await db.commit()
+    return processed_records

@@ -12,7 +12,8 @@ from app.models.hr import Employee, Attendance, LeaveRequest, PayrollRecord
 from app.models.disaster_recovery import BackupRecord, TransactionLogEntry, DRDrillExecution, BackupAlert
 from app.models.email_log import OutgoingEmailLog
 from app.models.rag import CompanyKnowledgeDoc
-from app.models.security_incident import ScreenshotIncident, IntrusionEvent, QuarantinedIP
+from app.models.manufacturing import WorkCenter, BillOfMaterials, ProductionOrder
+from app.models.grc import RiskItem, ComplianceFramework, GrcAudit
 
 __all__ = [
     "Base",
@@ -54,4 +55,10 @@ __all__ = [
     "ScreenshotIncident",
     "IntrusionEvent",
     "QuarantinedIP",
+    "WorkCenter",
+    "BillOfMaterials",
+    "ProductionOrder",
+    "RiskItem",
+    "ComplianceFramework",
+    "GrcAudit",
 ]

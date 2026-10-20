@@ -4,6 +4,8 @@ Provides real-time multi-vector threat signature analysis, heuristic anomaly sco
 and dynamic automated IP quarantine defense against OWASP Top 10 exploits.
 """
 
+import os
+import json
 import re
 import time
 from typing import Optional, Dict, Any, List, Tuple, Set
@@ -76,21 +78,60 @@ THREAT_SCORES = {
     "UNKNOWN_PROBE": 30
 }
 
-# In-memory fast state tracking
-_quarantined_ips_cache: Dict[str, float] = {} # ip -> expiry_timestamp
+# Persistent file storage for quarantined IPs across restarts and cold starts
+QUARANTINE_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "quarantine_cache.json"))
+
+def _load_quarantine_disk() -> Dict[str, float]:
+    try:
+        if os.path.exists(QUARANTINE_FILE):
+            with open(QUARANTINE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                now = time.time()
+                return {ip: float(exp) for ip, exp in data.items() if float(exp) > now}
+    except Exception:
+        pass
+    return {}
+
+def _save_quarantine_disk(cache: Dict[str, float]) -> None:
+    try:
+        now = time.time()
+        active = {ip: exp for ip, exp in cache.items() if exp > now}
+        with open(QUARANTINE_FILE, "w", encoding="utf-8") as f:
+            json.dump(active, f)
+    except Exception:
+        pass
+
+# Initialize cache with persisted entries from disk
+_quarantined_ips_cache: Dict[str, float] = _load_quarantine_disk()
 _ip_threat_accumulator: Dict[str, List[Tuple[float, int]]] = {} # ip -> list of (timestamp, score)
 QUARANTINE_THRESHOLD = 100
 QUARANTINE_DURATION_SECONDS = 3600 # 1 hour
+
+def reset_quarantine_state() -> None:
+    """Resets in-memory and disk quarantine caches for test isolation and administrative resets."""
+    _quarantined_ips_cache.clear()
+    _ip_threat_accumulator.clear()
+    try:
+        if os.path.exists(QUARANTINE_FILE):
+            os.remove(QUARANTINE_FILE)
+    except Exception:
+        pass
 
 def is_ip_currently_quarantined(client_ip: str) -> bool:
     """Checks if an IP is currently locked under active quarantine."""
     now = time.time()
     expiry = _quarantined_ips_cache.get(client_ip)
+    if expiry is None:
+        disk_cache = _load_quarantine_disk()
+        expiry = disk_cache.get(client_ip)
+        if expiry:
+            _quarantined_ips_cache[client_ip] = expiry
     if expiry is not None:
         if expiry > now:
             return True
         else:
             _quarantined_ips_cache.pop(client_ip, None)
+            _save_quarantine_disk(_quarantined_ips_cache)
     return False
 
 def record_threat_and_evaluate_quarantine(client_ip: str, score: int) -> Tuple[bool, int]:
@@ -109,14 +150,35 @@ def record_threat_and_evaluate_quarantine(client_ip: str, score: int) -> Tuple[b
     total_score = sum(item[1] for item in history)
     if total_score >= QUARANTINE_THRESHOLD:
         _quarantined_ips_cache[client_ip] = now + QUARANTINE_DURATION_SECONDS
+        _save_quarantine_disk(_quarantined_ips_cache)
         return True, total_score
 
     return False, total_score
 
 def unquarantine_ip_memory(client_ip: str):
-    """Removes an IP from active in-memory quarantine."""
+    """Removes an IP from active in-memory and disk quarantine."""
     _quarantined_ips_cache.pop(client_ip, None)
     _ip_threat_accumulator.pop(client_ip, None)
+    _save_quarantine_disk(_quarantined_ips_cache)
+
+async def sync_quarantined_ips_from_db(db: AsyncSession) -> int:
+    """Loads active database-backed quarantined IPs into fast memory and disk cache."""
+    try:
+        now = datetime.now(timezone.utc)
+        stmt = select(QuarantinedIP).where(
+            QuarantinedIP.is_active == True,
+            QuarantinedIP.quarantined_until > now
+        )
+        res = await db.execute(stmt)
+        active_db_ips = res.scalars().all()
+        for q in active_db_ips:
+            until_ts = q.quarantined_until.timestamp()
+            _quarantined_ips_cache[q.client_ip] = max(_quarantined_ips_cache.get(q.client_ip, 0), until_ts)
+        _save_quarantine_disk(_quarantined_ips_cache)
+        return len(active_db_ips)
+    except Exception as exc:
+        print(f"[IDS] Error syncing quarantine from database: {exc}")
+        return 0
 
 def analyze_request_for_threats(
     path: str,

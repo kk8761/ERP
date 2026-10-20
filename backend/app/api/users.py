@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,6 +18,8 @@ router = APIRouter(prefix="/api/admin", tags=["Administration"])
 
 @router.get("/users", response_model=List[UserOut])
 async def list_users(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     current_user: User = Depends(require_permission("users.view")),
     db: AsyncSession = Depends(get_db)
 ):
@@ -25,6 +27,8 @@ async def list_users(
         select(User)
         .options(selectinload(User.roles).selectinload(UserRole.role))
         .order_by(User.full_name.asc())
+        .offset(offset)
+        .limit(limit)
     )
     res = await db.execute(stmt)
     users = res.scalars().all()

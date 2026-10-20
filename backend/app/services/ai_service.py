@@ -24,13 +24,13 @@ from app.services.inventory_service import adjust_product_stock
 from app.services.audit_service import record_audit_log
 from app.services.email_service import send_business_email, generate_po_email_template, generate_pr_email_template
 
-# Ordered list of Groq models for resilient failover
-GROQ_MODELS = [
+# Ordered list of Groq models for resilient failover (deduplicated)
+GROQ_MODELS = list(dict.fromkeys([
+    settings.GROQ_MODEL or "openai/gpt-oss-120b",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
     "qwen/qwen3.8-27b",
-    settings.GROQ_MODEL or "openai/gpt-oss-120b"
-]
+]))
 
 def _call_groq_llm_direct(safe_system: str, safe_user: str) -> Optional[str]:
     """Calls Groq Cloud API with multi-model failover."""
@@ -373,11 +373,11 @@ async def _try_execute_action(
             line_total=line_total
         )
 
-        is_admin = (user_role == "Administrator")
-        po_status = "APPROVED" if is_admin else "PENDING_APPROVAL"
+        is_authorized = user_role in ("Administrator", "Procurement Specialist", "Procurement Manager")
+        po_status = "APPROVED" if is_authorized else "PENDING_APPROVAL"
         notes = (
-            f"Auto-generated via AI Assistant command by {user_email} (Pre-approved by Administrator)"
-            if is_admin else
+            f"Auto-generated via AI Assistant command by {user_email} (Pre-approved by {user_role})"
+            if is_authorized else
             f"Drafted via AI Assistant command by {user_email} (Awaiting Manager Review per Corporate Procurement Matrix DOC-CORP-001)"
         )
 
@@ -395,8 +395,8 @@ async def _try_execute_action(
         await db.flush()
 
         email_sent = False
-        # Only dispatch live external vendor notification if the user is authorized administrator
-        if is_admin and target_supplier.email:
+        # Only dispatch live external vendor notification if the user is authorized procurement personnel or administrator
+        if is_authorized and target_supplier.email:
             template = generate_po_email_template(
                 po_number=po_number,
                 vendor_name=target_supplier.name,
@@ -432,15 +432,17 @@ async def _try_execute_action(
         )
         await db.commit()
 
-        if is_admin:
+        if is_authorized:
             email_status_str = f"📧 **B2B Purchase Order Dispatched** via Email to `{target_supplier.email}`." if email_sent else "ℹ️ Vendor email not on file; record saved for manual dispatch."
             status_desc = "`APPROVED` (Ready for Inbound Receiving)"
+            action_title = "Purchase Order Executed Successfully"
         else:
             email_status_str = f"⏳ **Order Queued for Sign-off**: In compliance with Corporate Policy DOC-CORP-001, external supplier email will be dispatched once reviewed and approved by a Branch Manager or Procurement Admin."
             status_desc = "`PENDING_APPROVAL` (Awaiting Manager Review)"
+            action_title = "Purchase Order Drafted (Pending Approval)"
 
         answer = (
-            f"✅ **Purchase Order Drafted Successfully!**\n\n"
+            f"✅ **{action_title}!**\n\n"
             f"- **PO Reference Number**: `{po_number}`\n"
             f"- **Counterparty Vendor**: **{target_supplier.name}**\n"
             f"- **Line Items**: {qty} x {target_prod.name} @ ₹ {float(unit_cost):,.2f} = **₹ {float(line_total):,.2f}**\n"

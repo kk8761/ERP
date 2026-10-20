@@ -1,30 +1,31 @@
 from datetime import datetime, timezone
-from typing import Set, List
+from typing import Set, List, Tuple
 from fastapi import HTTPException, status, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.auth import User, RolePermission, Permission
+from app.models.auth import User, Role, RolePermission, Permission, UserRole
 from app.models.elevation import AccessRequest
 
-async def get_user_effective_permissions(user: User, db: AsyncSession) -> Set[str]:
+async def get_user_effective_roles_and_permissions(user: User, db: AsyncSession) -> Tuple[List[str], Set[str]]:
     """
-    Computes all active permissions for a user:
-    1. Base permissions from user's assigned roles
-    2. Active Just-In-Time role elevations (approved and within valid time window)
+    Computes both effective roles and permissions for a user, dynamically incorporating
+    active Just-In-Time role elevations within their validity window.
     """
     if user.is_superuser:
-        # Superuser has all system permissions
-        result = await db.execute(select(Permission.code))
-        return set(result.scalars().all())
+        perm_res = await db.execute(select(Permission.code))
+        all_perms = set(perm_res.scalars().all())
+        role_res = await db.execute(select(Role.name))
+        all_roles = list(role_res.scalars().all())
+        return all_roles, all_perms
 
     now = datetime.now(timezone.utc)
     effective_permissions: Set[str] = set()
+    role_names: List[str] = [ur.role.name for ur in (user.roles or []) if ur.role]
 
     # 1. Base roles permissions
-    from app.models.auth import UserRole
     stmt = (
         select(Permission.code)
         .join(RolePermission, RolePermission.permission_id == Permission.id)
@@ -37,6 +38,7 @@ async def get_user_effective_permissions(user: User, db: AsyncSession) -> Set[st
     # 2. Dynamic Just-In-Time role elevation grants
     elev_stmt = (
         select(AccessRequest)
+        .options(selectinload(AccessRequest.requested_role))
         .where(
             AccessRequest.user_id == user.id,
             AccessRequest.status == "APPROVED"
@@ -53,7 +55,14 @@ async def get_user_effective_permissions(user: User, db: AsyncSession) -> Set[st
         if v_until and v_until.tzinfo is None:
             v_until = v_until.replace(tzinfo=timezone.utc)
 
+        if v_until and now > v_until:
+            grant.status = "EXPIRED"
+            continue
+
         if v_from and v_until and (v_from <= now <= v_until):
+            if grant.requested_role:
+                if grant.requested_role.name not in role_names:
+                    role_names.append(grant.requested_role.name)
             if grant.requested_permission_code:
                 effective_permissions.add(grant.requested_permission_code)
             if grant.requested_role_id:
@@ -65,4 +74,13 @@ async def get_user_effective_permissions(user: User, db: AsyncSession) -> Set[st
                 rp_res = await db.execute(role_perm_stmt)
                 effective_permissions.update(rp_res.scalars().all())
 
-    return effective_permissions
+    return role_names, effective_permissions
+
+async def get_user_effective_permissions(user: User, db: AsyncSession) -> Set[str]:
+    """
+    Computes all active permissions for a user:
+    1. Base permissions from user's assigned roles
+    2. Active Just-In-Time role elevations (approved and within valid time window)
+    """
+    _, perms = await get_user_effective_roles_and_permissions(user, db)
+    return perms

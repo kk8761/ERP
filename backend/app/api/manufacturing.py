@@ -1,19 +1,22 @@
+import json
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
+from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.auth import User
+from app.models.manufacturing import WorkCenter, BillOfMaterials, ProductionOrder
 
 router = APIRouter(prefix="/api/manufacturing", tags=["Manufacturing"])
 
-# In-memory realistic initial datasets based on NexaERP Manufacturing suite
-WORK_CENTERS = [
+# Initial baseline datasets
+INITIAL_WORK_CENTERS = [
     {
-        "id": "WC-01",
-        "name": "CNC Milling Station A",
         "code": "CNC-01",
+        "name": "CNC Milling Station A",
         "department": "Machining",
         "status": "OPERATIONAL",
         "health": 98.4,
@@ -23,9 +26,8 @@ WORK_CENTERS = [
         "operator": "Marcus Vance"
     },
     {
-        "id": "WC-02",
-        "name": "Robotic SMT Assembly Line 1",
         "code": "SMT-01",
+        "name": "Robotic SMT Assembly Line 1",
         "department": "Electronics",
         "status": "OPERATIONAL",
         "health": 96.8,
@@ -35,9 +37,8 @@ WORK_CENTERS = [
         "operator": "Elena Rostova"
     },
     {
-        "id": "WC-03",
-        "name": "Laser Welding & Coating Cell",
         "code": "WELD-03",
+        "name": "Laser Welding & Coating Cell",
         "department": "Fabrication",
         "status": "MAINTENANCE_DUE",
         "health": 74.2,
@@ -47,9 +48,8 @@ WORK_CENTERS = [
         "operator": "David Chen"
     },
     {
-        "id": "WC-04",
-        "name": "Automated Quality Inspection & Packaging",
         "code": "QC-PACK-01",
+        "name": "Automated Quality Inspection & Packaging",
         "department": "Packaging",
         "status": "OPERATIONAL",
         "health": 99.1,
@@ -60,9 +60,9 @@ WORK_CENTERS = [
     }
 ]
 
-BOM_RECORDS = [
+INITIAL_BOMS = [
     {
-        "id": "BOM-1001",
+        "bom_code": "BOM-1001",
         "product_code": "PROD-NX-ALPHA",
         "product_name": "Nexa Industrial Sensor Hub v4",
         "revision": "B.2",
@@ -78,7 +78,7 @@ BOM_RECORDS = [
         ]
     },
     {
-        "id": "BOM-1002",
+        "bom_code": "BOM-1002",
         "product_code": "PROD-NX-GATEWAY",
         "product_name": "Edge AI Gateway Unit",
         "revision": "A.5",
@@ -94,11 +94,10 @@ BOM_RECORDS = [
     }
 ]
 
-PRODUCTION_ORDERS = [
+INITIAL_PRODUCTION_ORDERS = [
     {
-        "id": "PO-2026-001",
         "order_number": "PRD-2026-9041",
-        "bom_id": "BOM-1001",
+        "bom_code": "BOM-1001",
         "product_name": "Nexa Industrial Sensor Hub v4",
         "quantity_planned": 250,
         "quantity_completed": 190,
@@ -110,9 +109,8 @@ PRODUCTION_ORDERS = [
         "progress_percent": 76
     },
     {
-        "id": "PO-2026-002",
         "order_number": "PRD-2026-9042",
-        "bom_id": "BOM-1002",
+        "bom_code": "BOM-1002",
         "product_name": "Edge AI Gateway Unit",
         "quantity_planned": 100,
         "quantity_completed": 100,
@@ -124,9 +122,8 @@ PRODUCTION_ORDERS = [
         "progress_percent": 100
     },
     {
-        "id": "PO-2026-003",
         "order_number": "PRD-2026-9043",
-        "bom_id": "BOM-1001",
+        "bom_code": "BOM-1001",
         "product_name": "Nexa Industrial Sensor Hub v4",
         "quantity_planned": 400,
         "quantity_completed": 0,
@@ -139,18 +136,60 @@ PRODUCTION_ORDERS = [
     }
 ]
 
+async def _ensure_manufacturing_seeded(db: AsyncSession):
+    # Check WorkCenters
+    wc_result = await db.execute(select(WorkCenter))
+    if not wc_result.scalars().first():
+        for item in INITIAL_WORK_CENTERS:
+            db.add(WorkCenter(**item))
+        await db.commit()
+
+    # Check BOMs
+    bom_result = await db.execute(select(BillOfMaterials))
+    if not bom_result.scalars().first():
+        for item in INITIAL_BOMS:
+            db.add(BillOfMaterials(
+                bom_code=item["bom_code"],
+                product_code=item["product_code"],
+                product_name=item["product_name"],
+                revision=item["revision"],
+                status=item["status"],
+                total_cost=item["total_cost"],
+                routing_lead_time_days=item["routing_lead_time_days"],
+                components_json=json.dumps(item["components"])
+            ))
+        await db.commit()
+
+    # Check ProductionOrders
+    po_result = await db.execute(select(ProductionOrder))
+    if not po_result.scalars().first():
+        for item in INITIAL_PRODUCTION_ORDERS:
+            db.add(ProductionOrder(**item))
+        await db.commit()
+
 @router.get("/metrics")
-async def get_manufacturing_metrics(current_user: User = Depends(get_current_user)):
-    total_orders = len(PRODUCTION_ORDERS)
-    active_orders = len([o for o in PRODUCTION_ORDERS if o["status"] == "IN_PROGRESS"])
-    completed_orders = len([o for o in PRODUCTION_ORDERS if o["status"] == "COMPLETED"])
-    
+async def get_manufacturing_metrics(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    await _ensure_manufacturing_seeded(db)
+    po_res = await db.execute(select(ProductionOrder))
+    orders = po_res.scalars().all()
+
+    wc_res = await db.execute(select(WorkCenter))
+    wcs = wc_res.scalars().all()
+
+    total_orders = len(orders)
+    active_orders = len([o for o in orders if o.status == "IN_PROGRESS"])
+    completed_orders = len([o for o in orders if o.status == "COMPLETED"])
+
     # Calculate Overall Equipment Effectiveness (OEE)
-    # OEE = Availability * Performance * Quality
     availability = 92.4
     performance = 89.6
     quality = 98.8
     oee = round((availability * performance * quality) / 10000, 1)
+
+    online_wcs = len([w for w in wcs if w.status == "OPERATIONAL"])
 
     return {
         "total_production_orders": total_orders,
@@ -164,8 +203,8 @@ async def get_manufacturing_metrics(current_user: User = Depends(get_current_use
             "benchmark_target": 85.0,
             "trend": "+2.8% vs last week"
         },
-        "work_centers_online": 3,
-        "work_centers_total": 4,
+        "work_centers_online": online_wcs if online_wcs > 0 else 3,
+        "work_centers_total": len(wcs) if len(wcs) > 0 else 4,
         "daily_output_units": 420,
         "defect_rate_ppm": 240
     }
@@ -173,19 +212,79 @@ async def get_manufacturing_metrics(current_user: User = Depends(get_current_use
 @router.get("/orders")
 async def list_production_orders(
     status: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    await _ensure_manufacturing_seeded(db)
+    query = select(ProductionOrder)
     if status:
-        return [o for o in PRODUCTION_ORDERS if o["status"] == status]
-    return PRODUCTION_ORDERS
+        query = query.where(ProductionOrder.status == status)
+    result = await db.execute(query)
+    orders = result.scalars().all()
+
+    return [
+        {
+            "id": f"PO-{o.id}",
+            "order_number": o.order_number,
+            "bom_id": o.bom_code,
+            "product_name": o.product_name,
+            "quantity_planned": o.quantity_planned,
+            "quantity_completed": o.quantity_completed,
+            "status": o.status,
+            "work_center": o.work_center,
+            "priority": o.priority,
+            "start_date": o.start_date,
+            "due_date": o.due_date,
+            "progress_percent": o.progress_percent
+        }
+        for o in orders
+    ]
 
 @router.get("/work-centers")
-async def list_work_centers(current_user: User = Depends(get_current_user)):
-    return WORK_CENTERS
+async def list_work_centers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    await _ensure_manufacturing_seeded(db)
+    result = await db.execute(select(WorkCenter))
+    wcs = result.scalars().all()
+    return [
+        {
+            "id": f"WC-{wc.id:02d}",
+            "name": wc.name,
+            "code": wc.code,
+            "department": wc.department,
+            "status": wc.status,
+            "health": wc.health,
+            "temperature_c": wc.temperature_c,
+            "vibration_g": wc.vibration_g,
+            "efficiency": wc.efficiency,
+            "operator": wc.operator
+        }
+        for wc in wcs
+    ]
 
 @router.get("/boms")
-async def list_boms(current_user: User = Depends(get_current_user)):
-    return BOM_RECORDS
+async def list_boms(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    await _ensure_manufacturing_seeded(db)
+    result = await db.execute(select(BillOfMaterials))
+    boms = result.scalars().all()
+    return [
+        {
+            "id": b.bom_code,
+            "product_code": b.product_code,
+            "product_name": b.product_name,
+            "revision": b.revision,
+            "status": b.status,
+            "total_cost": b.total_cost,
+            "routing_lead_time_days": b.routing_lead_time_days,
+            "components": json.loads(b.components_json) if b.components_json else []
+        }
+        for b in boms
+    ]
 
 @router.post("/mrp-run")
 async def run_mrp_simulation(current_user: User = Depends(get_current_user)):

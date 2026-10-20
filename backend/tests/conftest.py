@@ -29,12 +29,37 @@ async def setup_db():
                 await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
             except Exception:
                 pass
+        for col, col_type in [
+            ("prev_hash", "VARCHAR(64)"),
+            ("record_hash", "VARCHAR(64)")
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE audit_logs ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
+        for col, col_type in [
+            ("framework_code", "VARCHAR(50)"),
+            ("scope", "TEXT"),
+            ("compliance_rate", "FLOAT"),
+            ("next_audit_date", "VARCHAR(50)")
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE compliance_frameworks ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
     yield
 
 @pytest.fixture(autouse=True)
 def mock_fast_smtp_during_tests(monkeypatch):
     """Ensure tests run locally without hanging on external SMTP network connections."""
     monkeypatch.setattr(settings, "SMTP_HOST", None)
+
+@pytest.fixture(autouse=True)
+def reset_waf_quarantine():
+    from app.services.intrusion_defense_service import reset_quarantine_state
+    reset_quarantine_state()
+    yield
+    reset_quarantine_state()
 
 @pytest_asyncio.fixture(scope="function")
 async def client():

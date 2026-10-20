@@ -1,0 +1,4 @@
+# NexaERP Enterprise Private Workspace
+# Search engine web crawler indexing disallowed for enterprise security
+User-agent: *
+Disallow: /
