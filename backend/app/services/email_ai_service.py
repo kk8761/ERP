@@ -186,9 +186,11 @@ def suggest_email_content(
             if json_match:
                 parsed = json.loads(json_match.group(0))
                 if parsed.get("subject") and parsed.get("body"):
+                    subj = str(parsed["subject"]).replace("\u2011", "-")
+                    bdy = str(parsed["body"]).replace("\u2011", "-")
                     return {
-                        "subject": parsed["subject"],
-                        "body": parsed["body"]
+                        "subject": subj,
+                        "body": bdy
                     }
         except Exception:
             pass

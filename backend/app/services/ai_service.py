@@ -25,9 +25,10 @@ from app.services.email_service import send_business_email, generate_po_email_te
 
 # Ordered list of Groq models for resilient failover
 GROQ_MODELS = [
-    settings.GROQ_MODEL or "qwen/qwen3.8-27b",
     "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b"
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    settings.GROQ_MODEL or "openai/gpt-oss-120b"
 ]
 
 def _call_groq_llm_direct(safe_system: str, safe_user: str) -> Optional[str]:
