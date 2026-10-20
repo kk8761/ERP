@@ -20,8 +20,11 @@ class Settings(BaseSettings):
     # Database (PostgreSQL / SQLite)
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./nexaerp.db")
 
-    # Document Database (MongoDB)
-    MONGODB_URI: Optional[str] = os.getenv("MONGODB_URI", None)
+    # Document Database (MongoDB Atlas)
+    MONGODB_URI: Optional[str] = os.getenv(
+        "MONGODB_URI",
+        "mongodb+srv://karthikkarri2005_db_user:EJgb7Emn9ZpdPzYi@cluster0.gn97yeu.mongodb.net/?retryWrites=true&w=majority"
+    )
     MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "nexaerp")
 
     # CORS — explicit trusted origins only (never use "*" in production)
