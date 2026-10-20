@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import ModuleSearchModal from './ModuleSearchModal';
 import ScreenshotIncidentModal from './ScreenshotIncidentModal';
 import { triggerSyncNow } from '../services/syncManager';
+import { API_BASE_URL } from '../services/api';
 
 export default function TopNav({
   onToggleAI,
@@ -102,7 +103,7 @@ export default function TopNav({
       if (!token) return;
       
       // Try unified security notifications endpoint (includes SQL Injection & IDS events)
-      const res = await fetch('/api/security/security-notifications?limit=20', {
+      const res = await fetch(`${API_BASE_URL}/api/security/security-notifications?limit=20`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -113,7 +114,7 @@ export default function TopNav({
       }
       
       // Fallback for non-admin accounts or legacy endpoint
-      const legacyRes = await fetch('/api/security/screenshot-incidents?limit=10', {
+      const legacyRes = await fetch(`${API_BASE_URL}/api/security/screenshot-incidents?limit=10`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (legacyRes.ok) {

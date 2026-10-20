@@ -47,29 +47,33 @@ async def lifespan(app: FastAPI):
     import app.models
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migrate schema changes for audit_logs tamper-evident hash chaining
-        for col, col_type in [("prev_hash", "VARCHAR(64)"), ("record_hash", "VARCHAR(64)")]:
-            try:
-                await conn.execute(text(f"ALTER TABLE audit_logs ADD COLUMN {col} {col_type}"))
-            except Exception:
-                pass
-        # Migrate schema changes for users and outgoing_email_logs
-        for col, col_type in [("mfa_enabled", "BOOLEAN DEFAULT 0"), ("mfa_secret", "VARCHAR(64)")]:
-            try:
-                await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
-            except Exception:
-                pass
-        # Migrate schema changes for compliance_frameworks
-        for col, col_type in [
-            ("framework_code", "VARCHAR(50)"),
-            ("scope", "TEXT"),
-            ("compliance_rate", "FLOAT"),
-            ("next_audit_date", "VARCHAR(50)")
-        ]:
-            try:
-                await conn.execute(text(f"ALTER TABLE compliance_frameworks ADD COLUMN {col} {col_type}"))
-            except Exception:
-                pass
+
+    # 2b. Migrate incremental schema changes safely across PostgreSQL and SQLite
+    is_postgres = "postgres" in settings.DATABASE_URL.lower()
+    migrations = [
+        ("audit_logs", "prev_hash", "VARCHAR(64)", "VARCHAR(64)"),
+        ("audit_logs", "record_hash", "VARCHAR(64)", "VARCHAR(64)"),
+        ("users", "mfa_enabled", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT 0"),
+        ("users", "mfa_secret", "VARCHAR(64)", "VARCHAR(64)"),
+        ("compliance_frameworks", "framework_code", "VARCHAR(50)", "VARCHAR(50)"),
+        ("compliance_frameworks", "scope", "TEXT", "TEXT"),
+        ("compliance_frameworks", "compliance_rate", "FLOAT", "FLOAT"),
+        ("compliance_frameworks", "next_audit_date", "VARCHAR(50)", "VARCHAR(50)"),
+    ]
+    for tbl, col, pg_def, sqlite_def in migrations:
+        try:
+            async with engine.begin() as conn:
+                if is_postgres:
+                    # PostgreSQL natively supports ADD COLUMN IF NOT EXISTS
+                    await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {pg_def}"))
+                else:
+                    # SQLite: dynamically check column existence via PRAGMA
+                    res = await conn.execute(text(f"PRAGMA table_info({tbl})"))
+                    existing = [r[1] for r in res.fetchall()]
+                    if col not in existing:
+                        await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {sqlite_def}"))
+        except Exception as mig_err:
+            logging.warning(f"[NexaERP DB Migration] Safe migration notice for {tbl}.{col}: {mig_err}")
 
     # 3. Auto-seed initial enterprise admin and catalog if database is fresh (e.g. newly provisioned Postgres on Render)
     try:
@@ -104,20 +108,20 @@ app = FastAPI(
 app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS Middleware (Outer - handles browser preflight requests)
-# Uses allow_origin_regex to support all *.onrender.com preview URLs
-# without ever opening CORS to "*" (which would allow any website)
 _cors_exact_origins = [o.strip().rstrip("/") for o in settings.cors_origins_list if "*" not in o]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_exact_origins,
     allow_origin_regex=(
-        r"https://[a-z0-9-]+\.onrender\.com$"
-        r"|https://[a-z0-9-]+\.vercel\.app$"
-        r"|https://[a-z0-9-]+\.netlify\.app$"
+        r"^https://[a-zA-Z0-9_.-]+\.onrender\.com$"
+        r"|^https://[a-zA-Z0-9_.-]+\.vercel\.app$"
+        r"|^https://[a-zA-Z0-9_.-]+\.netlify\.app$"
+        r"|^http://localhost:\d+$"
+        r"|^http://127\.0\.0\.1:\d+$"
     ),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "x-nexa-timestamp", "x-test-suite"],
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["Content-Disposition"]
 )
 
@@ -173,6 +177,18 @@ app.include_router(vision_router)
 app.include_router(security_router)
 app.include_router(sync_router)
 app.include_router(emails_router)
+
+@app.get("/", tags=["Root"])
+async def root():
+    return {
+        "status": "healthy",
+        "app": settings.APP_NAME,
+        "environment": settings.ENVIRONMENT,
+        "version": "2.1.0",
+        "message": "NexaERP Enterprise API is active and operational.",
+        "docs_url": "/docs",
+        "health_url": "/api/health"
+    }
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():

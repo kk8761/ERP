@@ -1,6 +1,14 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL !== undefined 
-  ? import.meta.env.VITE_API_URL 
-  : (import.meta.env.PROD ? '' : 'http://localhost:8000');
+export function getApiBaseUrl() {
+  if (import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL.trim() !== '') {
+    return import.meta.env.VITE_API_URL.replace(/\/+$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com')) {
+    return 'https://nexaerp-backend-mlae.onrender.com';
+  }
+  return import.meta.env.PROD ? '' : 'http://localhost:8000';
+}
+
+export const API_BASE_URL = getApiBaseUrl();
 
 export async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('nexaerp_token');
