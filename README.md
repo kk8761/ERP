@@ -1,124 +1,258 @@
-# NexaERP - Enterprise Resource Planning System
+# NexaERP
 
-> **Grow Your Business** with an enterprise-grade ERP designed with modern web architecture and an enterprise visual interface inspired by NexaUI Enterprise Design.
-
----
-
-## 1. Project Overview & Architecture
-
-NexaERP is a complete, secure, full-stack ERP application built from scratch to streamline enterprise business operations:
-- **Point of Sale (POS) & Billing**: Real-time barcode lookup, tax calculation, checkout, and receipt issuance.
-- **Inventory & Supply Chain**: Minimum stock alert monitoring, reorder level tracking, and stock movement ledgers.
-- **Procurement**: Purchase orders, supplier directory, and goods receipt automated restocking.
-- **Finance & Accounting**: Chart of accounts, double-entry journal posting (`debits == credits`), and expense tracking.
-- **Human Resources & Payroll**: Staff management, daily attendance clocking, leave approvals, and automated payroll computations.
-- **Security & JIT Elevation**: Role-Based Access Control (RBAC), Just-In-Time role elevation with **strict separation of duties (no-self-approval)**, and tamper-proof audit trails.
-- **Nexa AI Assistant**: Contextual natural language assistant capable of querying live ERP data (sales summaries, low-stock warnings, expense breakdowns).
+A full-stack, multi-module ERP platform covering point of sale, inventory, procurement, finance and accounting, HR and payroll, manufacturing, compliance, and an AI assistant, with web and mobile clients.
 
 ---
 
-## 2. Technology Stack & Constraints
+## Table of contents
 
-- **Zero TypeScript**: All frontend and backend code is written strictly in JavaScript/JSX and Python 3.14 to eliminate transpile and typing complexity while ensuring rapid execution.
-- **Frontend**: React 19, Vite, Lucide React icons, and a custom NexaUI Enterprise Design design system (`src/index.css`) supporting both Light and Dark modes.
-- **Backend**: Python 3.14 + FastAPI + Pydantic v2 + SQLAlchemy 2.0 (asyncio with `aiosqlite` and `asyncpg`).
-- **Database**: Persistent SQLite (`nexaerp.db`) for development; PostgreSQL 16 ready for production.
-- **Security**: Argon2id/Bcrypt password hashing, PyJWT signed tokens, token revocation blacklist, account lockouts on consecutive failed logins, and OWASP security headers.
+1. [Overview](#overview)
+2. [Repository layout](#repository-layout)
+3. [Tech stack](#tech-stack)
+4. [Features](#features)
+5. [Getting started](#getting-started)
+6. [Environment variables](#environment-variables)
+7. [Testing](#testing)
+8. [Deployment](#deployment)
+9. [Security](#security)
+10. [Documentation](#documentation)
+11. [Author](#author)
+12. [License](#license)
 
 ---
 
-## 3. Seed Credentials (Development)
+## Overview
 
-The database comes pre-seeded with an organization, multiple branches, products matching the dashboard screenshot (Basmati Rice, Sunflower Oil, Amul Milk, Atta, Sugar), recent sales (#INV-001241 through #INV-001245), and sample role accounts:
+NexaERP is built to run day-to-day business operations from one system: selling, stocking, buying, accounting, hiring and paying people, and producing goods. This repository contains two backend services and three clients:
 
-| Role | Email | Password |
+| Part | Folder | What it is |
 |---|---|---|
-| **System Administrator** | `admin@nexaerp.internal` | `Admin@NexaERP2026!` |
-| **Cashier** | `cashier@nexaerp.internal` | `Cashier@NexaERP2026!` |
-| **Inventory Manager** | `inventory@nexaerp.internal` | `Inventory@NexaERP2026!` |
-| **Accountant** | `accountant@nexaerp.internal` | `Accountant@NexaERP2026!` |
-| **HR Manager** | `hr@nexaerp.internal` | `HRManager@NexaERP2026!` |
-
-*(Note: The login page also features convenient one-click demo persona quick-fill buttons).*
+| **Python API** | `backend/` | FastAPI service used by the React app in `frontend/`. POS, inventory, finance, HR, procurement, AI assistant, and more. |
+| **Node API** | `server/` | Large Express + TypeScript + Prisma service with the enterprise modules (accounting, HCM, manufacturing, SCM, GRC, multi-tenancy, workflows, and others). |
+| **React web app** | `frontend/` | Vite + React 19 single-page app that talks to the Python API. |
+| **Static site** | repo root (`index.html`, `landing.html`, `dashboard.html`, `js/`, `css/`) | Landing page, docs page, and a lightweight dashboard. |
+| **Mobile app** | `mobile/` | React Native app with barcode scanning, offline mode, and signature capture. |
 
 ---
 
-## 4. Local Development Quickstart
+## Repository layout
 
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
+```
+.
+├── backend/            FastAPI service (app/, tests/, Dockerfile)
+├── server/             Express + TypeScript + Prisma service
+│   ├── src/            controllers, routes, services, models, middleware, tests
+│   ├── prisma/         Prisma schema and migrations
+│   └── *.md            per-module implementation guides
+├── frontend/           React + Vite web app
+├── mobile/             React Native app (android/, ios/, src/)
+├── scripts/            seed and utility scripts
+├── tests/              top-level tests
+├── docs/               project documentation
+├── js/  css/  assets/  static site assets
+├── .github/workflows/  CI pipeline (ci.yml)
+├── compose.yaml        Docker Compose (PostgreSQL, MongoDB, backend, frontend)
+├── nginx.conf  render.yaml  vercel.json  netlify.toml  ecosystem.config.js
+└── DEPLOYMENT.md
+```
 
-### Step 1: Backend Setup
+---
+
+## Tech stack
+
+**Python API (`backend/`)**
+- FastAPI, Pydantic v2, SQLAlchemy 2.0 (async)
+- PostgreSQL (production) or SQLite (development), MongoDB for document data
+- PyJWT tokens with revocation, Argon2/Bcrypt password hashing
+
+**Node API (`server/`)**
+- Node.js 18+, Express, TypeScript
+- Prisma with PostgreSQL, Mongoose for legacy MongoDB models
+- Redis (caching and sessions), Socket.IO, node-cron
+- Passport (local, Google, Microsoft), MFA via TOTP, Helmet, rate limiting
+- PDFKit, Nodemailer, Twilio, Tesseract.js, TensorFlow.js
+
+**Web (`frontend/`)**: React 19, Vite, Lucide icons, light and dark themes
+
+**Mobile (`mobile/`)**: React Native, React Navigation, Vision Camera, Keychain, push notifications
+
+**Infrastructure**: Docker Compose, Nginx, GitHub Actions, Render, Vercel, Netlify, PM2
+
+---
+
+## Features
+
+### Operations
+- **Point of sale and billing**: barcode lookup, tax calculation, checkout, receipts
+- **Inventory and warehouse management**: stock levels, reorder alerts, stock movement ledger
+- **Procurement and supply chain**: purchase orders, suppliers, goods receipt
+- **Manufacturing**: production scheduling, monitoring, OEE, quality management, Industry 4.0
+
+### Finance
+- Chart of accounts, general ledger with double-entry validation
+- Accounts payable and receivable, bank reconciliation, budgets, fixed assets
+- Multi-currency, treasury, tax engine, financial consolidation and statements
+
+### People
+- Staff management, attendance, leave approvals, payroll (HRMS and HCM modules)
+
+### Governance and security
+- Role-based access control with just-in-time role elevation and no self-approval
+- Audit trails, approval workflows, risk management, compliance reporting (GRC)
+- Anomaly detection and encryption with key management
+
+### Platform
+- Multi-tenant support, custom entities, custom fields, formula fields, and a business rule engine
+- Analytics and BI, notifications, document management, integrations (for example Razorpay)
+- **AI assistant** that answers questions about live ERP data, such as sales summaries and low-stock warnings
+
+### Mobile
+- Barcode scanning, offline mode with sync, signature capture, mobile-first workflows
+
+---
+
+## Getting started
+
+### Option A: Docker Compose (Python API + React app)
+
 ```bash
-# Navigate to backend directory
+cp .env.example .env        # then edit values
+docker compose up --build
+```
+
+This starts PostgreSQL 16, MongoDB 7, the FastAPI backend (port 8000), and the Nginx-served React frontend.
+
+> The credentials in `compose.yaml` are development defaults. Replace them before any real deployment.
+
+### Option B: Run each part locally
+
+**Python API**
+
+```bash
 cd backend
-
-# Create and activate virtual environment
 python -m venv venv
-# On Windows:
-venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
-
-# Install dependencies
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-# Run database seeder (populates products, accounts, roles, initial data)
 python ../scripts/seed_demo_data.py
-
-# Launch FastAPI development server (runs on port 8000)
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### Step 2: Frontend Setup
+**React web app**
+
 ```bash
-# In a new terminal window:
 cd frontend
-
-# Install npm dependencies
 npm install
-
-# Start Vite dev server (runs on port 5173)
-npm run dev
+npm run dev                        # http://localhost:5173
 ```
 
-Open `http://localhost:5173` in your browser.
-
----
-
-## 5. Automated Testing Suite
-
-All 13 comprehensive backend unit, integration, and security tests can be verified using Pytest:
+**Node API**
 
 ```bash
-# From the project root:
-backend\venv\Scripts\pytest backend/tests -W ignore -v
+cd server
+npm install
+cp .env.example .env               # fill in DATABASE_URL, JWT_SECRET, etc.
+npm run prisma:generate
+npm run prisma:push
+npm run dev                        # http://localhost:5000
 ```
 
-### Covered Test Scenarios:
-1. `test_health_check`: API availability and version probe.
-2. `test_login_success`: Authentication and JWT issuance.
-3. `test_login_invalid_credentials`: Negative authentication check.
-4. `test_get_me`: Protected route verification.
-5. `test_logout_revokes_token`: Token revocation and immediate invalidation.
-6. `test_jit_elevation_lifecycle_and_no_self_approval`: JIT elevation request, approval by separate manager, and effective permission grant.
-7. `test_admin_cannot_self_approve_elevation`: Enforced separation of duties preventing self-approval.
-8. `test_admin_has_full_rbac_access`: Verification of master permissions for administrative role.
-9. `test_cashier_denied_sensitive_operations`: Verification that cashier cannot access or modify finance journal entries (negative authorization).
-10. `test_sales_and_inventory_transaction_integrity`: Atomic checkout, stock decrement, and negative stock rejection.
-11. `test_security_headers_present`: Verification of OWASP CSP, HSTS, X-Frame-Options, and nosniff headers.
-12. `test_sql_injection_defense`: Verification that SQL injection strings fail safely in parameterized ORM queries.
-13. `test_account_lockout_on_consecutive_failed_logins`: Verification of brute-force mitigation after 5 failed attempts.
+**Mobile app**
+
+```bash
+cd mobile
+npm install
+npm run android                    # or: npm run ios
+```
+
+### Demo accounts
+
+The seed script (`scripts/seed_demo_data.py`) creates sample accounts for each role: administrator, cashier, inventory manager, accountant, and HR manager. Check the script for the emails and passwords. They are for development only. Do not use them in production.
 
 ---
 
-## 6. Project Documentation
+## Environment variables
 
-Detailed technical manuals are located in the [`docs/`](file:///c:/Users/karth/OneDrive/Desktop/dream/docs) directory:
-- [ARCHITECTURE.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/ARCHITECTURE.md): System design, component diagrams, and concurrency safety.
-- [SECURITY.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/SECURITY.md): OWASP compliance, token revocation, and threat matrix.
-- [RBAC.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/RBAC.md): Granular permission catalog and JIT elevation rules.
-- [API.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/API.md): Full REST API endpoint reference and query schemas.
-- [DATABASE.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/DATABASE.md): ER diagrams, table schemas, and backup/restore steps.
-- [DEPLOYMENT.md](file:///c:/Users/karth/OneDrive/Desktop/dream/docs/DEPLOYMENT.md): Container orchestration and production checklist.
+Copy the relevant example file and fill in your own values. Never commit real secrets.
+
+| File | Used by |
+|---|---|
+| `.env.example` | Python API and Docker Compose |
+| `server/.env.example` | Node API |
+
+Key variables:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL (or SQLite for local development) connection string |
+| `MONGODB_URI` | MongoDB connection string |
+| `SECRET_KEY` / `JWT_SECRET` | Token signing secret. Generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `FRONTEND_URL` / `CORS_ORIGINS` | Allowed browser origins |
+| `REDIS_URL` | Optional caching and sessions (Node API) |
+| `GROQ_API_KEY` and others | Optional AI providers. The assistant falls back to a built-in offline mode without them |
+| `SMTP_*` | Optional email settings |
+
+---
+
+## Testing
+
+```bash
+# Python API
+pytest backend/tests
+
+# Node API
+cd server && npm test
+cd server && npm run type-check
+
+# Mobile
+cd mobile && npm test
+```
+
+CI runs on every push and pull request to `main` (see `.github/workflows/ci.yml`).
+
+---
+
+## Deployment
+
+Configuration is included for several targets:
+
+- **Render**: `render.yaml`
+- **Vercel**: `vercel.json`
+- **Netlify**: `netlify.toml`
+- **Nginx and PM2**: `nginx.conf`, `ecosystem.config.js`
+- **Docker**: `compose.yaml`
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for step-by-step instructions.
+
+---
+
+## Security
+
+- Passwords hashed with Argon2/Bcrypt, signed JWTs, token revocation, account lockout after repeated failed logins
+- RBAC, just-in-time role elevation, separation of duties (no self-approval)
+- TOTP-based multi-factor authentication
+- Helmet security headers, rate limiting, CORS allowlist
+- Field-level encryption with key management (AWS KMS and Azure Key Vault supported)
+- Tamper-evident audit logging
+
+Found a vulnerability? Please open a private security advisory on GitHub instead of a public issue.
+
+---
+
+## Documentation
+
+- `docs/`: project-level documentation
+- `server/PROJECT_STRUCTURE.md`: layout of the Node API
+- `server/*.md`: guides for individual modules (accounting, RBAC, encryption, multi-currency, manufacturing, and more)
+- `docs.html`: browsable documentation page
+
+---
+
+## Author
+
+Built by **Karri Karthik Reddy** ([@kk8761](https://github.com/kk8761)).
+
+---
+
+## License
+
+No license has been specified yet. Add a `LICENSE` file (for example MIT) to state how others may use this code.
