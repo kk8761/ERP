@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
     await init_mongodb()
 
     # 2. Initialize Relational DB (PostgreSQL / SQLite) tables automatically on startup
+    import app.models
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # Safe schema sync for newly added columns
@@ -74,24 +75,10 @@ async def lifespan(app: FastAPI):
 
     # 3. Auto-seed initial enterprise admin and catalog if database is fresh (e.g. newly provisioned Postgres on Render)
     try:
-        from app.database import AsyncSessionLocal
-        from app.models.org import Organization
-        async with AsyncSessionLocal() as session:
-            res = await session.execute(text("SELECT count(*) FROM organizations"))
-            count = res.scalar() or 0
-            if count == 0:
-                logging.info("[NexaERP] Fresh database detected. Auto-seeding initial master records and admin...")
-                try:
-                    import sys, os
-                    scripts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
-                    if scripts_dir not in sys.path:
-                        sys.path.insert(0, scripts_dir)
-                    from seed_demo_data import seed
-                    await seed()
-                except Exception as seed_err:
-                    logging.warning(f"[NexaERP] Auto-seed notice: {seed_err}")
-    except Exception as check_err:
-        logging.debug(f"[NexaERP] DB check notice: {check_err}")
+        from app.seed_data import seed
+        await seed()
+    except Exception as seed_err:
+        logging.warning(f"[NexaERP] Startup auto-seed notice: {seed_err}")
 
     yield
     await close_mongodb()
