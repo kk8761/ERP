@@ -422,7 +422,7 @@ export default function LoginPage() {
                   { role: 'HR Manager', email: 'hr@nexaerp.internal', pass: 'Hr@12345' }
                 ] : [
                   { role: 'Cashier / POS', email: 'cashier@nexaerp.internal', pass: 'Cashier@12345' },
-                  { role: 'Shop Assistant', email: 'cashier@nexaerp.internal', pass: 'Cashier@12345' }
+                  { role: 'Shop Assistant', email: 'assistant@nexaerp.internal', pass: 'Assistant@12345' }
                 ]).map((p, idx) => (
                   <button
                     key={idx}

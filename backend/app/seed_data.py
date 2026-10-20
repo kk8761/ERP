@@ -30,7 +30,8 @@ async def seed():
         # Check if already seeded
         org_check = await db.execute(select(Organization).limit(1))
         if org_check.scalar_one_or_none():
-            logging.info("[NexaERP] Database already contains data. Skipping re-seed.")
+            logging.info("[NexaERP] Database already contains data. Verifying operator accounts...")
+            await ensure_essential_users(db)
             return
 
         logging.info("[NexaERP] Seeding Organization, Branches, and Departments...")
@@ -120,6 +121,7 @@ async def seed():
         # Additional demo users for role testing
         demo_users = [
             ("cashier@nexaerp.internal", "Sunil Reddy", "Cashier@12345", "Sales Representative / Cashier", sales_dept.id),
+            ("assistant@nexaerp.internal", "Arun Kumar (Shop Assistant)", "Assistant@12345", "Sales Representative / Cashier", sales_dept.id),
             ("inventory@nexaerp.internal", "Meera Nair", "Inventory@12345", "Inventory Clerk", inv_dept.id),
             ("accountant@nexaerp.internal", "Rajesh Sharma", "Account@12345", "Accountant", fin_dept.id),
             ("hr@nexaerp.internal", "Kavita Rao", "Hr@12345", "HR Officer", hr_dept.id),
@@ -354,3 +356,40 @@ async def seed():
 
         await db.commit()
         logging.info("[NexaERP] Database successfully initialized and seeded!")
+
+async def ensure_essential_users(db):
+    from sqlalchemy import select
+    from app.models.org import Branch, Department
+    from app.models.auth import Role, User, UserRole
+
+    # Fetch main branch & sales dept
+    b_res = await db.execute(select(Branch).limit(1))
+    main_branch = b_res.scalar_one_or_none()
+    
+    d_res = await db.execute(select(Department).where(Department.code == "DEP-SALES"))
+    sales_dept = d_res.scalar_one_or_none()
+    
+    r_res = await db.execute(select(Role).where(Role.name == "Sales Representative / Cashier"))
+    sales_role = r_res.scalar_one_or_none()
+
+    if not main_branch or not sales_dept or not sales_role:
+        return
+
+    # Check assistant@nexaerp.internal
+    u_res = await db.execute(select(User).where(User.email == "assistant@nexaerp.internal"))
+    if not u_res.scalar_one_or_none():
+        assistant = User(
+            email="assistant@nexaerp.internal",
+            full_name="Arun Kumar (Shop Assistant)",
+            password_hash=hash_password("Assistant@12345"),
+            is_active=True,
+            is_superuser=False,
+            mfa_enabled=False,
+            branch_id=main_branch.id,
+            department_id=sales_dept.id
+        )
+        db.add(assistant)
+        await db.flush()
+        db.add(UserRole(user_id=assistant.id, role_id=sales_role.id))
+        await db.commit()
+        logging.info("[NexaERP] Successfully provisioned Shop Assistant account (assistant@nexaerp.internal)")
