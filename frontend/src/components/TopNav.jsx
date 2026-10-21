@@ -198,22 +198,23 @@ export default function TopNav({
       zIndex: 100,
       overflow: 'visible'
     }}>
-      {/* Brand Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+      {/* Brand Header (Compact & space-efficient) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
         <div 
           onClick={() => onNavigate('dashboard')}
-          style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
+          title="NexaERP Home"
+          style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
         >
           <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '9px',
+            width: '24px',
+            height: '24px',
+            borderRadius: '6px',
             background: '#010c22',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 2px 10px rgba(0, 100, 210, 0.35)',
-            border: '1px solid rgba(0, 152, 255, 0.35)',
+            boxShadow: '0 2px 6px rgba(0, 100, 210, 0.35)',
+            border: '1px solid rgba(0, 152, 255, 0.4)',
             overflow: 'hidden',
             padding: '2px',
             flexShrink: 0
@@ -228,22 +229,19 @@ export default function TopNav({
             <div style={{ 
               fontFamily: 'var(--font-brand)', 
               fontWeight: 800, 
-              fontSize: '17px', 
+              fontSize: '14.5px', 
               color: 'var(--text-main)', 
               lineHeight: 1.1,
-              letterSpacing: '-0.3px'
+              letterSpacing: '-0.2px'
             }}>
               Nexa<span style={{ color: 'var(--primary)' }}>ERP</span>
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.2px' }}>
-              An ERP Tool For Everyone
             </div>
           </div>
         </div>
       </div>
 
-      {/* Global Module & Function Search Bar */}
-      <div style={{ flex: '0 1 300px', maxWidth: '300px', minWidth: '120px', position: 'relative' }}>
+      {/* Global Module & Function Search Bar (Compact) */}
+      <div style={{ flex: '0 1 180px', maxWidth: '180px', minWidth: '100px', position: 'relative' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -255,8 +253,8 @@ export default function TopNav({
             backgroundColor: 'var(--bg-subtle)',
             border: '1px solid var(--border-color)',
             borderRadius: 'var(--radius-sm)',
-            padding: '3px 6px',
-            gap: '6px',
+            padding: '2px 5px',
+            gap: '4px',
             overflow: 'hidden',
             width: '100%',
             transition: 'all 0.15s ease'
@@ -270,14 +268,14 @@ export default function TopNav({
               border: 'none',
               background: 'var(--bg-surface)',
               borderRadius: '4px',
-              padding: '3px 4px',
-              fontSize: '11px',
+              padding: '2px 4px',
+              fontSize: '10.5px',
               fontWeight: 600,
               color: 'var(--text-secondary)',
               cursor: 'pointer',
               outline: 'none',
               borderRight: '1px solid var(--border-color)',
-              maxWidth: '85px',
+              maxWidth: '75px',
               flexShrink: 0
             }}
           >
@@ -292,7 +290,7 @@ export default function TopNav({
             <option value="ai">AI</option>
           </select>
 
-          <Search size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+          <Search size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
 
           <input
             type="text"
@@ -304,7 +302,7 @@ export default function TopNav({
               border: 'none',
               background: 'transparent',
               outline: 'none',
-              fontSize: '12px',
+              fontSize: '11px',
               flex: 1,
               minWidth: 0,
               color: 'var(--text-main)'
@@ -314,11 +312,11 @@ export default function TopNav({
           <kbd
             onClick={() => setIsSearchModalOpen(true)}
             style={{
-              fontSize: '10px',
+              fontSize: '9px',
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border-color)',
               borderRadius: '3px',
-              padding: '1px 5px',
+              padding: '1px 4px',
               color: 'var(--text-secondary)',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
@@ -327,46 +325,20 @@ export default function TopNav({
           >
             Ctrl+K
           </kbd>
-
-          <button
-            type="submit"
-            className="btn btn-primary"
-            title="Search modules"
-            style={{
-              padding: '5px 7px',
-              fontSize: '11px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '4px',
-              flexShrink: 0
-            }}
-          >
-            <Search size={12} />
-          </button>
         </form>
       </div>
 
       {/* Right Controls: Branch, Time, Sync, Badges, Tools, Theme, Profile & Sign Out */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto' }}>
-        {/* Branch Selector */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '5px',
-          fontSize: '12px',
-          fontWeight: 600,
-          color: 'var(--text-main)',
-          padding: '5px 8px',
-          backgroundColor: 'var(--bg-subtle)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 'var(--radius-sm)',
-          cursor: 'pointer',
-          whiteSpace: 'nowrap'
-        }}>
-          <Store size={14} color="var(--primary)" />
-          <span>{user?.branch_name || 'Main Store'}</span>
-        </div>
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '5px', 
+        flexShrink: 0, 
+        marginLeft: 'auto',
+        overflowX: 'auto',
+        scrollbarWidth: 'none',
+        maxWidth: 'calc(100vw - 250px)'
+      }}>
 
         {/* Compact Clock Indicator */}
         <div style={{
@@ -499,17 +471,17 @@ export default function TopNav({
             color: '#0284c7',
             backgroundColor: 'rgba(2, 132, 199, 0.1)',
             border: '1px solid rgba(2, 132, 199, 0.3)',
-            padding: '6px 9px',
+            padding: '4px 7px',
             borderRadius: 'var(--radius-sm)',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
-            fontSize: '11px',
+            gap: '3px',
+            fontSize: '10.5px',
             fontWeight: 700,
             cursor: 'pointer'
           }}
         >
-          <Mic size={15} />
+          <Mic size={14} />
           <span>Alexa</span>
         </button>
 
@@ -523,21 +495,21 @@ export default function TopNav({
             color: 'var(--text-main)',
             backgroundColor: 'var(--bg-subtle)',
             border: '1px solid var(--border-color)',
-            padding: '5px 8px',
+            padding: '4px 6px',
             borderRadius: 'var(--radius-sm)',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
-            fontSize: '11px',
+            gap: '3px',
+            fontSize: '10.5px',
             fontWeight: 700,
             cursor: 'pointer'
           }}
         >
-          <Building2 size={13} color="var(--primary)" />
-          <span style={{ maxWidth: '95px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <Building2 size={12} color="var(--primary)" />
+          <span style={{ maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {currentBranchName}
           </span>
-          <ChevronDown size={11} color="var(--text-secondary)" />
+          <ChevronDown size={10} color="var(--text-secondary)" />
         </button>
 
         {/* Universal Document & Data Onboarding Quick Trigger */}
@@ -550,17 +522,17 @@ export default function TopNav({
             color: '#16a34a',
             backgroundColor: 'rgba(22, 163, 74, 0.08)',
             border: '1px solid rgba(22, 163, 74, 0.25)',
-            padding: '5px 8px',
+            padding: '4px 6px',
             borderRadius: 'var(--radius-sm)',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
-            fontSize: '11px',
+            gap: '3px',
+            fontSize: '10.5px',
             fontWeight: 700,
             cursor: 'pointer'
           }}
         >
-          <UploadCloud size={13} />
+          <UploadCloud size={12} />
           <span>Onboard Data</span>
         </button>
 
@@ -574,17 +546,17 @@ export default function TopNav({
             color: '#475569',
             backgroundColor: 'var(--bg-subtle)',
             border: '1px solid var(--border-color)',
-            padding: '5px 8px',
+            padding: '4px 6px',
             borderRadius: 'var(--radius-sm)',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
-            fontSize: '11px',
+            gap: '3px',
+            fontSize: '10.5px',
             fontWeight: 700,
             cursor: 'pointer'
           }}
         >
-          <Building2 size={13} color="var(--primary)" />
+          <Building2 size={12} color="var(--primary)" />
           <span>Settings</span>
         </button>
 
@@ -598,18 +570,18 @@ export default function TopNav({
             color: '#6366f1',
             backgroundColor: 'rgba(99, 102, 241, 0.08)',
             border: '1px solid rgba(99, 102, 241, 0.25)',
-            padding: '5px 8px',
+            padding: '4px 6px',
             borderRadius: 'var(--radius-sm)',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
-            fontSize: '11px',
+            gap: '3px',
+            fontSize: '10.5px',
             fontWeight: 700,
             cursor: 'pointer'
           }}
         >
-          <Sliders size={13} />
-          <span>Preferences</span>
+          <Sliders size={12} />
+          <span>Prefs</span>
         </button>
 
         {/* AI Assistant Quick Trigger */}

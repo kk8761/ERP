@@ -1,0 +1,34 @@
+[
+  {
+    "employee_id": 7,
+    "employee_code": "EMP-MONGO-TEST-01",
+    "email": "rohan.verma@nexaerp.internal",
+    "full_name": "Rohan Verma",
+    "designation": "Mumbai Branch Lead",
+    "branch_location": "Mumbai Financial Hub",
+    "accessible_branches": [
+      "Mumbai Financial Hub"
+    ],
+    "branch_access_policy": "ASSIGNED_ONLY",
+    "app_role": "Team Lead / Shift Supervisor",
+    "hierarchy_role": "TEAM_LEAD",
+    "reports_to_id": null,
+    "module_permissions": {
+      "pos": true,
+      "inventory": true,
+      "sales": true,
+      "finance": false,
+      "hr": false,
+      "procurement": true,
+      "manufacturing": false,
+      "grc": false,
+      "settings": false,
+      "ai_copilot": true
+    },
+    "onboarded_at": "2026-10-21T14:55:25.200782+00:00",
+    "onboarded_by": "admin@nexaerp.internal",
+    "created_at": "2026-10-21T14:55:25.200782",
+    "updated_at": "2026-10-21T14:55:25.200782",
+    "storage_engine": "Local Free Document Store (Persistent JSON Engine)"
+  }
+]

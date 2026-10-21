@@ -12,6 +12,7 @@ from app.models.org import Organization, Branch, Department, Warehouse
 from app.models.sales import SalesOrder
 from app.models.procurement import PurchaseOrder
 from app.services.audit_service import record_audit_log
+from app.services.document_store import document_store
 
 router = APIRouter(prefix="/api/branches", tags=["MNC Multi-Branch & Global Tenant Operations"])
 
@@ -238,3 +239,123 @@ async def get_consolidation_summary(
             "4. Centralized RAG & Policy Governance: Single corporate authority matrix with branch-specific regional limits."
         ]
     }
+
+
+@router.get("/my-access")
+async def get_my_branch_access(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the current user's branch authorizations, assigned roles, and module access
+    determined at the time of joining as employee (stored in MongoDB Community / Free Document Store).
+    """
+    all_branches_res = await db.execute(select(Branch))
+    all_branches = all_branches_res.scalars().all()
+    all_branch_names = [b.name for b in all_branches]
+
+    user_role_names = [ur.role.name for ur in (current_user.roles or []) if getattr(ur, "role", None)]
+    is_exec_or_admin = bool(current_user.is_superuser or "Admin" in user_role_names or "Executive" in user_role_names)
+
+    curr_branch_obj = next((b for b in all_branches if b.id == current_user.branch_id), None)
+    current_branch_name = curr_branch_obj.name if curr_branch_obj else "Main Store"
+
+    doc = await document_store.find_document("employee_access_authorizations", {"email": current_user.email})
+
+    if is_exec_or_admin:
+        allowed_branches = all_branch_names
+        policy = "ALL_BRANCHES"
+        app_role = "System Administrator" if current_user.is_superuser else (user_role_names[0] if user_role_names else "Staff")
+        module_perms = {
+            "pos": True, "inventory": True, "sales": True,
+            "finance": True, "hr": True, "procurement": True,
+            "manufacturing": True, "grc": True, "settings": True,
+            "ai_copilot": True
+        }
+        storage_engine = "MongoDB Community / Universal Global Access"
+    elif doc:
+        allowed_branches = doc.get("accessible_branches", [current_branch_name])
+        if "ALL" in allowed_branches:
+            allowed_branches = all_branch_names
+        policy = doc.get("branch_access_policy", "ASSIGNED_ONLY")
+        app_role = doc.get("app_role", user_role_names[0] if user_role_names else "Staff")
+        module_perms = doc.get("module_permissions", {})
+        storage_engine = doc.get("storage_engine", "MongoDB Community / Free Store")
+    else:
+        allowed_branches = [current_branch_name]
+        policy = "ASSIGNED_ONLY"
+        app_role = user_role_names[0] if user_role_names else "Staff"
+        module_perms = {
+            "pos": True, "inventory": True, "sales": True,
+            "finance": False, "hr": False, "procurement": True,
+            "manufacturing": False, "grc": False, "settings": False,
+            "ai_copilot": True
+        }
+        storage_engine = "MongoDB Community / Default Policy"
+
+    return {
+        "user_id": current_user.id,
+        "email": current_user.email,
+        "name": current_user.full_name,
+        "is_superuser": current_user.is_superuser,
+        "current_branch": current_branch_name,
+        "accessible_branches": allowed_branches,
+        "all_branches": all_branch_names,
+        "branch_access_policy": policy,
+        "app_role": app_role,
+        "module_permissions": module_perms,
+        "storage_engine": storage_engine,
+        "can_access_all": is_exec_or_admin or policy == "ALL_BRANCHES" or "ALL" in allowed_branches
+    }
+
+
+@router.post("/switch-context")
+async def switch_branch_context(
+    payload: BranchSwitchRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Switches active branch context.
+    Strictly verifies employee's branch access rights stored in MongoDB Community Edition.
+    """
+    user_role_names = [ur.role.name for ur in (current_user.roles or []) if getattr(ur, "role", None)]
+    is_exec_or_admin = bool(current_user.is_superuser or "Admin" in user_role_names or "Executive" in user_role_names)
+
+    if payload.branch_id is None:
+        if not is_exec_or_admin:
+            raise HTTPException(status_code=403, detail="Only Executives and Administrators can view Consolidated Multi-Branch mode.")
+        current_user.branch_id = None
+        await db.commit()
+        return {"success": True, "active_branch": "All Branches (Consolidated)", "branch_id": None}
+
+    branch_res = await db.execute(select(Branch).where(Branch.id == payload.branch_id))
+    branch = branch_res.scalar_one_or_none()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+
+    if not is_exec_or_admin:
+        doc = await document_store.find_document("employee_access_authorizations", {"email": current_user.email})
+        if doc:
+            allowed = doc.get("accessible_branches", [])
+            policy = doc.get("branch_access_policy", "ASSIGNED_ONLY")
+            if policy == "ASSIGNED_ONLY" and "ALL" not in allowed:
+                match = any(
+                    b.lower() in branch.name.lower() or branch.name.lower() in b.lower() or b == branch.code 
+                    for b in allowed
+                )
+                if not match:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Access Denied: You are not authorized to access '{branch.name}'. Your authorized branches: {', '.join(allowed)}."
+                    )
+
+    current_user.branch_id = branch.id
+    await db.commit()
+    await record_audit_log(
+        db, action="BRANCH_CONTEXT_SWITCHED", entity_name="User",
+        user_id=current_user.id, user_email=current_user.email,
+        details={"branch_id": branch.id, "branch_name": branch.name}
+    )
+    return {"success": True, "active_branch": branch.name, "branch_id": branch.id}
+

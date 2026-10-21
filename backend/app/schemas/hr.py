@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from decimal import Decimal
 from datetime import date, datetime
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
@@ -31,6 +31,12 @@ class EmployeeCreate(BaseModel):
     reporting_manager: Optional[str] = None
     reports_to_id: Optional[int] = None
     hierarchy_role: Optional[str] = "MEMBER"
+
+    # Branch Access & App Roles (Stored in MongoDB Community / Free Document Store)
+    accessible_branches: Optional[List[str]] = Field(default_factory=lambda: ["ALL"])
+    branch_access_policy: Optional[str] = "ALL_BRANCHES"
+    app_role: Optional[str] = "Staff"
+    module_permissions: Optional[Dict[str, bool]] = Field(default_factory=dict)
 
     # Salary components
     basic_salary: Decimal = Field(Decimal("0.00"), ge=0)
@@ -91,6 +97,13 @@ class EmployeeOut(BaseModel):
     reports_to_name: Optional[str] = None
     hierarchy_role: Optional[str] = "MEMBER"
     direct_reports_count: Optional[int] = 0
+
+    # Branch Access & App Roles (Retrieved from MongoDB Community / Free Document Store)
+    accessible_branches: Optional[List[str]] = Field(default_factory=lambda: ["ALL"])
+    branch_access_policy: Optional[str] = "ALL_BRANCHES"
+    app_role: Optional[str] = "Staff"
+    module_permissions: Optional[Dict[str, bool]] = Field(default_factory=dict)
+    storage_engine: Optional[str] = None
 
     # Salary components
     hra: Optional[Decimal] = None

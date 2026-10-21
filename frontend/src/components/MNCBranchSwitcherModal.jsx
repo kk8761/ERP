@@ -13,6 +13,7 @@ export default function MNCBranchSwitcherModal({
 }) {
   const [branches, setBranches] = useState([]);
   const [consolidation, setConsolidation] = useState(null);
+  const [myAccess, setMyAccess] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [newBranch, setNewBranch] = useState({
@@ -35,12 +36,14 @@ export default function MNCBranchSwitcherModal({
   const loadBranchData = async () => {
     setLoading(true);
     try {
-      const [bList, cSummary] = await Promise.all([
+      const [bList, cSummary, access] = await Promise.all([
         apiRequest('/api/branches'),
-        apiRequest('/api/branches/consolidation-summary')
+        apiRequest('/api/branches/consolidation-summary'),
+        apiRequest('/api/branches/my-access').catch(() => null)
       ]);
       setBranches(bList || []);
       setConsolidation(cSummary);
+      setMyAccess(access);
     } catch (err) {
       console.warn("Could not load branches:", err);
     } finally {
@@ -278,6 +281,34 @@ export default function MNCBranchSwitcherModal({
           </form>
         )}
 
+        {/* My Role & MongoDB Community Access Authorization Badge */}
+        {myAccess && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '8px 14px',
+            backgroundColor: 'rgba(2, 132, 199, 0.08)',
+            border: '1px solid rgba(2, 132, 199, 0.25)',
+            borderRadius: '8px',
+            marginBottom: '14px',
+            fontSize: '12px',
+            flexWrap: 'wrap',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-main)' }}>
+              <Shield size={16} color="#0284c7" />
+              <span>
+                Your Role: <strong>{myAccess.app_role || 'Staff'}</strong> • Policy: <strong>{myAccess.can_access_all ? 'Global MNC Access (All Branches)' : 'Assigned Branches Only'}</strong>
+              </span>
+            </div>
+            <div style={{ color: '#0284c7', fontWeight: 700, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>🍃</span>
+              <span>{myAccess.storage_engine || 'MongoDB Community Store'}</span>
+            </div>
+          </div>
+        )}
+
         {/* Branch Grid */}
         <div style={{ 
           display: 'grid', 
@@ -289,32 +320,42 @@ export default function MNCBranchSwitcherModal({
         }}>
           {branches.map((b) => {
             const isSelected = currentBranchId === b.id;
+            const canAccess = !myAccess || myAccess.can_access_all || (myAccess.accessible_branches || []).some(
+              ab => ab.toLowerCase().includes(b.name.toLowerCase()) || b.name.toLowerCase().includes(ab.toLowerCase()) || ab === b.code
+            );
+
             return (
               <div
                 key={b.id}
                 onClick={() => {
+                  if (!canAccess) {
+                    alert(`Access Denied: Your employee onboarding profile does not include authorization for "${b.name}". Authorized branches: ${(myAccess.accessible_branches || []).join(', ')}.`);
+                    return;
+                  }
                   onSelectBranch(b.id, b.name);
                   onClose();
                 }}
                 style={{
                   padding: '14px',
                   borderRadius: 'var(--radius-sm)',
-                  border: `2px solid ${isSelected ? 'var(--primary)' : 'var(--border-color)'}`,
-                  backgroundColor: isSelected ? 'rgba(0, 100, 210, 0.04)' : 'var(--bg-surface)',
-                  cursor: 'pointer',
+                  border: `2px solid ${isSelected ? 'var(--primary)' : canAccess ? 'var(--border-color)' : 'rgba(239, 68, 68, 0.25)'}`,
+                  backgroundColor: isSelected ? 'rgba(0, 100, 210, 0.04)' : canAccess ? 'var(--bg-surface)' : 'var(--bg-subtle)',
+                  cursor: canAccess ? 'pointer' : 'not-allowed',
+                  opacity: canAccess ? 1 : 0.65,
                   transition: 'all 0.15s ease',
                   position: 'relative'
                 }}
-                className="hover-card"
+                className={canAccess ? "hover-card" : ""}
+                title={canAccess ? `Switch to ${b.name}` : `Access restricted to ${b.name}`}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Building2 size={16} color={b.is_hq ? 'var(--primary)' : '#64748b'} />
+                    <Building2 size={16} color={b.is_hq ? 'var(--primary)' : canAccess ? '#64748b' : '#94a3b8'} />
                     <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-main)' }}>
                       {b.name}
                     </span>
                   </div>
-                  {isSelected && (
+                  {isSelected ? (
                     <span style={{ 
                       backgroundColor: 'var(--primary)', 
                       color: '#ffffff', 
@@ -327,7 +368,19 @@ export default function MNCBranchSwitcherModal({
                     }}>
                       <Check size={11} />
                     </span>
-                  )}
+                  ) : !canAccess ? (
+                    <span style={{
+                      fontSize: '10px',
+                      fontWeight: 800,
+                      color: '#ef4444',
+                      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      padding: '2px 5px',
+                      borderRadius: '4px'
+                    }}>
+                      🔒 Restricted
+                    </span>
+                  ) : null}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>

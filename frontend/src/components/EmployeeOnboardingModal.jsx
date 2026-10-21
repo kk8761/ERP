@@ -71,7 +71,26 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
 
     // 5. Document Vault
     documents: [],
-    notes: ''
+    notes: '',
+
+    // 6. Branch Access & App Role Governance (Stored in MongoDB Community / Free Document Store)
+    hierarchy_role: 'MEMBER',
+    reports_to_id: '',
+    app_role: 'Staff / Associate',
+    branch_access_policy: 'ASSIGNED_ONLY',
+    accessible_branches: ['Main Store (Hyderabad HQ)'],
+    module_permissions: {
+      pos: true,
+      inventory: true,
+      sales: true,
+      finance: false,
+      hr: false,
+      procurement: true,
+      manufacturing: false,
+      grc: false,
+      settings: false,
+      ai_copilot: true
+    }
   };
 
   const [form, setForm] = useState(initialFormState);
@@ -323,7 +342,15 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
 
         // Documents
         documents_json: JSON.stringify(form.documents),
-        notes: form.notes || null
+        notes: form.notes || null,
+
+        // Branch Access & App Roles (Stored in MongoDB Community / Free Store)
+        hierarchy_role: form.hierarchy_role || 'MEMBER',
+        reports_to_id: form.reports_to_id ? parseInt(form.reports_to_id) : null,
+        app_role: form.app_role || 'Staff',
+        branch_access_policy: form.branch_access_policy || 'ASSIGNED_ONLY',
+        accessible_branches: form.accessible_branches || ['Main Store (Hyderabad HQ)'],
+        module_permissions: form.module_permissions || {}
       };
 
       await onEmployeeCreated(payload);
@@ -340,7 +367,8 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
     { num: 2, title: 'Job & Placement', icon: Briefcase, desc: 'Role, department & work mode' },
     { num: 3, title: 'Salary & Compensation', icon: DollarSign, desc: 'CTC, allowances & deductions' },
     { num: 4, title: 'Banking & Statutory', icon: CreditCard, desc: 'Bank account, PAN & Aadhaar' },
-    { num: 5, title: 'Document Vault', icon: FileText, desc: 'Resume, ID proofs & contract' }
+    { num: 5, title: 'Document Vault', icon: FileText, desc: 'Resume, ID proofs & contract' },
+    { num: 6, title: 'Branch Access & Roles', icon: Shield, desc: 'Authorized branches & app permissions' }
   ];
 
   const documentSlots = [
@@ -392,7 +420,7 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
                 Enterprise HRMS
               </span>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                Step {currentStep} of 5
+                Step {currentStep} of 6
               </span>
             </div>
             <h3 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-main)', marginTop: '4px' }}>
@@ -1421,6 +1449,240 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
             </div>
           )}
 
+          {/* STEP 6: BRANCH ACCESS & APPLICATION ROLE GOVERNANCE (MONGODB COMMUNITY / FREE STORE) */}
+          {currentStep === 6 && (
+            <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* Storage Info Badge */}
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(2, 132, 199, 0.08) 100%)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                borderRadius: '10px',
+                padding: '12px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <Shield size={24} color="#10b981" />
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-main)' }}>
+                    🍃 Multi-Branch Access & App Role Governance • Free Document Store
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                    Access permissions and branch authorizations are determined upon employee joining and persisted into <strong>MongoDB Community Edition</strong> (or local free JSON document store) at zero cloud cost.
+                  </div>
+                </div>
+              </div>
+
+              {/* 1. Branch Access Policy */}
+              <div style={{
+                backgroundColor: 'var(--bg-subtle)',
+                padding: '16px',
+                borderRadius: '10px',
+                border: '1px solid var(--border-color)'
+              }}>
+                <label className="form-label" style={{ fontSize: '13px', fontWeight: 700, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Building2 size={16} color="var(--primary)" />
+                  <span>Authorized Subsidiary & Regional Branches</span>
+                </label>
+                <p style={{ fontSize: '11.5px', color: 'var(--text-secondary)', margin: '0 0 12px 0' }}>
+                  Select which operational branch contexts this employee is authorized to log into and operate.
+                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                  <input
+                    type="checkbox"
+                    id="allBranchesCheck"
+                    checked={form.branch_access_policy === 'ALL_BRANCHES'}
+                    onChange={(e) => {
+                      const isAll = e.target.checked;
+                      setForm(prev => ({
+                        ...prev,
+                        branch_access_policy: isAll ? 'ALL_BRANCHES' : 'ASSIGNED_ONLY',
+                        accessible_branches: isAll 
+                          ? ['Main Store (Hyderabad HQ)', 'Mumbai Financial Hub', 'Dubai MENA Regional Hub', 'Singapore APAC Office', 'Bengaluru Tech Center'] 
+                          : [prev.branch_location || 'Main Store (Hyderabad HQ)']
+                      }));
+                    }}
+                    style={{ width: '16px', height: '16px', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="allBranchesCheck" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-main)', cursor: 'pointer' }}>
+                    🌐 Authorize Access to ALL Branches (Global MNC Access)
+                  </label>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '10px' }}>
+                  {[
+                    'Main Store (Hyderabad HQ)',
+                    'Mumbai Financial Hub',
+                    'Dubai MENA Regional Hub',
+                    'Singapore APAC Office',
+                    'Bengaluru Tech Center'
+                  ].map(bName => {
+                    const isChecked = form.branch_access_policy === 'ALL_BRANCHES' || (form.accessible_branches || []).includes(bName);
+                    return (
+                      <div
+                        key={bName}
+                        onClick={() => {
+                          if (form.branch_access_policy === 'ALL_BRANCHES') {
+                            setForm(prev => ({ ...prev, branch_access_policy: 'ASSIGNED_ONLY', accessible_branches: [bName] }));
+                            return;
+                          }
+                          const cur = form.accessible_branches || [];
+                          const updated = cur.includes(bName)
+                            ? cur.filter(x => x !== bName)
+                            : [...cur, bName];
+                          setForm(prev => ({ ...prev, accessible_branches: updated.length ? updated : [bName] }));
+                        }}
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: '8px',
+                          border: `1px solid ${isChecked ? 'var(--primary)' : 'var(--border-color)'}`,
+                          backgroundColor: isChecked ? 'rgba(0, 100, 210, 0.05)' : 'var(--bg-surface)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          readOnly
+                          style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
+                        />
+                        <span style={{ fontSize: '12px', fontWeight: isChecked ? 700 : 500, color: 'var(--text-main)' }}>
+                          {bName}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Roles & Hierarchy Placement */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: '12px', fontWeight: 700, marginBottom: '4px', display: 'block' }}>
+                    Company Hierarchy Tier *
+                  </label>
+                  <select
+                    value={form.hierarchy_role}
+                    onChange={(e) => {
+                      const hRole = e.target.value;
+                      setForm(prev => ({
+                        ...prev,
+                        hierarchy_role: hRole,
+                        app_role: hRole === 'EXECUTIVE' ? 'Executive Director' : hRole === 'MANAGER' ? 'Branch Manager' : hRole === 'TEAM_LEAD' ? 'Team Lead' : 'Staff Associate',
+                        module_permissions: {
+                          ...prev.module_permissions,
+                          finance: hRole === 'EXECUTIVE' || hRole === 'MANAGER',
+                          hr: hRole === 'EXECUTIVE' || hRole === 'MANAGER',
+                          grc: hRole === 'EXECUTIVE',
+                          settings: hRole === 'EXECUTIVE'
+                        }
+                      }));
+                    }}
+                    className="form-input"
+                    style={{ width: '100%' }}
+                  >
+                    <option value="EXECUTIVE">👑 Executive / C-Suite (Top of Chain)</option>
+                    <option value="MANAGER">👔 Department / Branch Manager</option>
+                    <option value="TEAM_LEAD">⚡ Team Lead / Shift Supervisor</option>
+                    <option value="MEMBER">👤 Member / Staff Associate</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontSize: '12px', fontWeight: 700, marginBottom: '4px', display: 'block' }}>
+                    Application Security Role *
+                  </label>
+                  <select
+                    value={form.app_role}
+                    onChange={(e) => setForm({ ...form, app_role: e.target.value })}
+                    className="form-input"
+                    style={{ width: '100%' }}
+                  >
+                    <option value="System Administrator">System Administrator (Full Root Access)</option>
+                    <option value="Branch Manager">Branch Manager (Branch Operations & Staff)</option>
+                    <option value="Team Lead">Team Lead (Shift & Pod Oversight)</option>
+                    <option value="Cashier / POS Operator">Cashier / POS Operator</option>
+                    <option value="Accountant / Finance Officer">Accountant / Finance Officer</option>
+                    <option value="HR Specialist">HR Specialist / Recruiter</option>
+                    <option value="Inventory Officer">Inventory & Warehouse Specialist</option>
+                    <option value="Staff Associate">Staff Associate (Standard Access)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 3. Granular App Modules Access */}
+              <div style={{
+                backgroundColor: 'var(--bg-subtle)',
+                padding: '16px',
+                borderRadius: '10px',
+                border: '1px solid var(--border-color)'
+              }}>
+                <label className="form-label" style={{ fontSize: '13px', fontWeight: 700, marginBottom: '6px', display: 'block' }}>
+                  Granular App Module Authorizations
+                </label>
+                <p style={{ fontSize: '11.5px', color: 'var(--text-secondary)', margin: '0 0 12px 0' }}>
+                  Enable or disable application modules available to this employee in their dashboard and navigation menu.
+                </p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
+                  {[
+                    { key: 'pos', label: '🛒 Point of Sale (POS)' },
+                    { key: 'inventory', label: '📦 Stock & Inventory' },
+                    { key: 'sales', label: '📊 Sales & Orders' },
+                    { key: 'finance', label: '💰 Accounting & Ledgers' },
+                    { key: 'hr', label: '👥 HR & People' },
+                    { key: 'procurement', label: '🚚 Purchase & Vendors' },
+                    { key: 'manufacturing', label: '🏭 Manufacturing & BOM' },
+                    { key: 'grc', label: '🛡️ GRC & Compliance' },
+                    { key: 'settings', label: '⚙️ System & Branch Settings' },
+                    { key: 'ai_copilot', label: '🤖 Alexa & AI Copilot' }
+                  ].map(m => {
+                    const isAllowed = !!(form.module_permissions && form.module_permissions[m.key]);
+                    return (
+                      <div
+                        key={m.key}
+                        onClick={() => {
+                          setForm(prev => ({
+                            ...prev,
+                            module_permissions: {
+                              ...prev.module_permissions,
+                              [m.key]: !isAllowed
+                            }
+                          }));
+                        }}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: '6px',
+                          border: `1px solid ${isAllowed ? 'var(--primary)' : 'var(--border-color)'}`,
+                          backgroundColor: isAllowed ? 'rgba(0, 100, 210, 0.06)' : 'var(--bg-surface)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isAllowed}
+                          readOnly
+                          style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
+                        />
+                        <span style={{ fontSize: '11.5px', fontWeight: isAllowed ? 700 : 500, color: 'var(--text-main)' }}>
+                          {m.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Footer Navigation Controls */}
@@ -1455,7 +1717,7 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
               Cancel
             </button>
 
-            {currentStep < 5 ? (
+            {currentStep < 6 ? (
               <button
                 type="button"
                 onClick={() => {
@@ -1493,7 +1755,7 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
                 ) : (
                   <>
                     <CheckCircle2 size={16} />
-                    <span>Save & Register Employee</span>
+                    <span>Save & Register Employee (MongoDB Synced)</span>
                   </>
                 )}
               </button>

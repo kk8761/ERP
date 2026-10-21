@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, date
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, desc
@@ -18,8 +18,15 @@ from app.schemas.hr import (
     ReportingLineUpdateRequest
 )
 from app.services.audit_service import record_audit_log
+from app.services.document_store import document_store
 
 router = APIRouter(prefix="/api/hr", tags=["HR and Payroll"])
+
+@router.get("/document-store/status")
+async def get_document_store_status(current_user: User = Depends(get_current_user)):
+    """Returns connectivity and operational status for MongoDB Community Edition & Free Fallback Store."""
+    return await document_store.get_storage_status()
+
 
 @router.get("/employees", response_model=List[EmployeeOut])
 async def list_employees(
@@ -46,11 +53,35 @@ async def list_employees(
         if rep_id:
             reports_count[rep_id] = reports_count.get(rep_id, 0) + 1
 
+    # Fetch MongoDB Community / Free Document Store access authorizations
+    doc_profiles = await document_store.find_documents("employee_access_authorizations")
+    profile_map = {}
+    for dp in doc_profiles:
+        if dp.get("employee_code"):
+            profile_map[dp["employee_code"]] = dp
+        if dp.get("email"):
+            profile_map[dp["email"]] = dp
+
     out = []
     for emp in employees:
         rep_id = getattr(emp, "reports_to_id", None)
         h_role = getattr(emp, "hierarchy_role", "MEMBER") or "MEMBER"
         boss_name = emp_map.get(rep_id) or emp.reporting_manager
+
+        prof = profile_map.get(emp.employee_code) or profile_map.get(emp.email) or {}
+        acc_branches = prof.get("accessible_branches") or ([emp.branch_location] if emp.branch_location else ["ALL"])
+        b_policy = prof.get("branch_access_policy") or ("ALL_BRANCHES" if h_role == "EXECUTIVE" else "ASSIGNED_ONLY")
+        a_role = prof.get("app_role") or (h_role.capitalize() if h_role else "Staff")
+        m_perms = prof.get("module_permissions") or {
+            "pos": True, "inventory": True, "sales": True,
+            "finance": h_role in ["EXECUTIVE", "MANAGER"],
+            "hr": h_role in ["EXECUTIVE", "MANAGER"],
+            "procurement": True, "manufacturing": False,
+            "grc": h_role in ["EXECUTIVE"],
+            "settings": h_role in ["EXECUTIVE"],
+            "ai_copilot": True
+        }
+        st_engine = prof.get("storage_engine") or "MongoDB Community / Free Store"
 
         out.append(EmployeeOut(
             id=emp.id,
@@ -81,6 +112,11 @@ async def list_employees(
             reports_to_name=boss_name,
             hierarchy_role=h_role,
             direct_reports_count=reports_count.get(emp.id, 0),
+            accessible_branches=acc_branches,
+            branch_access_policy=b_policy,
+            app_role=a_role,
+            module_permissions=m_perms,
+            storage_engine=st_engine,
             hra=emp.hra if can_view_payroll else None,
             conveyance_allowance=emp.conveyance_allowance if can_view_payroll else None,
             special_allowance=emp.special_allowance if can_view_payroll else None,
@@ -116,7 +152,10 @@ async def create_employee(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Employee code or email already in use")
 
-    emp = Employee(**data.model_dump())
+    raw_data = data.model_dump()
+    doc_keys = {"accessible_branches", "branch_access_policy", "app_role", "module_permissions"}
+    sql_data = {k: v for k, v in raw_data.items() if k not in doc_keys}
+    emp = Employee(**sql_data)
     db.add(emp)
     await record_audit_log(
         db, action="EMPLOYEE_CREATED", entity_name="Employee",
@@ -125,6 +164,41 @@ async def create_employee(
     )
     await db.commit()
     await db.refresh(emp)
+
+    # Persist Employee Onboarding Access Profile to MongoDB Community / Free Document Store
+    access_doc = {
+        "employee_id": emp.id,
+        "employee_code": emp.employee_code,
+        "email": emp.email,
+        "full_name": f"{emp.first_name} {emp.last_name}",
+        "designation": emp.designation,
+        "branch_location": emp.branch_location,
+        "accessible_branches": data.accessible_branches or ["ALL"],
+        "branch_access_policy": data.branch_access_policy or "ALL_BRANCHES",
+        "app_role": data.app_role or "Staff",
+        "hierarchy_role": emp.hierarchy_role,
+        "reports_to_id": emp.reports_to_id,
+        "module_permissions": data.module_permissions or {
+            "pos": True,
+            "inventory": True,
+            "sales": True,
+            "finance": True if emp.hierarchy_role in ["EXECUTIVE", "MANAGER"] else False,
+            "hr": True if emp.hierarchy_role in ["EXECUTIVE", "MANAGER"] else False,
+            "procurement": True,
+            "manufacturing": False,
+            "grc": True if emp.hierarchy_role in ["EXECUTIVE"] else False,
+            "settings": True if emp.hierarchy_role in ["EXECUTIVE"] else False,
+            "ai_copilot": True
+        },
+        "onboarded_at": datetime.now(timezone.utc).isoformat(),
+        "onboarded_by": current_user.email
+    }
+    saved_doc = await document_store.insert_document("employee_access_authorizations", access_doc)
+
+    dept_name = None
+    if emp.department_id:
+        d_res = await db.execute(select(Department.name).where(Department.id == emp.department_id))
+        dept_name = d_res.scalar_one_or_none()
 
     return EmployeeOut(
         id=emp.id,
@@ -136,7 +210,7 @@ async def create_employee(
         phone=emp.phone,
         designation=emp.designation,
         department_id=emp.department_id,
-        department_name=emp.department.name if emp.department else None,
+        department_name=dept_name,
         date_of_joining=emp.date_of_joining,
         basic_salary=emp.basic_salary,
         gender=emp.gender,
@@ -151,6 +225,13 @@ async def create_employee(
         work_mode=emp.work_mode,
         branch_location=emp.branch_location,
         reporting_manager=emp.reporting_manager,
+        reports_to_id=emp.reports_to_id,
+        hierarchy_role=emp.hierarchy_role,
+        accessible_branches=access_doc["accessible_branches"],
+        branch_access_policy=access_doc["branch_access_policy"],
+        app_role=access_doc["app_role"],
+        module_permissions=access_doc["module_permissions"],
+        storage_engine=saved_doc.get("storage_engine"),
         hra=emp.hra,
         conveyance_allowance=emp.conveyance_allowance,
         special_allowance=emp.special_allowance,
@@ -172,6 +253,76 @@ async def create_employee(
         notes=emp.notes,
         is_active=emp.is_active
     )
+
+@router.get("/employees/{employee_id}/access-profile")
+async def get_employee_access_profile(
+    employee_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve full branch access matrix and app roles stored in MongoDB / Free Document Store."""
+    emp_res = await db.execute(select(Employee).where(Employee.id == employee_id))
+    emp = emp_res.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    doc = await document_store.find_document("employee_access_authorizations", {"employee_code": emp.employee_code})
+    if not doc:
+        doc = await document_store.find_document("employee_access_authorizations", {"email": emp.email})
+
+    if not doc:
+        doc = {
+            "employee_id": emp.id,
+            "employee_code": emp.employee_code,
+            "email": emp.email,
+            "full_name": f"{emp.first_name} {emp.last_name}",
+            "designation": emp.designation,
+            "branch_location": emp.branch_location,
+            "accessible_branches": [emp.branch_location] if emp.branch_location else ["ALL"],
+            "branch_access_policy": "ALL_BRANCHES" if emp.hierarchy_role == "EXECUTIVE" else "ASSIGNED_ONLY",
+            "app_role": emp.hierarchy_role.capitalize() if emp.hierarchy_role else "Staff",
+            "hierarchy_role": emp.hierarchy_role,
+            "reports_to_id": emp.reports_to_id,
+            "module_permissions": {
+                "pos": True, "inventory": True, "sales": True,
+                "finance": emp.hierarchy_role in ["EXECUTIVE", "MANAGER"],
+                "hr": emp.hierarchy_role in ["EXECUTIVE", "MANAGER"],
+                "procurement": True, "manufacturing": False,
+                "grc": emp.hierarchy_role in ["EXECUTIVE"],
+                "settings": emp.hierarchy_role in ["EXECUTIVE"],
+                "ai_copilot": True
+            },
+            "storage_engine": "Generated Default"
+        }
+
+    status_data = await document_store.get_storage_status()
+    doc["storage_status"] = status_data
+    return doc
+
+@router.put("/employees/{employee_id}/access-profile")
+async def update_employee_access_profile(
+    employee_id: int,
+    payload: Dict[str, Any],
+    current_user: User = Depends(require_permission("hr.manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update employee branch access, roles, and module permissions in MongoDB / Free Document Store."""
+    emp_res = await db.execute(select(Employee).where(Employee.id == employee_id))
+    emp = emp_res.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    updates = {
+        "accessible_branches": payload.get("accessible_branches", ["ALL"]),
+        "branch_access_policy": payload.get("branch_access_policy", "ASSIGNED_ONLY"),
+        "app_role": payload.get("app_role", "Staff"),
+        "module_permissions": payload.get("module_permissions", {}),
+        "updated_by": current_user.email,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    await document_store.update_document("employee_access_authorizations", {"employee_code": emp.employee_code}, updates)
+    return {"success": True, "message": f"Updated access authorizations for {emp.first_name} {emp.last_name} in MongoDB Document Store."}
+
 
 @router.get("/attendance", response_model=List[AttendanceOut])
 async def list_attendance(
