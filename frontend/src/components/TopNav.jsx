@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Search, Bell, HelpCircle, Sun, Moon, ChevronDown, 
+  Search, Bell, HelpCircle, Sun, Moon, ChevronDown, ChevronLeft, ChevronRight,
   Store, User, Shield, LogOut, KeyRound, Sparkles,
   ScanLine, PenTool, Wifi, WifiOff, Sliders, ShieldAlert, Eye, Check,
   RefreshCw, Mail, Building2, Clock, Mic, Globe, UploadCloud, Database
@@ -84,6 +84,52 @@ export default function TopNav({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
+
+  // Horizontal sideways scroll state for top action toolbar
+  const scrollContainerRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScroll = () => {
+    if (scrollContainerRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current;
+      setCanScrollLeft(scrollLeft > 4);
+      setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 4);
+    }
+  };
+
+  useEffect(() => {
+    checkScroll();
+    const timer = setTimeout(checkScroll, 350);
+    window.addEventListener('resize', checkScroll);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', checkScroll);
+    };
+  }, []);
+
+  const handleScrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -220, behavior: 'smooth' });
+      setTimeout(checkScroll, 250);
+    }
+  };
+
+  const handleScrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 220, behavior: 'smooth' });
+      setTimeout(checkScroll, 250);
+    }
+  };
+
+  const handleWheel = (e) => {
+    if (scrollContainerRef.current) {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        scrollContainerRef.current.scrollLeft += e.deltaY;
+        checkScroll();
+      }
+    }
+  };
 
   useEffect(() => {
     const handleSyncUpdate = (e) => {
@@ -355,15 +401,53 @@ export default function TopNav({
         </form>
       </div>
 
-      {/* Right Controls: Branch, Time, Sync, Badges, Tools, Theme, Profile & Sign Out */}
+      {/* Scrollable Middle Action Toolbar with Sideways Navigation */}
       <div style={{ 
         display: 'flex', 
         alignItems: 'center', 
-        gap: '5px', 
-        flexShrink: 0, 
-        marginLeft: 'auto',
-        overflow: 'visible'
+        gap: '4px', 
+        flex: '1 1 auto', 
+        minWidth: 0,
+        position: 'relative',
+        margin: '0 8px'
       }}>
+        {/* Scroll Left Button */}
+        {canScrollLeft && (
+          <button
+            onClick={handleScrollLeft}
+            className="btn btn-ghost"
+            title="Scroll sideways left"
+            style={{
+              padding: '3px 5px',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+              flexShrink: 0,
+              cursor: 'pointer',
+              zIndex: 10
+            }}
+          >
+            <ChevronLeft size={13} color="var(--primary)" />
+          </button>
+        )}
+
+        {/* Scrollable Action Track */}
+        <div
+          ref={scrollContainerRef}
+          onScroll={checkScroll}
+          onWheel={handleWheel}
+          className="no-scrollbar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            overflowX: 'auto',
+            scrollBehavior: 'smooth',
+            width: '100%',
+            whiteSpace: 'nowrap'
+          }}
+        >
 
         {/* Compact Clock Indicator */}
         <div style={{
@@ -658,7 +742,39 @@ export default function TopNav({
             </span>
           )}
         </button>
+        </div>
 
+        {/* Scroll Right Button */}
+        {canScrollRight && (
+          <button
+            onClick={handleScrollRight}
+            className="btn btn-ghost"
+            title="Scroll sideways right"
+            style={{
+              padding: '3px 5px',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+              flexShrink: 0,
+              cursor: 'pointer',
+              zIndex: 10
+            }}
+          >
+            <ChevronRight size={13} color="var(--primary)" />
+          </button>
+        )}
+      </div>
+
+      {/* Pinned User & Security Area (Always 100% visible on screen, never cut off, overflow visible) */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        flexShrink: 0,
+        marginLeft: 'auto',
+        overflow: 'visible'
+      }}>
         {/* Notifications Icon with Real-Time DLP Alert Badge */}
         <div ref={notifRef} style={{ position: 'relative' }}>
           <button 
