@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Bell, HelpCircle, Sun, Moon, ChevronDown, 
   Store, User, Shield, LogOut, KeyRound, Sparkles,
@@ -57,6 +57,33 @@ export default function TopNav({
     secondsRemaining: 30,
     lastSyncTimestamp: null
   });
+
+  const profileRef = useRef(null);
+  const notifRef = useRef(null);
+
+  // Close profile and notification dropdowns on click outside or Escape key
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
+        setProfileOpen(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        setNotifOpen(false);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setProfileOpen(false);
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     const handleSyncUpdate = (e) => {
@@ -335,9 +362,7 @@ export default function TopNav({
         gap: '5px', 
         flexShrink: 0, 
         marginLeft: 'auto',
-        overflowX: 'auto',
-        scrollbarWidth: 'none',
-        maxWidth: 'calc(100vw - 250px)'
+        overflow: 'visible'
       }}>
 
         {/* Compact Clock Indicator */}
@@ -635,7 +660,7 @@ export default function TopNav({
         </button>
 
         {/* Notifications Icon with Real-Time DLP Alert Badge */}
-        <div style={{ position: 'relative' }}>
+        <div ref={notifRef} style={{ position: 'relative' }}>
           <button 
             onClick={() => setNotifOpen(!notifOpen)}
             className="btn btn-ghost" 
@@ -911,9 +936,22 @@ export default function TopNav({
         </button>
 
         {/* User Profile Chip */}
-        <div style={{ position: 'relative', flexShrink: 0 }}>
+        <div ref={profileRef} style={{ position: 'relative', flexShrink: 0 }}>
           <div
-            onClick={() => setProfileOpen(!profileOpen)}
+            id="top-nav-profile-chip"
+            onClick={(e) => {
+              e.stopPropagation();
+              setProfileOpen(prev => !prev);
+            }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setProfileOpen(prev => !prev);
+              }
+            }}
+            title="User Profile & Settings"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -921,9 +959,10 @@ export default function TopNav({
               cursor: 'pointer',
               padding: '4px 8px',
               borderRadius: 'var(--radius-sm)',
-              transition: 'background var(--transition-fast)',
-              backgroundColor: 'var(--bg-subtle)',
-              border: '1px solid var(--border-color)'
+              transition: 'all var(--transition-fast)',
+              backgroundColor: profileOpen ? 'var(--bg-active, rgba(0, 100, 210, 0.15))' : 'var(--bg-subtle)',
+              border: profileOpen ? '1px solid var(--primary)' : '1px solid var(--border-color)',
+              userSelect: 'none'
             }}
           >
             <div style={{
@@ -949,7 +988,14 @@ export default function TopNav({
                 {userRole}
               </div>
             </div>
-            <ChevronDown size={13} color="var(--text-muted)" />
+            <ChevronDown 
+              size={13} 
+              color="var(--text-muted)"
+              style={{
+                transform: profileOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease'
+              }}
+            />
           </div>
 
           {/* Profile Dropdown */}
@@ -959,9 +1005,9 @@ export default function TopNav({
               style={{
                 position: 'absolute',
                 right: 0,
-                top: '44px',
-                width: '230px',
-                zIndex: 200,
+                top: 'calc(100% + 6px)',
+                width: '240px',
+                zIndex: 9999,
                 padding: '8px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -969,7 +1015,7 @@ export default function TopNav({
                 backgroundColor: 'var(--bg-surface)',
                 border: '1px solid var(--border-color)',
                 borderRadius: '8px',
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.25)'
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.35)'
               }}
             >
               <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)', marginBottom: '4px' }}>
