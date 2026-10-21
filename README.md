@@ -1,5 +1,4 @@
 # NexaERP
-Live Link-https://nexaerp-frontend.onrender.com
 
 A full-stack, multi-module ERP platform covering point of sale, inventory, procurement, finance and accounting, HR and payroll, manufacturing, compliance, and an AI assistant, with web and mobile clients.
 
