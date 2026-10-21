@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Upload, FileText, CheckCircle2, AlertTriangle, X, Download,
   RefreshCw, Check, ArrowRight, Table, Layers, FileSpreadsheet,
-  FileCode, Database, Eye, Trash2
+  FileCode, Database, Eye, Trash2, Building2
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 
@@ -21,7 +21,20 @@ export default function UniversalDataImportModal({
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [records, setRecords] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [targetBranchId, setTargetBranchId] = useState(1);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      apiRequest('/api/branches').then(bList => {
+        if (bList && bList.length) {
+          setBranches(bList);
+          setTargetBranchId(bList[0].id);
+        }
+      }).catch(() => {});
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -104,7 +117,8 @@ export default function UniversalDataImportModal({
         method: 'POST',
         body: JSON.stringify({
           entity_type: targetEntity,
-          records: records
+          records: records,
+          branch_id: Number(targetBranchId)
         })
       });
 
@@ -184,30 +198,61 @@ export default function UniversalDataImportModal({
           marginBottom: '16px'
         }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-main)' }}>Target Entity Variety:</span>
-              <select
-                value={entityType}
-                onChange={(e) => setEntityType(e.target.value)}
-                style={{
-                  fontSize: '12px',
-                  padding: '5px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border-color)',
-                  backgroundColor: 'var(--bg-surface)',
-                  color: 'var(--text-main)',
-                  fontWeight: 600
-                }}
-              >
-                <option value="auto">✨ Auto-Detect Entity from Document</option>
-                <option value="vendors">🏢 Vendors & Suppliers (Procurement)</option>
-                <option value="products">📦 Products & Inventory (Catalog)</option>
-                <option value="customers">👥 Customers & Clients (CRM)</option>
-                <option value="employees">🧑‍💼 Employees & Staff (HR / Payroll)</option>
-                <option value="chart_of_accounts">📑 Chart of Accounts (General Ledger)</option>
-                <option value="expenses">💸 Operating Expenses (Vouchers / OPEX)</option>
-                <option value="warehouses">🏬 Warehouses & Hubs (Storage)</option>
-              </select>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-main)' }}>Target Entity:</span>
+                <select
+                  value={entityType}
+                  onChange={(e) => setEntityType(e.target.value)}
+                  style={{
+                    fontSize: '12px',
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-main)',
+                    fontWeight: 600
+                  }}
+                >
+                  <option value="auto">✨ Auto-Detect Entity from Document</option>
+                  <option value="vendors">🏢 Vendors & Suppliers (Procurement)</option>
+                  <option value="products">📦 Products & Inventory (Catalog)</option>
+                  <option value="customers">👥 Customers & Clients (CRM)</option>
+                  <option value="employees">🧑‍💼 Employees & Staff (HR / Payroll)</option>
+                  <option value="chart_of_accounts">📑 Chart of Accounts (General Ledger)</option>
+                  <option value="expenses">💸 Operating Expenses (Vouchers / OPEX)</option>
+                  <option value="warehouses">🏬 Warehouses & Hubs (Storage)</option>
+                </select>
+              </div>
+
+              {/* Target Operating Branch Selector */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Building2 size={14} color="var(--primary)" />
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-main)' }}>Target Branch:</span>
+                <select
+                  value={targetBranchId}
+                  onChange={(e) => setTargetBranchId(Number(e.target.value))}
+                  style={{
+                    fontSize: '12px',
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-main)',
+                    fontWeight: 600
+                  }}
+                >
+                  {branches.length > 0 ? (
+                    branches.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.flag || '🏢'} {b.name} ({b.city})
+                      </option>
+                    ))
+                  ) : (
+                    <option value="1">Hyderabad Global HQ</option>
+                  )}
+                </select>
+              </div>
             </div>
 
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>

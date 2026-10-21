@@ -15,12 +15,57 @@ export default function DashboardPage({ onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState('Last 30 Days');
   const [expenseFilter, setExpenseFilter] = useState('This Month');
+  const [currentDateTime, setCurrentDateTime] = useState(new Date());
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [branchInfo, setBranchInfo] = useState(null);
+
+  // Auto-updating live clock
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentDateTime(new Date()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getGreeting = () => {
+    const hour = currentDateTime.getHours();
+    const name = user?.full_name?.split(' ')[0] || user?.username || 'Team Member';
+    if (hour >= 5 && hour < 12) {
+      return {
+        title: `Good Morning, ${name}! 🌅`,
+        badge: 'Morning Shift',
+        subtext: "Here's your morning operational snapshot and enterprise sales velocity."
+      };
+    } else if (hour >= 12 && hour < 17) {
+      return {
+        title: `Good Afternoon, ${name}! ☀️`,
+        badge: 'Afternoon Ops',
+        subtext: 'Mid-day transactions, inventory movements, and subsidiary performance.'
+      };
+    } else if (hour >= 17 && hour < 21) {
+      return {
+        title: `Good Evening, ${name}! 🌆`,
+        badge: 'Evening Rollup',
+        subtext: 'Daily reconciliation, cash drawer closures, and regional summaries.'
+      };
+    } else {
+      return {
+        title: `Working Late / Night Shift, ${name}! 🌙`,
+        badge: 'Night Operations',
+        subtext: '24/7 Global multi-branch consolidation, transit tracking, and security monitoring.'
+      };
+    }
+  };
 
   const fetchMetrics = async () => {
     try {
       setLoading(true);
-      const metrics = await apiRequest('/api/dashboard/metrics');
+      const [metrics, reqs, bAccess] = await Promise.all([
+        apiRequest('/api/dashboard/metrics'),
+        apiRequest('/api/branches/access-requests').catch(() => []),
+        apiRequest('/api/branches/my-access').catch(() => null)
+      ]);
       setData(metrics);
+      setPendingRequests(reqs || []);
+      setBranchInfo(bAccess);
     } catch (err) {
       console.error('Failed to load dashboard metrics:', err);
     } finally {
@@ -31,6 +76,10 @@ export default function DashboardPage({ onNavigate }) {
   useEffect(() => {
     fetchMetrics();
   }, []);
+
+  const greeting = getGreeting();
+  const isAdmin = user?.is_superuser || branchInfo?.can_access_all;
+  const pendingCount = pendingRequests.filter(r => r.status === 'PENDING').length;
 
   const kpis = data?.kpis || {
     total_sales: 0,
@@ -54,17 +103,31 @@ export default function DashboardPage({ onNavigate }) {
         gap: '16px'
       }}>
         <div>
-          <h1 style={{
-            fontSize: '24px',
-            fontWeight: 800,
-            fontFamily: 'var(--font-brand)',
-            color: 'var(--text-main)',
-            letterSpacing: '-0.3px'
-          }}>
-            Good Morning, {user?.full_name?.split(' ')[0] || 'Karthik'}
-          </h1>
-          <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)' }}>
-            Here's what's happening in your business today.
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={{
+              fontSize: '24px',
+              fontWeight: 800,
+              fontFamily: 'var(--font-brand)',
+              color: 'var(--text-main)',
+              letterSpacing: '-0.3px',
+              margin: 0
+            }}>
+              {greeting.title}
+            </h1>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              backgroundColor: 'var(--primary-light)',
+              color: 'var(--primary)',
+              padding: '2px 8px',
+              borderRadius: '999px',
+              border: '1px solid var(--primary-border)'
+            }}>
+              {greeting.badge}
+            </span>
+          </div>
+          <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+            {greeting.subtext}
           </p>
         </div>
 
@@ -78,10 +141,10 @@ export default function DashboardPage({ onNavigate }) {
             backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border-color)',
             fontSize: '12.5px',
-            fontWeight: 600
+            fontWeight: 700
           }}>
             <Store size={14} color="var(--primary)" />
-            <span>{user?.branch_name || 'Main Store'}</span>
+            <span>{branchInfo?.current_branch || user?.branch_name || 'Hyderabad Global HQ'}</span>
           </div>
 
           <div style={{
@@ -93,10 +156,13 @@ export default function DashboardPage({ onNavigate }) {
             backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border-color)',
             fontSize: '12.5px',
-            color: 'var(--text-secondary)'
+            color: 'var(--text-secondary)',
+            fontWeight: 600
           }}>
-            <Calendar size={14} />
-            <span>Wednesday, 15 Oct 2026 10:30 AM</span>
+            <Clock size={14} color="var(--primary)" />
+            <span>
+              {currentDateTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} • {currentDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
           </div>
 
           <button
@@ -109,6 +175,40 @@ export default function DashboardPage({ onNavigate }) {
           </button>
         </div>
       </div>
+
+      {/* Cross-Branch Access Request Alert Banner for Admins or Employees */}
+      {isAdmin && pendingCount > 0 && (
+        <div style={{
+          padding: '12px 18px',
+          borderRadius: '10px',
+          backgroundColor: 'rgba(234, 179, 8, 0.1)',
+          border: '1px solid rgba(234, 179, 8, 0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Bell size={18} color="#b45309" />
+            <div>
+              <span style={{ fontSize: '13px', fontWeight: 800, color: '#92400e' }}>
+                {pendingCount} Pending Cross-Branch & Authority Access Request{pendingCount > 1 ? 's' : ''}
+              </span>
+              <div style={{ fontSize: '12px', color: '#b45309', marginTop: '2px' }}>
+                Employees are requesting authorized access to other subsidiaries. Review in the MNC Multi-Branch Controller.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('people')}
+            className="btn btn-primary"
+            style={{ fontSize: '12px', padding: '6px 14px', backgroundColor: '#d97706', borderColor: '#d97706' }}
+          >
+            Review Requests in HR / Switcher →
+          </button>
+        </div>
+      )}
 
       {/* Shopkeeper 2-Step Workflow Guide Banner */}
       {kpis.inventory_items === 0 && (

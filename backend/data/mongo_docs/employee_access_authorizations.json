@@ -646,5 +646,24 @@
     "created_at": "2026-10-21T15:46:05.105865",
     "updated_at": "2026-10-21T15:46:05.105865",
     "storage_engine": "Local Free Document Store (Persistent JSON Engine)"
+  },
+  {
+    "email": "assistant@nexaerp.internal",
+    "full_name": "Arun Kumar (Shop Assistant)",
+    "accessible_branches": [
+      "Hyderabad Global HQ",
+      "Dubai MENA Corporate Hub"
+    ],
+    "branch_access_policy": "ASSIGNED_ONLY",
+    "app_role": "MENA Regional Auditor",
+    "module_permissions": {
+      "pos": true,
+      "inventory": true,
+      "sales": true,
+      "ai_copilot": true
+    },
+    "storage_engine": "Local Free Document Store (Persistent JSON Engine)",
+    "updated_at": "2026-10-21T16:23:05.158221",
+    "created_at": "2026-10-21T16:22:09.587528"
   }
 ]

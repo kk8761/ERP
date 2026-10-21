@@ -389,3 +389,194 @@ async def switch_branch_context(
     )
     return {"success": True, "active_branch": branch.name, "branch_id": branch.id}
 
+
+class CrossBranchAccessRequestCreate(BaseModel):
+    target_branch_id: int
+    target_branch_name: Optional[str] = None
+    request_type: Optional[str] = "BRANCH_ACCESS" # "BRANCH_ACCESS", "ELEVATED_AUTHORITY", "CONSOLIDATED_VIEW"
+    requested_role: Optional[str] = "Branch Staff / Operator"
+    duration: Optional[str] = "TEMPORARY_7D" # "TEMPORARY_24H", "TEMPORARY_7D", "TEMPORARY_30D", "PERMANENT"
+    reason: str = Field(..., min_length=3, description="Mandatory business reason for access request")
+
+
+class CrossBranchAccessReviewRequest(BaseModel):
+    action: str = Field(..., pattern="^(APPROVE|DISAPPROVE|ON_HOLD)$")
+    admin_reason: str = Field(..., min_length=3, description="Mandatory administrator review reason / justification")
+
+
+@router.post("/access-requests")
+async def create_branch_access_request(
+    payload: CrossBranchAccessRequestCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Submits an employee request to access an operating branch or elevated authority.
+    Persisted in MongoDB Community Edition / Free Document Store for admin review.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    # Look up target branch
+    branch_res = await db.execute(select(Branch).where(Branch.id == payload.target_branch_id))
+    target_branch = branch_res.scalar_one_or_none()
+    if not target_branch:
+        raise HTTPException(status_code=404, detail="Target branch not found")
+
+    # Look up user's current branch
+    cur_branch_name = "Global Headquarters"
+    if current_user.branch_id:
+        cb_res = await db.execute(select(Branch.name).where(Branch.id == current_user.branch_id))
+        cur_branch_name = cb_res.scalar_one_or_none() or "Current Branch"
+
+    req_id = f"REQ-{uuid.uuid4().hex[:8].upper()}"
+    req_doc = {
+        "request_id": req_id,
+        "user_id": current_user.id,
+        "user_email": current_user.email,
+        "employee_name": current_user.full_name or current_user.username or current_user.email.split('@')[0],
+        "current_branch_id": current_user.branch_id,
+        "current_branch_name": cur_branch_name,
+        "target_branch_id": target_branch.id,
+        "target_branch_name": target_branch.name,
+        "target_branch_city": target_branch.city or "Metropolitan Hub",
+        "request_type": payload.request_type,
+        "requested_role": payload.requested_role,
+        "duration": payload.duration,
+        "reason": payload.reason.strip(),
+        "status": "PENDING", # PENDING, APPROVED, DISAPPROVED, ON_HOLD
+        "admin_reason": None,
+        "reviewed_by": None,
+        "reviewed_at": None,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+
+    inserted = await document_store.insert_document("branch_access_requests", req_doc)
+    await record_audit_log(
+        db, action="BRANCH_ACCESS_REQUESTED", entity_name="BranchAccessRequest",
+        user_id=current_user.id, user_email=current_user.email,
+        details={
+            "request_id": req_id,
+            "target_branch": target_branch.name,
+            "reason": payload.reason
+        }
+    )
+
+    return {
+        "success": True,
+        "message": f"Cross-branch access request #{req_id} for '{target_branch.name}' has been routed to System Administration.",
+        "request": inserted
+    }
+
+
+@router.get("/access-requests")
+async def list_branch_access_requests(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns cross-branch & elevated authority requests.
+    Administrators and Executives view all requests across all branches.
+    Regular employees view their submitted requests.
+    """
+    user_role_names = [ur.role.name for ur in (current_user.roles or []) if getattr(ur, "role", None)]
+    is_admin = bool(current_user.is_superuser or "Admin" in user_role_names or "Executive" in user_role_names)
+
+    if is_admin:
+        all_reqs = await document_store.find_documents("branch_access_requests", {})
+    else:
+        all_reqs = await document_store.find_documents("branch_access_requests", {"user_email": current_user.email})
+
+    # Sort descending by created_at
+    all_reqs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return all_reqs
+
+
+@router.put("/access-requests/{request_id}/review")
+async def review_branch_access_request(
+    request_id: str,
+    payload: CrossBranchAccessReviewRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Admin decision endpoint to APPROVE, DISAPPROVE, or put ON_HOLD an access request with mandatory reasons.
+    If APPROVED: immediately grants target branch permission in MongoDB Community Edition.
+    """
+    from datetime import datetime, timezone
+    user_role_names = [ur.role.name for ur in (current_user.roles or []) if getattr(ur, "role", None)]
+    is_admin = bool(current_user.is_superuser or "Admin" in user_role_names or "Executive" in user_role_names)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only System Administrators and Executives can review branch access requests.")
+
+    req = await document_store.find_document("branch_access_requests", {"request_id": request_id})
+    if not req:
+        raise HTTPException(status_code=404, detail=f"Access request #{request_id} not found.")
+
+    action_key = payload.action.upper()
+    status_map = {
+        "APPROVE": "APPROVED",
+        "DISAPPROVE": "DISAPPROVED",
+        "ON_HOLD": "ON_HOLD",
+        "APPROVED": "APPROVED",
+        "REJECT": "DISAPPROVED"
+    }
+    req["status"] = status_map.get(action_key, action_key)
+    req["admin_reason"] = payload.admin_reason.strip()
+    req["reviewed_by"] = current_user.email
+    req["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Update document in document store
+    await document_store.update_document("branch_access_requests", {"request_id": request_id}, req)
+
+    # If APPROVED: grant access in employee_access_authorizations
+    if req["status"] == "APPROVED":
+        target_branch_name = req.get("target_branch_name")
+        user_email = req.get("user_email")
+
+        auth_doc = await document_store.find_document("employee_access_authorizations", {"email": user_email})
+        if auth_doc:
+            allowed = auth_doc.get("accessible_branches", [])
+            if target_branch_name and target_branch_name not in allowed:
+                allowed.append(target_branch_name)
+                auth_doc["accessible_branches"] = allowed
+            if req.get("request_type") == "CONSOLIDATED_VIEW":
+                auth_doc["branch_access_policy"] = "ALL_BRANCHES"
+            await document_store.update_document("employee_access_authorizations", {"email": user_email}, auth_doc)
+        else:
+            # Create authorization doc in MongoDB Community Store
+            new_auth = {
+                "email": user_email,
+                "full_name": req.get("employee_name"),
+                "accessible_branches": [req.get("current_branch_name"), target_branch_name],
+                "branch_access_policy": "ASSIGNED_ONLY",
+                "app_role": req.get("requested_role") or "Staff",
+                "module_permissions": {"pos": True, "inventory": True, "sales": True, "ai_copilot": True},
+                "storage_engine": "MongoDB Community / Free Store",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+            await document_store.insert_document("employee_access_authorizations", new_auth)
+
+    action_label = {
+        "APPROVE": "Approved and branch access granted",
+        "DISAPPROVE": "Disapproved / Rejected",
+        "ON_HOLD": "Put On Hold pending further review"
+    }.get(action_key, action_key)
+
+    await record_audit_log(
+        db, action=f"BRANCH_REQUEST_{action_key}", entity_name="BranchAccessRequest",
+        user_id=current_user.id, user_email=current_user.email,
+        details={
+            "request_id": request_id,
+            "decision": action_key,
+            "admin_reason": payload.admin_reason,
+            "target_user": req.get("user_email")
+        }
+    )
+
+    return {
+        "success": True,
+        "message": f"Request #{request_id} has been {action_label}.",
+        "request": req
+    }
+

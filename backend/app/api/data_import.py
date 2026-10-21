@@ -675,6 +675,8 @@ async def commit_batch_import(
                     existing.last_name = l_name
                     existing.designation = desig
                     existing.basic_salary = salary
+                    if payload.branch_id:
+                        existing.branch_id = payload.branch_id
                     updated_count += 1
                 else:
                     emp = Employee(
@@ -684,7 +686,8 @@ async def commit_batch_import(
                         email=email,
                         phone=_clean_str(r.get("phone")),
                         designation=desig,
-                        basic_salary=salary
+                        basic_salary=salary,
+                        branch_id=payload.branch_id or 1
                     )
                     db.add(emp)
                     created_count += 1
