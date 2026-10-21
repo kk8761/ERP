@@ -68,6 +68,7 @@ class Employee(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     department: Mapped[Optional["Department"]] = relationship("Department")
+    branch: Mapped[Optional["Branch"]] = relationship("Branch")
     attendances: Mapped[List["Attendance"]] = relationship("Attendance", back_populates="employee")
     leaves: Mapped[List["LeaveRequest"]] = relationship("LeaveRequest", back_populates="employee")
     payrolls: Mapped[List["PayrollRecord"]] = relationship("PayrollRecord", back_populates="employee")

@@ -366,17 +366,17 @@ async def ensure_essential_users(db):
     b_res = await db.execute(select(Branch).limit(1))
     main_branch = b_res.scalar_one_or_none()
     
-    d_res = await db.execute(select(Department).where(Department.code == "DEP-SALES"))
+    d_res = await db.execute(select(Department).where(Department.code == "DEP-SALES").limit(1))
     sales_dept = d_res.scalar_one_or_none()
     
-    r_res = await db.execute(select(Role).where(Role.name == "Sales Representative / Cashier"))
+    r_res = await db.execute(select(Role).where(Role.name == "Sales Representative / Cashier").limit(1))
     sales_role = r_res.scalar_one_or_none()
 
     if not main_branch or not sales_dept or not sales_role:
         return
 
     # Check assistant@nexaerp.internal
-    u_res = await db.execute(select(User).where(User.email == "assistant@nexaerp.internal"))
+    u_res = await db.execute(select(User).where(User.email == "assistant@nexaerp.internal").limit(1))
     if not u_res.scalar_one_or_none():
         assistant = User(
             email="assistant@nexaerp.internal",

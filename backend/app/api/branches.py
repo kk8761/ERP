@@ -85,6 +85,11 @@ async def list_mnc_branches(
         wh_count_res = await db.execute(select(func.count(Warehouse.id)).where(Warehouse.branch_id == b.id))
         wh_count = wh_count_res.scalar() or 0
 
+        # Count employees in branch
+        from app.models.hr import Employee
+        emp_count_res = await db.execute(select(func.count(Employee.id)).where(Employee.branch_id == b.id))
+        emp_count = emp_count_res.scalar() or 0
+
         # Calculate revenue for branch
         rev_res = await db.execute(
             select(func.sum(SalesOrder.total_amount)).where(SalesOrder.branch_id == b.id)
@@ -94,15 +99,37 @@ async def list_mnc_branches(
         # Country & Currency heuristics
         currency = "INR"
         country_code = "IN"
-        if "dubai" in b.name.lower() or "dxb" in b.code.lower():
+        country_name = "India"
+        flag = "🇮🇳"
+
+        lower_name = (b.name or "").lower()
+        lower_code = (b.code or "").lower()
+
+        if "dubai" in lower_name or "dxb" in lower_code or "mena" in lower_name:
             currency = "AED"
             country_code = "AE"
-        elif "singapore" in b.name.lower() or "sin" in b.code.lower():
+            country_name = "United Arab Emirates"
+            flag = "🇦🇪"
+        elif "singapore" in lower_name or "sin" in lower_code:
             currency = "SGD"
             country_code = "SG"
-        elif "mumbai" in b.name.lower() or "mum" in b.code.lower():
-            currency = "INR"
-            country_code = "IN"
+            country_name = "Singapore"
+            flag = "🇸🇬"
+        elif "london" in lower_name or "lon" in lower_code:
+            currency = "GBP"
+            country_code = "GB"
+            country_name = "United Kingdom"
+            flag = "🇬🇧"
+        elif "new york" in lower_name or "nyc" in lower_code or "americas" in lower_name:
+            currency = "USD"
+            country_code = "US"
+            country_name = "United States"
+            flag = "🇺🇸"
+        elif "tokyo" in lower_name or "tyo" in lower_code:
+            currency = "JPY"
+            country_code = "JP"
+            country_name = "Japan"
+            flag = "🇯🇵"
 
         output.append({
             "id": b.id,
@@ -110,13 +137,16 @@ async def list_mnc_branches(
             "code": b.code,
             "city": b.city or "Metropolitan Hub",
             "country": country_code,
+            "country_name": country_name,
+            "flag": flag,
             "currency": currency,
             "address": b.address or "Corporate Regional Hub",
             "is_active": b.is_active,
+            "employees_count": emp_count,
             "departments_count": max(dep_count, 4),
             "warehouses_count": max(wh_count, 1),
             "gross_revenue": gross_rev if gross_rev > 0 else 125000.0,
-            "is_hq": (b.id == 1 or "main" in b.name.lower() or "hq" in b.code.lower()),
+            "is_hq": (b.id == 1 or "main" in lower_name or "hq" in lower_code or "global hq" in lower_name),
             "status": "OPERATIONAL"
         })
 

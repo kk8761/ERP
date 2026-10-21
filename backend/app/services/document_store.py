@@ -132,13 +132,16 @@ class DocumentStoreService:
 
         # Fallback local lookup
         docs = self._read_local_collection(collection_name)
-        for d in docs:
-            match = True
-            for k, v in query.items():
+        def _matches(d: Dict[str, Any], q: Dict[str, Any]) -> bool:
+            if "$or" in q:
+                return any(_matches(d, sub) for sub in q["$or"])
+            for k, v in q.items():
                 if d.get(k) != v:
-                    match = False
-                    break
-            if match:
+                    return False
+            return True
+
+        for d in docs:
+            if _matches(d, query):
                 return d
         return None
 
@@ -162,16 +165,16 @@ class DocumentStoreService:
         docs = self._read_local_collection(collection_name)
         if not query:
             return docs
-        results = []
-        for d in docs:
-            match = True
-            for k, v in query.items():
+
+        def _matches(d: Dict[str, Any], q: Dict[str, Any]) -> bool:
+            if "$or" in q:
+                return any(_matches(d, sub) for sub in q["$or"])
+            for k, v in q.items():
                 if d.get(k) != v:
-                    match = False
-                    break
-            if match:
-                results.append(d)
-        return results
+                    return False
+            return True
+
+        return [d for d in docs if _matches(d, query)]
 
     async def update_document(self, collection_name: str, query: Dict[str, Any], updates: Dict[str, Any]) -> bool:
         updates["updated_at"] = datetime.utcnow().isoformat()

@@ -39,7 +39,7 @@ export default function TopNav({
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [currentBranchId, setCurrentBranchId] = useState(1);
-  const [currentBranchName, setCurrentBranchName] = useState('Hyderabad HQ');
+  const [currentBranchName, setCurrentBranchName] = useState('Hyderabad Global HQ');
   
   // User Profile, Company Settings & User Preferences Modals
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -604,21 +604,21 @@ export default function TopNav({
             color: 'var(--text-main)',
             backgroundColor: 'var(--bg-subtle)',
             border: '1px solid var(--border-color)',
-            padding: '4px 6px',
+            padding: '5px 10px',
             borderRadius: 'var(--radius-sm)',
             display: 'flex',
             alignItems: 'center',
-            gap: '3px',
-            fontSize: '10.5px',
+            gap: '6px',
+            fontSize: '11.5px',
             fontWeight: 700,
             cursor: 'pointer'
           }}
         >
-          <Building2 size={12} color="var(--primary)" />
-          <span style={{ maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <Building2 size={13} color="var(--primary)" />
+          <span style={{ maxWidth: '175px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {currentBranchName}
           </span>
-          <ChevronDown size={10} color="var(--text-secondary)" />
+          <ChevronDown size={11} color="var(--text-secondary)" />
         </button>
 
         {/* Universal Document & Data Onboarding Quick Trigger */}

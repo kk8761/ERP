@@ -10,8 +10,9 @@ import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import EmployeeOnboardingModal from '../components/EmployeeOnboardingModal';
 import EmployeeDossierModal from '../components/EmployeeDossierModal';
+import EmployeeLifecycleModal from '../components/EmployeeLifecycleModal';
 import OrgHierarchyViewer from '../components/OrgHierarchyViewer';
-import { GitFork, Crown } from 'lucide-react';
+import { GitFork, Crown, Building2, TrendingUp } from 'lucide-react';
 
 export default function HRPage({ initialTab = 'employees', initialAction = '' }) {
   const { hasPermission } = useAuth();
@@ -19,6 +20,7 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
     ['employees', 'hierarchy', 'attendance', 'leaves', 'payroll'].includes(initialTab) ? initialTab : 'employees'
   ); // 'employees', 'hierarchy', 'attendance', 'leaves', 'payroll'
   const [employees, setEmployees] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [attendances, setAttendances] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [payrolls, setPayrolls] = useState([]);
@@ -31,10 +33,12 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
   // Search & Filter
   const [empSearch, setEmpSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('ALL');
+  const [branchFilter, setBranchFilter] = useState('ALL');
 
   // Modals
   const [showEmpModal, setShowEmpModal] = useState(initialAction === 'create');
   const [selectedEmployeeForDossier, setSelectedEmployeeForDossier] = useState(null);
+  const [selectedEmployeeForLifecycle, setSelectedEmployeeForLifecycle] = useState(null);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [showPayrollModal, setShowPayrollModal] = useState(false);
 
@@ -82,16 +86,18 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
   const loadHRData = async () => {
     try {
       setLoading(true);
-      const [emps, atts, lvs, prs] = await Promise.all([
-        apiRequest('/api/hr/employees'),
+      const [emps, atts, lvs, prs, bList] = await Promise.all([
+        apiRequest('/api/hr/employees?include_inactive=true'),
         apiRequest('/api/hr/attendance'),
         apiRequest('/api/hr/leaves'),
-        hasPermission('payroll.view') ? apiRequest('/api/hr/payroll') : Promise.resolve([])
+        hasPermission('payroll.view') ? apiRequest('/api/hr/payroll') : Promise.resolve([]),
+        apiRequest('/api/branches').catch(() => [])
       ]);
-      setEmployees(emps);
-      setAttendances(atts);
-      setLeaves(lvs);
-      setPayrolls(prs);
+      setEmployees(emps || []);
+      setAttendances(atts || []);
+      setLeaves(lvs || []);
+      setPayrolls(prs || []);
+      setBranches(bList || []);
     } catch (e) {
       console.error('Failed to load HR data:', e);
     } finally {
@@ -605,6 +611,27 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
                   <option value="Human Resources">Human Resources</option>
                 </select>
               </div>
+
+              {/* Branch Filter Dropdown */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Building2 size={15} color="var(--text-muted)" />
+                <select
+                  value={branchFilter}
+                  onChange={e => setBranchFilter(e.target.value)}
+                  className="form-input"
+                  style={{ fontSize: '13px', padding: '6px 10px', minWidth: '200px' }}
+                >
+                  <option value="ALL">All Operating Branches ({branches.length} Hubs)</option>
+                  {branches.map(b => {
+                    const count = employees.filter(e => e.branch_id === b.id).length;
+                    return (
+                      <option key={b.id} value={b.id}>
+                        {b.flag || '🏢'} {b.name} ({count} Staff)
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -617,7 +644,8 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
                     emp.email?.toLowerCase().includes(empSearch.toLowerCase())
                   );
                   const matchesDept = deptFilter === 'ALL' || (emp.department_name === deptFilter);
-                  return matchesSearch && matchesDept;
+                  const matchesBranch = branchFilter === 'ALL' || emp.branch_id === Number(branchFilter);
+                  return matchesSearch && matchesDept && matchesBranch;
                 }).length}</strong> of {employees.length} employees
               </span>
               {hasPermission('hr.manage') && (
@@ -640,9 +668,10 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
                   <tr>
                     <th>Employee Code</th>
                     <th>Full Name & Role</th>
+                    <th>Operating Branch & Location</th>
                     <th>Hierarchy Tier & Boss</th>
                     <th>Department</th>
-                    <th>Contact & Location</th>
+                    <th>Contact</th>
                     <th>Compensation</th>
                     <th>Documents Vault</th>
                     <th>Status</th>
@@ -659,7 +688,8 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
                         emp.email?.toLowerCase().includes(empSearch.toLowerCase())
                       );
                       const matchesDept = deptFilter === 'ALL' || (emp.department_name === deptFilter);
-                      return matchesSearch && matchesDept;
+                      const matchesBranch = branchFilter === 'ALL' || emp.branch_id === Number(branchFilter);
+                      return matchesSearch && matchesDept && matchesBranch;
                     })
                     .map(emp => {
                       let docsCount = 0;
@@ -672,10 +702,16 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
                         }
                       }
 
+                      const branchObj = branches.find(b => b.id === emp.branch_id);
+
                       return (
                         <tr
                           key={emp.id}
-                          style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
+                          style={{
+                            cursor: 'pointer',
+                            transition: 'background-color 0.15s ease',
+                            opacity: emp.is_active === false ? 0.7 : 1
+                          }}
                           onClick={() => setSelectedEmployeeForDossier(emp)}
                           title="Click to view full employee dossier"
                         >
@@ -692,7 +728,7 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
                                 color: 'var(--primary)',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
+                                justifyCenter: 'center',
                                 fontSize: '12px',
                                 fontWeight: 800
                               }}>
@@ -708,6 +744,21 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
                               </div>
                             </div>
                           </td>
+
+                          {/* Operating Branch & Location Column */}
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '14px' }}>{branchObj?.flag || '🏢'}</span>
+                              <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-main)' }}>
+                                {emp.branch_name || branchObj?.name || 'Hyderabad Global HQ'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <span>📍 {branchObj?.city || 'Metropolitan Hub'}</span>
+                              <span>({branchObj?.country || 'Global'})</span>
+                            </div>
+                          </td>
+
                           <td>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                               <span style={{
@@ -773,14 +824,46 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
                             )}
                           </td>
                           <td>
-                            <span className="badge badge-success" style={{ fontSize: '11px' }}>ACTIVE</span>
+                            <span
+                              className={`badge ${emp.is_active !== false ? 'badge-success' : 'badge-danger'}`}
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 800,
+                                backgroundColor: emp.is_active !== false ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                color: emp.is_active !== false ? '#15803d' : '#b91c1c'
+                              }}
+                            >
+                              {emp.is_active !== false ? 'ACTIVE' : 'TERMINATED'}
+                            </span>
                           </td>
                           <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                              {hasPermission('hr.manage') && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedEmployeeForLifecycle(emp);
+                                  }}
+                                  className="btn btn-primary"
+                                  style={{
+                                    padding: '4px 9px',
+                                    fontSize: '11.5px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontWeight: 700
+                                  }}
+                                  title="Promotion, Salary Increment, Branch Transfer, or Termination"
+                                >
+                                  <TrendingUp size={13} />
+                                  <span>Lifecycle</span>
+                                </button>
+                              )}
+
                               <button
                                 onClick={() => setSelectedEmployeeForDossier(emp)}
                                 className="btn btn-secondary"
-                                style={{ padding: '4px 8px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                style={{ padding: '4px 8px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px' }}
                                 title="Open Complete Employee Profile & Documents"
                               >
                                 <Eye size={13} />
@@ -790,7 +873,7 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
                               <button
                                 onClick={() => handleClockIn(emp.id)}
                                 className="btn btn-ghost"
-                                style={{ padding: '4px 8px', fontSize: '12px' }}
+                                style={{ padding: '4px 8px', fontSize: '11.5px' }}
                                 title="Record Attendance Check-in"
                               >
                                 <Clock size={13} />
@@ -1012,6 +1095,7 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
         onClose={() => setShowEmpModal(false)}
         onEmployeeCreated={handleCreateEmployee}
         existingEmployeesCount={employees.length}
+        branches={branches}
       />
 
       {/* Corporate Employee Profile Dossier Modal */}
@@ -1019,6 +1103,18 @@ export default function HRPage({ initialTab = 'employees', initialAction = '' })
         employee={selectedEmployeeForDossier}
         isOpen={!!selectedEmployeeForDossier}
         onClose={() => setSelectedEmployeeForDossier(null)}
+      />
+
+      {/* Employee Lifecycle Management Modal (Promotion, Increment, Transfer, Termination) */}
+      <EmployeeLifecycleModal
+        isOpen={!!selectedEmployeeForLifecycle}
+        onClose={() => setSelectedEmployeeForLifecycle(null)}
+        employee={selectedEmployeeForLifecycle}
+        branches={branches}
+        onSuccess={() => {
+          loadHRData();
+          setStatusMsg('Employee lifecycle status updated successfully.');
+        }}
       />
 
       {/* Apply Leave Modal */}

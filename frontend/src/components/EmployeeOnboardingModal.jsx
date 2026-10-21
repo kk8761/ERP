@@ -6,12 +6,14 @@ import {
   Mail, Calendar, Award, Check, Eye, HelpCircle
 } from 'lucide-react';
 
-export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCreated, existingEmployeesCount = 0 }) {
+export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCreated, existingEmployeesCount = 0, branches = [] }) {
   if (!isOpen) return null;
 
   const [currentStep, setCurrentStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const defaultBranch = branches[0] || { id: 1, name: 'Hyderabad Global HQ' };
 
   // Initial Form State
   const initialFormState = {
@@ -40,7 +42,8 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
     employment_type: 'Full-Time',
     work_mode: 'Hybrid',
     date_of_joining: new Date().toISOString().split('T')[0],
-    branch_location: 'Corporate HQ - Bengaluru',
+    branch_id: defaultBranch.id,
+    branch_location: defaultBranch.name,
     reporting_manager: 'VP of Operations',
     work_shift: 'General (9:00 AM - 6:00 PM)',
     probation_period: '3 Months',
@@ -315,6 +318,7 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
         // Job
         employment_type: form.employment_type,
         work_mode: form.work_mode,
+        branch_id: form.branch_id ? parseInt(form.branch_id) : 1,
         branch_location: form.branch_location,
         reporting_manager: form.reporting_manager,
 
@@ -854,17 +858,30 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                 <div>
-                  <label className="form-label" style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px', display: 'block' }}>Office Branch / Work Location</label>
+                  <label className="form-label" style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px', display: 'block' }}>Office Branch / Work Location *</label>
                   <select
-                    value={form.branch_location}
-                    onChange={e => setForm({ ...form, branch_location: e.target.value })}
+                    value={form.branch_id || ''}
+                    onChange={e => {
+                      const bId = parseInt(e.target.value);
+                      const bObj = (branches || []).find(b => b.id === bId);
+                      setForm({
+                        ...form,
+                        branch_id: bId,
+                        branch_location: bObj ? bObj.name : form.branch_location,
+                        accessible_branches: [bObj ? bObj.name : form.branch_location]
+                      });
+                    }}
                     className="form-input"
                   >
-                    <option value="Corporate HQ - Bengaluru">Corporate HQ - Bengaluru</option>
-                    <option value="Regional Office - Mumbai">Regional Office - Mumbai</option>
-                    <option value="Warehouse Alpha - Delhi NCR">Warehouse Alpha - Delhi NCR</option>
-                    <option value="Distribution Hub - Hyderabad">Distribution Hub - Hyderabad</option>
-                    <option value="Remote / Telecommute">Remote / Telecommute</option>
+                    {branches.length > 0 ? (
+                      branches.map(b => (
+                        <option key={b.id} value={b.id}>
+                          {b.flag || '🏢'} {b.name} ({b.city}, {b.country})
+                        </option>
+                      ))
+                    ) : (
+                      <option value="1">Hyderabad Global HQ</option>
+                    )}
                   </select>
                 </div>
 
@@ -1511,13 +1528,14 @@ export default function EmployeeOnboardingModal({ isOpen, onClose, onEmployeeCre
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '10px' }}>
-                  {[
-                    'Main Store (Hyderabad HQ)',
+                  {(branches.length > 0 ? branches.map(b => b.name) : [
+                    'Hyderabad Global HQ',
                     'Mumbai Financial Hub',
-                    'Dubai MENA Regional Hub',
-                    'Singapore APAC Office',
-                    'Bengaluru Tech Center'
-                  ].map(bName => {
+                    'Bengaluru Innovation Center',
+                    'Dubai MENA Corporate Hub',
+                    'Singapore APAC Headquarters',
+                    'London European Operations'
+                  ]).map(bName => {
                     const isChecked = form.branch_access_policy === 'ALL_BRANCHES' || (form.accessible_branches || []).includes(bName);
                     return (
                       <div

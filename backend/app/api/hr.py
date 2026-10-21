@@ -9,13 +9,13 @@ from app.database import get_db
 from app.auth.dependencies import get_current_user, require_permission
 from app.models.auth import User
 from app.models.hr import Employee, Attendance, LeaveRequest, PayrollRecord
-from app.models.org import Department
+from app.models.org import Department, Branch
 from app.schemas.hr import (
     EmployeeCreate, EmployeeOut,
     AttendanceIn, AttendanceOut,
     LeaveCreate, LeaveOut, LeaveReviewAction,
     PayrollCreate, PayrollOut,
-    ReportingLineUpdateRequest
+    ReportingLineUpdateRequest, EmployeeLifecycleUpdateRequest
 )
 from app.services.audit_service import record_audit_log
 from app.services.document_store import document_store
@@ -31,12 +31,22 @@ async def get_document_store_status(current_user: User = Depends(get_current_use
 @router.get("/employees", response_model=List[EmployeeOut])
 async def list_employees(
     department_id: Optional[int] = Query(None),
+    branch_id: Optional[int] = Query(None),
+    include_inactive: bool = Query(False),
     current_user: User = Depends(require_permission("hr.view")),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(Employee).options(selectinload(Employee.department)).order_by(Employee.first_name.asc())
+    stmt = (
+        select(Employee)
+        .options(selectinload(Employee.department), selectinload(Employee.branch))
+        .order_by(Employee.first_name.asc())
+    )
     if department_id:
         stmt = stmt.where(Employee.department_id == department_id)
+    if branch_id:
+        stmt = stmt.where(Employee.branch_id == branch_id)
+    if not include_inactive:
+        stmt = stmt.where(Employee.is_active == True)
     res = await db.execute(stmt)
     employees = res.scalars().all()
 
@@ -106,12 +116,15 @@ async def list_employees(
             emergency_contact_relation=emp.emergency_contact_relation,
             employment_type=emp.employment_type,
             work_mode=emp.work_mode,
-            branch_location=emp.branch_location,
+            branch_id=emp.branch_id,
+            branch_name=emp.branch.name if emp.branch else (emp.branch_location or "Main Store"),
+            branch_location=emp.branch.city if (emp.branch and emp.branch.city) else (emp.branch_location or "Main Store"),
             reporting_manager=boss_name,
             reports_to_id=rep_id,
             reports_to_name=boss_name,
             hierarchy_role=h_role,
             direct_reports_count=reports_count.get(emp.id, 0),
+            is_active=emp.is_active,
             accessible_branches=acc_branches,
             branch_access_policy=b_policy,
             app_role=a_role,
@@ -135,8 +148,7 @@ async def list_employees(
             aadhaar_id=emp.aadhaar_id if can_view_payroll else None,
             uan_number=emp.uan_number if can_view_payroll else None,
             documents_json=emp.documents_json,
-            notes=emp.notes,
-            is_active=emp.is_active
+            notes=emp.notes
         ))
     return out
 
@@ -933,4 +945,219 @@ async def update_reporting_line(
         "reporting_manager": emp.reporting_manager,
         "hierarchy_role": emp.hierarchy_role
     }
+
+
+@router.put("/employees/{employee_id}/lifecycle")
+async def update_employee_lifecycle(
+    employee_id: int,
+    payload: EmployeeLifecycleUpdateRequest,
+    current_user: User = Depends(require_permission("hr.manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Employee Career & Lifecycle Management:
+    - Promotion (Designation, Hierarchy Tier, Department, Branch Transfer)
+    - Salary Increment & Compensation Revision
+    - Company Termination & Offboarding (Revokes access in MongoDB Community Edition)
+    - Records comprehensive career event timeline in MongoDB / Free document store.
+    """
+    from decimal import Decimal
+    emp_res = await db.execute(select(Employee).where(Employee.id == employee_id))
+    emp = emp_res.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    event_record = {
+        "employee_id": emp.id,
+        "employee_code": emp.employee_code,
+        "employee_name": f"{emp.first_name} {emp.last_name}",
+        "action_type": payload.action_type.upper(),
+        "effective_date": str(payload.effective_date or date.today()),
+        "reason": payload.reason or "Standard corporate adjustment",
+        "performed_by_id": current_user.id,
+        "performed_by_email": current_user.email,
+        "timestamp": datetime.utcnow().isoformat(),
+        "details": {}
+    }
+
+    if payload.action_type.upper() in ["PROMOTION", "TRANSFER"]:
+        old_data = {
+            "designation": emp.designation,
+            "hierarchy_role": emp.hierarchy_role,
+            "branch_id": emp.branch_id,
+            "branch_location": emp.branch_location,
+            "department_id": emp.department_id
+        }
+        if payload.new_designation:
+            emp.designation = payload.new_designation.strip()
+        if payload.new_hierarchy_role:
+            emp.hierarchy_role = payload.new_hierarchy_role.upper().strip()
+        if payload.new_department_id:
+            emp.department_id = payload.new_department_id
+        if payload.new_branch_id:
+            emp.branch_id = payload.new_branch_id
+            b_res = await db.execute(select(Branch).where(Branch.id == payload.new_branch_id))
+            b_obj = b_res.scalar_one_or_none()
+            if b_obj:
+                emp.branch_location = b_obj.name
+
+        if payload.new_reports_to_id is not None:
+            emp.reports_to_id = payload.new_reports_to_id
+            if payload.new_reports_to_id:
+                mgr_res = await db.execute(select(Employee).where(Employee.id == payload.new_reports_to_id))
+                mgr = mgr_res.scalar_one_or_none()
+                if mgr:
+                    emp.reporting_manager = f"{mgr.first_name} {mgr.last_name}"
+
+        event_record["details"] = {
+            "old": old_data,
+            "new": {
+                "designation": emp.designation,
+                "hierarchy_role": emp.hierarchy_role,
+                "branch_id": emp.branch_id,
+                "branch_location": emp.branch_location,
+                "department_id": emp.department_id
+            }
+        }
+
+        # Sync to MongoDB Community / Free Document Store
+        doc = await document_store.find_document("employee_access_authorizations", {"email": emp.email})
+        if doc:
+            if payload.accessible_branches is not None:
+                doc["accessible_branches"] = payload.accessible_branches
+                doc["branch_access_policy"] = "ALL_BRANCHES" if "ALL" in payload.accessible_branches else "ASSIGNED_ONLY"
+            if payload.new_app_role:
+                doc["app_role"] = payload.new_app_role
+            doc["designation"] = emp.designation
+            doc["hierarchy_role"] = emp.hierarchy_role
+            doc["primary_branch"] = emp.branch_location
+            doc["primary_branch_id"] = emp.branch_id
+            await document_store.insert_document("employee_access_authorizations", doc)
+
+    elif payload.action_type.upper() == "INCREMENT":
+        old_salary = float(emp.basic_salary or 0)
+        old_net = float(emp.net_salary or 0)
+
+        if payload.new_basic_salary is not None:
+            emp.basic_salary = payload.new_basic_salary
+        elif payload.increment_percentage:
+            emp.basic_salary = Decimal(str(round(old_salary * (1 + payload.increment_percentage / 100), 2)))
+
+        if payload.new_hra is not None:
+            emp.hra = payload.new_hra
+        if payload.new_conveyance_allowance is not None:
+            emp.conveyance_allowance = payload.new_conveyance_allowance
+        if payload.new_special_allowance is not None:
+            emp.special_allowance = payload.new_special_allowance
+        if payload.new_variable_pay is not None:
+            emp.variable_pay = payload.new_variable_pay
+
+        # Recalculate net salary: (basic + hra + conveyance + special + variable) - deductions
+        gross = (
+            (emp.basic_salary or Decimal("0.00")) +
+            (emp.hra or Decimal("0.00")) +
+            (emp.conveyance_allowance or Decimal("0.00")) +
+            (emp.special_allowance or Decimal("0.00")) +
+            (emp.variable_pay or Decimal("0.00"))
+        )
+        deductions = (
+            (emp.pf_deduction or Decimal("0.00")) +
+            (emp.professional_tax or Decimal("0.00")) +
+            (emp.tds_tax or Decimal("0.00"))
+        )
+        emp.net_salary = max(gross - deductions, Decimal("0.00"))
+
+        event_record["details"] = {
+            "old_basic_salary": old_salary,
+            "new_basic_salary": float(emp.basic_salary),
+            "increment_percentage": payload.increment_percentage,
+            "old_net_salary": old_net,
+            "new_net_salary": float(emp.net_salary)
+        }
+
+    elif payload.action_type.upper() == "TERMINATION":
+        emp.is_active = False
+        termination_note = f"[TERMINATED - {payload.termination_type or 'Resignation'} on {payload.last_working_day or date.today()}] Reason: {payload.reason or 'None'}. Exit notes: {payload.exit_interview_notes or 'None'}"
+        emp.notes = f"{emp.notes}\n{termination_note}" if emp.notes else termination_note
+
+        # Deactivate user login account if linked
+        if emp.user_id:
+            u_res = await db.execute(select(User).where(User.id == emp.user_id))
+            u_obj = u_res.scalar_one_or_none()
+            if u_obj:
+                u_obj.is_active = False
+
+        # Revoke access in MongoDB Community / Free Document Store
+        doc = await document_store.find_document("employee_access_authorizations", {"email": emp.email})
+        if doc:
+            doc["status"] = "TERMINATED_REVOKED"
+            doc["accessible_branches"] = []
+            doc["branch_access_policy"] = "REVOKED"
+            doc["app_role"] = "Terminated"
+            doc["module_permissions"] = {k: False for k in doc.get("module_permissions", {})}
+            await document_store.insert_document("employee_access_authorizations", doc)
+
+        event_record["details"] = {
+            "termination_type": payload.termination_type or "Resignation",
+            "last_working_day": str(payload.last_working_day or date.today()),
+            "exit_interview_notes": payload.exit_interview_notes,
+            "access_revoked": bool(payload.revoke_system_access)
+        }
+
+    await db.commit()
+
+    # Save career event to MongoDB Community / Free Store timeline
+    await document_store.insert_document("employee_career_events", event_record)
+
+    await record_audit_log(
+        db, action=f"EMPLOYEE_LIFECYCLE_{payload.action_type.upper()}", entity_name="Employee",
+        entity_id=str(emp.id), user_id=current_user.id, user_email=current_user.email,
+        details=event_record
+    )
+
+    return {
+        "success": True,
+        "message": f"Successfully recorded {payload.action_type} for {emp.first_name} {emp.last_name}.",
+        "employee_id": emp.id,
+        "is_active": emp.is_active,
+        "designation": emp.designation,
+        "hierarchy_role": emp.hierarchy_role,
+        "branch_location": emp.branch_location,
+        "basic_salary": float(emp.basic_salary) if emp.basic_salary else None,
+        "net_salary": float(emp.net_salary) if emp.net_salary else None,
+        "event": event_record
+    }
+
+
+@router.get("/employees/{employee_id}/career-history")
+async def get_employee_career_history(
+    employee_id: int,
+    current_user: User = Depends(require_permission("hr.view")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the career timeline, promotion history, salary revisions,
+    and lifecycle events for an employee from MongoDB Community / Free Store.
+    """
+    emp_res = await db.execute(select(Employee).where(Employee.id == employee_id))
+    emp = emp_res.scalar_one_or_none()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    events = await document_store.find_documents(
+        "employee_career_events",
+        {"$or": [{"employee_id": employee_id}, {"employee_code": emp.employee_code}]}
+    )
+    events_sorted = sorted(events, key=lambda x: x.get("timestamp", ""), reverse=True)
+
+    return {
+        "employee_id": emp.id,
+        "employee_name": f"{emp.first_name} {emp.last_name}",
+        "employee_code": emp.employee_code,
+        "current_designation": emp.designation,
+        "current_branch": emp.branch_location,
+        "is_active": emp.is_active,
+        "history": events_sorted
+    }
+
 

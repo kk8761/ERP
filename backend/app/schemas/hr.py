@@ -91,12 +91,15 @@ class EmployeeOut(BaseModel):
     # Job & Work & Hierarchy
     employment_type: Optional[str] = None
     work_mode: Optional[str] = None
+    branch_id: Optional[int] = None
+    branch_name: Optional[str] = None
     branch_location: Optional[str] = None
     reporting_manager: Optional[str] = None
     reports_to_id: Optional[int] = None
     reports_to_name: Optional[str] = None
     hierarchy_role: Optional[str] = "MEMBER"
     direct_reports_count: Optional[int] = 0
+    is_active: bool = True
 
     # Branch Access & App Roles (Retrieved from MongoDB Community / Free Document Store)
     accessible_branches: Optional[List[str]] = Field(default_factory=lambda: ["ALL"])
@@ -208,3 +211,33 @@ class PayrollOut(BaseModel):
 class ReportingLineUpdateRequest(BaseModel):
     reports_to_id: Optional[int] = None
     hierarchy_role: Optional[str] = "MEMBER"
+
+class EmployeeLifecycleUpdateRequest(BaseModel):
+    action_type: str = Field(..., example="PROMOTION") # PROMOTION, INCREMENT, TERMINATION, TRANSFER
+    effective_date: Optional[date] = None
+    reason: Optional[str] = None
+
+    # For Promotion & Transfer
+    new_designation: Optional[str] = None
+    new_hierarchy_role: Optional[str] = None # EXECUTIVE, MANAGER, TEAM_LEAD, MEMBER
+    new_department_id: Optional[int] = None
+    new_branch_id: Optional[int] = None
+    new_branch_location: Optional[str] = None
+    new_reports_to_id: Optional[int] = None
+    new_app_role: Optional[str] = None
+    accessible_branches: Optional[List[str]] = None
+
+    # For Salary Increment
+    increment_percentage: Optional[float] = None
+    new_basic_salary: Optional[Decimal] = None
+    new_hra: Optional[Decimal] = None
+    new_conveyance_allowance: Optional[Decimal] = None
+    new_special_allowance: Optional[Decimal] = None
+    new_variable_pay: Optional[Decimal] = None
+
+    # For Termination / Resignation
+    termination_type: Optional[str] = None # Resignation, Performance, Contract_End, Retirement, Layoff
+    last_working_day: Optional[date] = None
+    exit_interview_notes: Optional[str] = None
+    revoke_system_access: Optional[bool] = True
+
