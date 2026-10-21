@@ -14,6 +14,17 @@ from app.models.email_log import OutgoingEmailLog
 from app.models.rag import CompanyKnowledgeDoc
 from app.models.manufacturing import WorkCenter, BillOfMaterials, ProductionOrder
 from app.models.grc import RiskItem, ComplianceFramework, GrcAudit
+from app.models.vendor_rating import (
+    VendorOrderEvaluation,
+    VendorScorecard,
+    VendorRatingConfig,
+    VendorEventLog
+)
+from app.models.workflow import (
+    WorkflowDefinition,
+    WorkflowExecution,
+    ApprovalRequest
+)
 
 __all__ = [
     "Base",
@@ -61,4 +72,11 @@ __all__ = [
     "RiskItem",
     "ComplianceFramework",
     "GrcAudit",
+    "VendorOrderEvaluation",
+    "VendorScorecard",
+    "VendorRatingConfig",
+    "VendorEventLog",
+    "WorkflowDefinition",
+    "WorkflowExecution",
+    "ApprovalRequest",
 ]

@@ -47,6 +47,19 @@ async def setup_db():
                 await conn.execute(text(f"ALTER TABLE compliance_frameworks ADD COLUMN {col} {col_type}"))
             except Exception:
                 pass
+        for col, col_type in [
+            ("expected_delivery_date", "TIMESTAMP"),
+            ("actual_delivery_date", "TIMESTAMP"),
+            ("inspection_status", "VARCHAR(30) DEFAULT 'PENDING'"),
+            ("defect_count", "INTEGER DEFAULT 0"),
+            ("invoiced_amount", "NUMERIC(12, 2)"),
+            ("shipping_cost", "NUMERIC(12, 2) DEFAULT 0"),
+            ("tax_duties_cost", "NUMERIC(12, 2) DEFAULT 0")
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE purchase_orders ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
     yield
 
 @pytest.fixture(autouse=True)

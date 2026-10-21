@@ -35,6 +35,7 @@ from app.api.vision import router as vision_router
 from app.api.security import router as security_router
 from app.api.sync import router as sync_router
 from app.api.emails import router as emails_router
+from app.api.workflows import router as workflows_router
 
 from app.mongodb import init_mongodb, close_mongodb, check_mongodb_status
 
@@ -59,6 +60,13 @@ async def lifespan(app: FastAPI):
         ("compliance_frameworks", "scope", "TEXT", "TEXT"),
         ("compliance_frameworks", "compliance_rate", "FLOAT", "FLOAT"),
         ("compliance_frameworks", "next_audit_date", "VARCHAR(50)", "VARCHAR(50)"),
+        ("purchase_orders", "expected_delivery_date", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP"),
+        ("purchase_orders", "actual_delivery_date", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP"),
+        ("purchase_orders", "inspection_status", "VARCHAR(30) DEFAULT 'PENDING'", "VARCHAR(30) DEFAULT 'PENDING'"),
+        ("purchase_orders", "defect_count", "INTEGER DEFAULT 0", "INTEGER DEFAULT 0"),
+        ("purchase_orders", "invoiced_amount", "NUMERIC(12, 2)", "NUMERIC(12, 2)"),
+        ("purchase_orders", "shipping_cost", "NUMERIC(12, 2) DEFAULT 0", "NUMERIC(12, 2) DEFAULT 0"),
+        ("purchase_orders", "tax_duties_cost", "NUMERIC(12, 2) DEFAULT 0", "NUMERIC(12, 2) DEFAULT 0"),
     ]
     for tbl, col, pg_def, sqlite_def in migrations:
         try:
@@ -93,7 +101,20 @@ async def lifespan(app: FastAPI):
     except Exception as q_err:
         logging.warning(f"[NexaERP WAF] IP quarantine sync notice: {q_err}")
 
+    # 5. Start persistent background workflow automation runner
+    try:
+        from app.services.workflow_engine import start_workflow_scheduler, stop_workflow_scheduler
+        start_workflow_scheduler()
+        logging.info("[NexaERP Engine] Background workflow automation runner started")
+    except Exception as wf_err:
+        logging.warning(f"[NexaERP Engine] Workflow runner startup notice: {wf_err}")
+
     yield
+    try:
+        from app.services.workflow_engine import stop_workflow_scheduler
+        stop_workflow_scheduler()
+    except Exception:
+        pass
     await close_mongodb()
     await engine.dispose()
 
@@ -177,6 +198,7 @@ app.include_router(vision_router)
 app.include_router(security_router)
 app.include_router(sync_router)
 app.include_router(emails_router)
+app.include_router(workflows_router)
 
 @app.get("/", tags=["Root"])
 async def root():

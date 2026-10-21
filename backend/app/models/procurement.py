@@ -1,6 +1,7 @@
 from typing import Optional, List
 from decimal import Decimal
-from sqlalchemy import String, Integer, ForeignKey, Numeric, Text, Float
+from datetime import datetime
+from sqlalchemy import String, Integer, ForeignKey, Numeric, Text, Float, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.models.base import TimestampMixin
@@ -47,9 +48,17 @@ class PurchaseOrder(Base, TimestampMixin):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
     payment_terms: Mapped[Optional[str]] = mapped_column(String(50), default="Net 30 Days")
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expected_delivery_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    actual_delivery_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    inspection_status: Mapped[Optional[str]] = mapped_column(String(30), default="PENDING") # PENDING, PASSED, FAILED, PARTIAL
+    defect_count: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    invoiced_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    shipping_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), default=0.00)
+    tax_duties_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), default=0.00)
 
     supplier: Mapped["Supplier"] = relationship("Supplier", back_populates="purchase_orders")
     items: Mapped[List["PurchaseOrderItem"]] = relationship("PurchaseOrderItem", back_populates="purchase_order", cascade="all, delete-orphan")
+    evaluation: Mapped[Optional["VendorOrderEvaluation"]] = relationship("VendorOrderEvaluation", back_populates="purchase_order", uselist=False, cascade="all, delete-orphan")
 
 class PurchaseOrderItem(Base, TimestampMixin):
     __tablename__ = "purchase_order_items"

@@ -10,12 +10,15 @@ from app.models.auth import User
 from app.models.org import Organization, Branch
 from app.schemas.ai import (
     AIQueryRequest,
+    AICommandRequest,
+    AICommandResponse,
     KnowledgeDocCreate,
     KnowledgeDocUpdate,
     KnowledgeDocOut,
     PrivacyStatusOut
 )
 from app.services.ai_service import process_ai_query
+from app.services.ai_command_service import process_natural_language_command
 from app.services.rag_knowledge import (
     list_company_documents,
     create_company_document,
@@ -91,6 +94,48 @@ async def query_ai(
             "organization_id": org_id,
             "organization_name": org_name,
             "action_executed": result.get("action_executed", False)
+        }
+    )
+    await db.commit()
+    return result
+
+@router.post("/command", response_model=AICommandResponse)
+async def execute_ai_command(
+    req: AICommandRequest,
+    current_user: User = Depends(require_permission("ai.use")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Natural Language Command Center:
+    Understands intent, builds structured plan (one-time, multi-step, recurring),
+    checks permissions, previews consequential operations, and executes via typed tools.
+    """
+    org_id, org_name, branch_id = await _resolve_user_tenant(db, current_user)
+
+    result = await process_natural_language_command(
+        db=db,
+        prompt=req.prompt,
+        user_id=current_user.id,
+        user_email=current_user.email,
+        user_role="Administrator" if current_user.is_superuser else "Employee",
+        organization_id=org_id,
+        organization_name=org_name,
+        branch_id=branch_id,
+        confirm_action_id=req.confirm_action_id,
+        parameters=req.parameters
+    )
+
+    await record_audit_log(
+        db,
+        action="AI_COMMAND_EXECUTED",
+        entity_name="AICommandCenter",
+        user_id=current_user.id,
+        user_email=current_user.email,
+        details={
+            "prompt": req.prompt,
+            "status": result.get("status"),
+            "task_type": result.get("task_type"),
+            "steps_count": len(result.get("plan_steps", []))
         }
     )
     await db.commit()

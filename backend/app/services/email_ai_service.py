@@ -169,6 +169,7 @@ def suggest_email_content(
         f"Sender: {sender_name}, Role: {sender_title} ({user_role or 'Administrator'}).\n"
         "CRITICAL ANTI-HALLUCINATION RULES:\n"
         "1. GROUNDING: If Target Vendor or Target Order is provided, you MUST restrict all facts (names, PO numbers, items, amounts) strictly to that specific vendor and order.\n"
+        + (f"You MUST address or explicitly mention {vendor_info.get('name')} (Contact: {vendor_info.get('contact_person', '')}) in the greeting or body.\n" if vendor_info else "") +
         "2. ZERO CRISS-CROSS: NEVER introduce, mention, or mix data, product names, or order numbers from any other vendor or order.\n"
         "3. ROLE-AWARE VOICE: Speak from the sender's exact functional authority (e.g. Procurement focuses on PO lead times/terms; Finance focuses on remittance/invoices; Logistics focuses on dock delivery/waybills).\n"
         "4. Output STRICT JSON only with keys: 'subject' (concise professional subject line) and 'body' (formatted email body text with greeting, clear request/update, bullet points if relevant, and professional sign-off)."

@@ -1,7 +1,8 @@
 import uuid
+from typing import List, Optional, Dict, Any
 from decimal import Decimal
-from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+import json
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,9 +13,30 @@ from app.auth.dependencies import get_current_user, require_permission
 from app.models.auth import User
 from app.models.procurement import Supplier, PurchaseOrder, PurchaseOrderItem
 from app.models.inventory import Product
+from app.models.vendor_rating import (
+    VendorOrderEvaluation,
+    VendorScorecard,
+    VendorRatingConfig,
+    VendorEventLog
+)
 from app.schemas.procurement import (
     SupplierCreate, SupplierOut,
     PurchaseOrderCreate, PurchaseOrderOut, PurchaseOrderItemOut
+)
+from app.schemas.vendor_rating import (
+    OrderEvaluationOut,
+    VendorScorecardOut,
+    VendorRatingConfigOut,
+    VendorRatingConfigUpdate,
+    OrderScoreOverrideRequest,
+    VendorCompareRequest,
+    VendorCompareResponse
+)
+from app.services.vendor_rating_service import (
+    evaluate_purchase_order,
+    recalculate_vendor_scorecard,
+    get_or_create_rating_config,
+    compare_suppliers_for_order
 )
 from app.services.inventory_service import adjust_product_stock
 from app.services.audit_service import record_audit_log
@@ -221,6 +243,9 @@ async def create_purchase_order(
         )
         await db.commit()
 
+    # Automatically generate initial provisional vendor evaluation
+    await evaluate_purchase_order(db, full_po.id)
+
     return PurchaseOrderOut(
         id=full_po.id,
         po_number=full_po.po_number,
@@ -321,6 +346,13 @@ async def receive_goods(
         )
 
     po.status = "RECEIVED"
+    po.actual_delivery_date = datetime.now(timezone.utc)
+    po.inspection_status = "PASSED"
+    await db.commit()
+
+    # Automatically compute verifiable order-level vendor rating and update scorecard
+    await evaluate_purchase_order(db, po.id)
+
     await record_audit_log(
         db, action="PO_RECEIVED", entity_name="PurchaseOrder",
         entity_id=str(po.id), user_id=current_user.id,
@@ -504,4 +536,234 @@ async def send_test_email(
         "document_reference": log_entry.document_reference,
         "log_id": log_entry.id
     }
+
+# --- VENDOR PERFORMANCE RATING & SCORECARD SYSTEM ---
+
+@router.get("/suppliers/{supplier_id}/scorecard", response_model=VendorScorecardOut)
+async def get_supplier_scorecard(
+    supplier_id: int,
+    current_user: User = Depends(require_permission("procurement.view")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the centralized vendor performance scorecard with verifiable dimension averages,
+    trend analysis, on-time percentage, defect rates, and strengths/weaknesses.
+    """
+    s_stmt = select(Supplier).where(Supplier.id == supplier_id)
+    s_res = await db.execute(s_stmt)
+    supplier = s_res.scalar_one_or_none()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    sc = await recalculate_vendor_scorecard(db, supplier_id)
+    
+    return VendorScorecardOut(
+        id=sc.id,
+        supplier_id=sc.supplier_id,
+        supplier_name=supplier.name,
+        supplier_code=supplier.vendor_code or f"VEND-{supplier.id:04d}",
+        overall_score=sc.overall_score,
+        star_rating=sc.star_rating,
+        delivery_avg=sc.delivery_avg,
+        price_avg=sc.price_avg,
+        quality_avg=sc.quality_avg,
+        service_avg=sc.service_avg,
+        reliability_avg=sc.reliability_avg,
+        compliance_avg=sc.compliance_avg,
+        evaluated_orders_count=sc.evaluated_orders_count,
+        on_time_delivery_pct=sc.on_time_delivery_pct,
+        avg_delay_days=sc.avg_delay_days,
+        defect_rate_pct=sc.defect_rate_pct,
+        return_rate_pct=sc.return_rate_pct,
+        price_variance_pct=sc.price_variance_pct,
+        open_disputes_count=sc.open_disputes_count,
+        compliance_status=sc.compliance_status,
+        is_procurement_eligible=sc.is_procurement_eligible,
+        ineligibility_reason=sc.ineligibility_reason,
+        trend=sc.trend,
+        confidence_level=sc.confidence_level,
+        strengths=json.loads(sc.strengths) if sc.strengths else [],
+        weaknesses=json.loads(sc.weaknesses) if sc.weaknesses else [],
+        recommendations=json.loads(sc.recommendations) if sc.recommendations else [],
+        last_evaluation_date=sc.last_evaluation_date
+    )
+
+@router.get("/purchase-orders/{po_id}/evaluation", response_model=OrderEvaluationOut)
+async def get_po_evaluation(
+    po_id: int,
+    current_user: User = Depends(require_permission("procurement.view")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retrieves the order-specific vendor evaluation and verifiable evidence for a PO.
+    """
+    evaluation = await evaluate_purchase_order(db, po_id)
+    return OrderEvaluationOut(
+        id=evaluation.id,
+        purchase_order_id=evaluation.purchase_order_id,
+        supplier_id=evaluation.supplier_id,
+        po_number=evaluation.po_number,
+        order_date=evaluation.order_date,
+        promised_delivery_date=evaluation.promised_delivery_date,
+        actual_delivery_date=evaluation.actual_delivery_date,
+        quoted_amount=evaluation.quoted_amount,
+        invoiced_amount=evaluation.invoiced_amount,
+        landed_cost=evaluation.landed_cost,
+        currency=evaluation.currency,
+        delivery_score=evaluation.delivery_score,
+        price_score=evaluation.price_score,
+        quality_score=evaluation.quality_score,
+        service_score=evaluation.service_score,
+        reliability_score=evaluation.reliability_score,
+        compliance_score=evaluation.compliance_score,
+        overall_score=evaluation.overall_score,
+        star_rating=evaluation.star_rating,
+        status=evaluation.status,
+        confidence_level=evaluation.confidence_level,
+        missing_data=json.loads(evaluation.missing_data) if evaluation.missing_data else [],
+        supporting_evidence=json.loads(evaluation.supporting_evidence) if evaluation.supporting_evidence else {},
+        ai_explanation=evaluation.ai_explanation,
+        reviewer_override_score=evaluation.reviewer_override_score,
+        reviewer_notes=evaluation.reviewer_notes,
+        reviewed_at=evaluation.reviewed_at
+    )
+
+@router.post("/purchase-orders/{po_id}/evaluation/override", response_model=OrderEvaluationOut)
+async def override_po_evaluation(
+    po_id: int,
+    body: OrderScoreOverrideRequest,
+    current_user: User = Depends(require_permission("procurement.approve")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Allows authorized staff to dispute or correct an order evaluation with a mandatory recorded reason.
+    Preserves audit history and recalculates the supplier scorecard.
+    """
+    stmt = select(VendorOrderEvaluation).where(VendorOrderEvaluation.purchase_order_id == po_id)
+    res = await db.execute(stmt)
+    evaluation = res.scalar_one_or_none()
+    if not evaluation:
+        evaluation = await evaluate_purchase_order(db, po_id)
+
+    old_score = evaluation.overall_score
+    evaluation.reviewer_override_score = body.override_score
+    evaluation.overall_score = body.override_score
+    evaluation.star_rating = round(body.override_score / 20.0, 2)
+    evaluation.status = "OVERRIDDEN"
+    evaluation.reviewer_notes = body.reason
+    evaluation.reviewed_by_user_id = current_user.id
+    evaluation.reviewed_at = datetime.now(timezone.utc)
+
+    # Log immutable audit event
+    event = VendorEventLog(
+        supplier_id=evaluation.supplier_id,
+        event_type="SCORE_OVERRIDE",
+        reference_id=evaluation.po_number,
+        old_score=old_score,
+        new_score=body.override_score,
+        reason=body.reason,
+        created_by_user_id=current_user.id
+    )
+    db.add(event)
+
+    await record_audit_log(
+        db, action="VENDOR_SCORE_OVERRIDDEN", entity_name="VendorOrderEvaluation",
+        entity_id=str(evaluation.id), user_id=current_user.id,
+        user_email=current_user.email, status="SUCCESS",
+        details={"po": evaluation.po_number, "old_score": old_score, "new_score": body.override_score, "reason": body.reason}
+    )
+    await db.commit()
+    await db.refresh(evaluation)
+
+    # Recalculate scorecard
+    await recalculate_vendor_scorecard(db, evaluation.supplier_id)
+
+    return OrderEvaluationOut(
+        id=evaluation.id,
+        purchase_order_id=evaluation.purchase_order_id,
+        supplier_id=evaluation.supplier_id,
+        po_number=evaluation.po_number,
+        order_date=evaluation.order_date,
+        promised_delivery_date=evaluation.promised_delivery_date,
+        actual_delivery_date=evaluation.actual_delivery_date,
+        quoted_amount=evaluation.quoted_amount,
+        invoiced_amount=evaluation.invoiced_amount,
+        landed_cost=evaluation.landed_cost,
+        currency=evaluation.currency,
+        delivery_score=evaluation.delivery_score,
+        price_score=evaluation.price_score,
+        quality_score=evaluation.quality_score,
+        service_score=evaluation.service_score,
+        reliability_score=evaluation.reliability_score,
+        compliance_score=evaluation.compliance_score,
+        overall_score=evaluation.overall_score,
+        star_rating=evaluation.star_rating,
+        status=evaluation.status,
+        confidence_level=evaluation.confidence_level,
+        missing_data=json.loads(evaluation.missing_data) if evaluation.missing_data else [],
+        supporting_evidence=json.loads(evaluation.supporting_evidence) if evaluation.supporting_evidence else {},
+        ai_explanation=evaluation.ai_explanation,
+        reviewer_override_score=evaluation.reviewer_override_score,
+        reviewer_notes=evaluation.reviewer_notes,
+        reviewed_at=evaluation.reviewed_at
+    )
+
+@router.get("/rating-config", response_model=VendorRatingConfigOut)
+async def get_rating_configuration(
+    current_user: User = Depends(require_permission("settings.manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieves administrator-configurable rating formula weights and policies."""
+    config = await get_or_create_rating_config(db)
+    return config
+
+@router.put("/rating-config", response_model=VendorRatingConfigOut)
+async def update_rating_configuration(
+    data: VendorRatingConfigUpdate,
+    current_user: User = Depends(require_permission("settings.manage")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Updates administrator-configurable weights and mandatory compliance rules."""
+    config = await get_or_create_rating_config(db)
+    config.delivery_weight = data.delivery_weight
+    config.price_weight = data.price_weight
+    config.quality_weight = data.quality_weight
+    config.service_weight = data.service_weight
+    config.reliability_weight = data.reliability_weight
+    config.compliance_weight = data.compliance_weight
+    config.mandatory_compliance_strict = data.mandatory_compliance_strict
+    config.lookback_days = data.lookback_days
+
+    await record_audit_log(
+        db, action="RATING_CONFIG_UPDATED", entity_name="VendorRatingConfig",
+        entity_id=str(config.id), user_id=current_user.id,
+        user_email=current_user.email, status="SUCCESS",
+        details=data.model_dump()
+    )
+    await db.commit()
+    await db.refresh(config)
+    return config
+
+@router.post("/vendor-compare", response_model=VendorCompareResponse)
+async def compare_vendors_endpoint(
+    body: VendorCompareRequest,
+    current_user: User = Depends(require_permission("procurement.view")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Multi-criteria vendor comparison and recommendation:
+    Ranks suppliers by landed cost, lead time, quality score, delivery rating, and statutory compliance.
+    """
+    try:
+        comparison = await compare_suppliers_for_order(
+            db=db,
+            product_id=body.product_id,
+            product_name=body.product_name,
+            quantity=body.quantity,
+            required_delivery_days=body.required_delivery_days
+        )
+        return comparison
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 

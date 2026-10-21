@@ -47,6 +47,8 @@ PERMISSIONS = [
     {"code": "audit_logs.view", "module": "admin", "description": "Inspect system and security audit logs"},
     {"code": "settings.manage", "module": "admin", "description": "Configure company branches and system settings"},
     {"code": "ai.use", "module": "ai", "description": "Interact with Nexa AI business query assistant"},
+    {"code": "workflows.view", "module": "workflows", "description": "View automated workflows and execution history"},
+    {"code": "workflows.manage", "module": "workflows", "description": "Create, schedule, pause, and run workflows"},
 ]
 
 # Standard Role Templates and their pre-assigned permissions
@@ -59,7 +61,8 @@ ROLE_TEMPLATES = {
         "procurement.view", "procurement.create", "procurement.approve", "procurement.receive",
         "finance.view", "expenses.record",
         "hr.view", "attendance.record", "leaves.manage",
-        "users.view", "access_requests.request", "ai.use"
+        "users.view", "access_requests.request", "ai.use",
+        "workflows.view", "workflows.manage"
     ],
     "Sales Representative / Cashier": [
         "dashboard.view",
