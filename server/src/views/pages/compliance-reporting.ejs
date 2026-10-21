@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compliance Reporting - NexaERP</title>
+  <link rel="stylesheet" href="/css/design-system.css">
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/modules.css">
+  <style>
+    .compliance-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .page-header {
+      margin-bottom: 2rem;
+    }
+
+    .page-header h1 {
+      font-size: 2rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 0.5rem;
+    }
+
+    .page-header p {
+      color: #666;
+      font-size: 1rem;
+    }
+
+    .report-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .report-card {
+      background: white;
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .report-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .report-card h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: #1a1a1a;
+    }
+
+    .report-card p {
+      color: #666;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+
+    .report-card .standard-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-bottom: 1rem;
+    }
+
+    .standard-badge.ifrs {
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+
+    .standard-badge.gaap {
+      background: #f3e5f5;
+      color: #7b1fa2;
+    }
+
+    .standard-badge.country {
+      background: #e8f5e9;
+      color: #388e3c;
+    }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .btn-secondary:hover {
+      background: #e5e7eb;
+    }
+
+    .form-section {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      margin-bottom: 2rem;
+    }
+
+    .form-section h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      color: #1a1a1a;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .form-group label {
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      color: #374151;
+    }
+
+    .form-group input,
+    .form-group select {
+      padding: 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.95rem;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .report-display {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      display: none;
+    }
+
+    .report-display.active {
+      display: block;
+    }
+
+    .report-header {
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .report-header h2 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 0.5rem;
+    }
+
+    .report-meta {
+      color: #666;
+      font-size: 0.95rem;
+    }
+
+    .report-section {
+      margin-bottom: 2rem;
+    }
+
+    .report-section h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .report-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1rem;
+    }
+
+    .report-table th,
+    .report-table td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .report-table th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .report-table td {
+      color: #1a1a1a;
+    }
+
+    .report-table .amount {
+      text-align: right;
+      font-family: 'Courier New', monospace;
+    }
+
+    .report-table .total-row {
+      font-weight: 600;
+      background: #f9fafb;
+    }
+
+    .notes-list {
+      list-style: none;
+      padding: 0;
+    }
+
+    .notes-list li {
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      background: #f9fafb;
+      border-left: 3px solid #2563eb;
+      border-radius: 4px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #666;
+    }
+
+    .error-message {
+      background: #fee2e2;
+      color: #991b1b;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+    }
+
+    .success-message {
+      background: #d1fae5;
+      color: #065f46;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <%- include('../partials/navbar') %>
+
+  <div class="compliance-container">
+    <div class="page-header">
+      <h1>📊 Compliance Reporting</h1>
+      <p>Generate IFRS, GAAP, and country-specific financial compliance reports</p>
+    </div>
+
+    <!-- Standard Reports -->
+    <div class="report-cards">
+      <!-- IFRS Report Card -->
+      <div class="report-card">
+        <span class="standard-badge ifrs">IFRS</span>
+        <h3>IFRS Compliance Report</h3>
+        <p>International Financial Reporting Standards compliant financial statements including Statement of Financial Position, Profit or Loss, and Cash Flows.</p>
+        <button class="btn btn-primary" onclick="showIFRSForm()">Generate IFRS Report</button>
+      </div>
+
+      <!-- GAAP Report Card -->
+      <div class="report-card">
+        <span class="standard-badge gaap">US GAAP</span>
+        <h3>US GAAP Compliance Report</h3>
+        <p>Generally Accepted Accounting Principles compliant financial statements including Balance Sheet, Income Statement, and Cash Flow Statement.</p>
+        <button class="btn btn-primary" onclick="showGAAPForm()">Generate GAAP Report</button>
+      </div>
+
+      <!-- Country-Specific Report Card -->
+      <div class="report-card">
+        <span class="standard-badge country">Country-Specific</span>
+        <h3>Country-Specific Report</h3>
+        <p>Generate compliance reports tailored to specific country requirements with local statutory disclosures and tax reporting formats.</p>
+        <button class="btn btn-primary" onclick="showCountryForm()">Generate Country Report</button>
+      </div>
+    </div>
+
+    <!-- IFRS Form -->
+    <div id="ifrsForm" class="form-section" style="display: none;">
+      <h2>Generate IFRS Compliance Report</h2>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="ifrsStartDate">Start Date</label>
+          <input type="date" id="ifrsStartDate" required>
+        </div>
+        <div class="form-group">
+          <label for="ifrsEndDate">End Date</label>
+          <input type="date" id="ifrsEndDate" required>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="generateIFRSReport()">Generate Report</button>
+      <button class="btn btn-secondary" onclick="hideAllForms()">Cancel</button>
+    </div>
+
+    <!-- GAAP Form -->
+    <div id="gaapForm" class="form-section" style="display: none;">
+      <h2>Generate US GAAP Compliance Report</h2>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="gaapStartDate">Start Date</label>
+          <input type="date" id="gaapStartDate" required>
+        </div>
+        <div class="form-group">
+          <label for="gaapEndDate">End Date</label>
+          <input type="date" id="gaapEndDate" required>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="generateGAAPReport()">Generate Report</button>
+      <button class="btn btn-secondary" onclick="hideAllForms()">Cancel</button>
+    </div>
+
+    <!-- Country-Specific Form -->
+    <div id="countryForm" class="form-section" style="display: none;">
+      <h2>Generate Country-Specific Compliance Report</h2>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="countryCode">Country</label>
+          <select id="countryCode" required>
+            <option value="">Select a country...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="countryStartDate">Start Date</label>
+          <input type="date" id="countryStartDate" required>
+        </div>
+        <div class="form-group">
+          <label for="countryEndDate">End Date</label>
+          <input type="date" id="countryEndDate" required>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="generateCountryReport()">Generate Report</button>
+      <button class="btn btn-secondary" onclick="hideAllForms()">Cancel</button>
+    </div>
+
+    <!-- Report Display -->
+    <div id="reportDisplay" class="report-display">
+      <div id="reportContent"></div>
+    </div>
+  </div>
+
+  <script>
+    // Load supported countries on page load
+    async function loadCountries() {
+      try {
+        const response = await fetch('/api/compliance-reporting/countries');
+        const data = await response.json();
+        
+        if (data.success) {
+          const select = document.getElementById('countryCode');
+          data.countries.forEach(country => {
+            const option = document.createElement('option');
+            option.value = country.code;
+            option.textContent = `${country.name} (${country.standard})`;
+            select.appendChild(option);
+          });
+        }
+      } catch (error) {
+        console.error('Error loading countries:', error);
+      }
+    }
+
+    // Show/hide forms
+    function showIFRSForm() {
+      hideAllForms();
+      document.getElementById('ifrsForm').style.display = 'block';
+      document.getElementById('reportDisplay').classList.remove('active');
+    }
+
+    function showGAAPForm() {
+      hideAllForms();
+      document.getElementById('gaapForm').style.display = 'block';
+      document.getElementById('reportDisplay').classList.remove('active');
+    }
+
+    function showCountryForm() {
+      hideAllForms();
+      document.getElementById('countryForm').style.display = 'block';
+      document.getElementById('reportDisplay').classList.remove('active');
+    }
+
+    function hideAllForms() {
+      document.getElementById('ifrsForm').style.display = 'none';
+      document.getElementById('gaapForm').style.display = 'none';
+      document.getElementById('countryForm').style.display = 'none';
+    }
+
+    // Generate reports
+    async function generateIFRSReport() {
+      const startDate = document.getElementById('ifrsStartDate').value;
+      const endDate = document.getElementById('ifrsEndDate').value;
+
+      if (!startDate || !endDate) {
+        alert('Please select both start and end dates');
+        return;
+      }
+
+      showLoading();
+
+      try {
+        const response = await fetch(`/api/compliance-reporting/ifrs?startDate=${startDate}&endDate=${endDate}`);
+        const data = await response.json();
+
+        if (data.success) {
+          displayIFRSReport(data.report);
+        } else {
+          showError(data.message);
+        }
+      } catch (error) {
+        showError('Failed to generate IFRS report');
+        console.error(error);
+      }
+    }
+
+    async function generateGAAPReport() {
+      const startDate = document.getElementById('gaapStartDate').value;
+      const endDate = document.getElementById('gaapEndDate').value;
+
+      if (!startDate || !endDate) {
+        alert('Please select both start and end dates');
+        return;
+      }
+
+      showLoading();
+
+      try {
+        const response = await fetch(`/api/compliance-reporting/gaap?startDate=${startDate}&endDate=${endDate}`);
+        const data = await response.json();
+
+        if (data.success) {
+          displayGAAPReport(data.report);
+        } else {
+          showError(data.message);
+        }
+      } catch (error) {
+        showError('Failed to generate GAAP report');
+        console.error(error);
+      }
+    }
+
+    async function generateCountryReport() {
+      const countryCode = document.getElementById('countryCode').value;
+      const startDate = document.getElementById('countryStartDate').value;
+      const endDate = document.getElementById('countryEndDate').value;
+
+      if (!countryCode || !startDate || !endDate) {
+        alert('Please select country and both dates');
+        return;
+      }
+
+      showLoading();
+
+      try {
+        const response = await fetch(`/api/compliance-reporting/country/${countryCode}?startDate=${startDate}&endDate=${endDate}`);
+        const data = await response.json();
+
+        if (data.success) {
+          displayCountryReport(data.report);
+        } else {
+          showError(data.message);
+        }
+      } catch (error) {
+        showError('Failed to generate country-specific report');
+        console.error(error);
+      }
+    }
+
+    // Display functions
+    function displayIFRSReport(report) {
+      const content = `
+        <div class="report-header">
+          <h2>IFRS Compliance Report</h2>
+          <div class="report-meta">
+            <p>Report Date: ${new Date(report.reportDate).toLocaleDateString()}</p>
+            <p>Period: ${new Date(report.period.startDate).toLocaleDateString()} - ${new Date(report.period.endDate).toLocaleDateString()}</p>
+          </div>
+        </div>
+
+        <div class="report-section">
+          <h3>Statement of Financial Position</h3>
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>Assets</th>
+                <th class="amount">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${Object.entries(report.statementOfFinancialPosition.assets.nonCurrentAssets).map(([key, value]) => `
+                <tr>
+                  <td>${key}</td>
+                  <td class="amount">${formatCurrency(value)}</td>
+                </tr>
+              `).join('')}
+              ${Object.entries(report.statementOfFinancialPosition.assets.currentAssets).map(([key, value]) => `
+                <tr>
+                  <td>${key}</td>
+                  <td class="amount">${formatCurrency(value)}</td>
+                </tr>
+              `).join('')}
+              <tr class="total-row">
+                <td>Total Assets</td>
+                <td class="amount">${formatCurrency(report.statementOfFinancialPosition.assets.totalAssets)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="report-section">
+          <h3>Statement of Profit or Loss</h3>
+          <table class="report-table">
+            <tbody>
+              <tr>
+                <td>Revenue</td>
+                <td class="amount">${formatCurrency(report.statementOfProfitOrLoss.revenue)}</td>
+              </tr>
+              <tr>
+                <td>Cost of Sales</td>
+                <td class="amount">(${formatCurrency(report.statementOfProfitOrLoss.costOfSales)})</td>
+              </tr>
+              <tr class="total-row">
+                <td>Gross Profit</td>
+                <td class="amount">${formatCurrency(report.statementOfProfitOrLoss.grossProfit)}</td>
+              </tr>
+              <tr>
+                <td>Operating Profit</td>
+                <td class="amount">${formatCurrency(report.statementOfProfitOrLoss.operatingProfit)}</td>
+              </tr>
+              <tr class="total-row">
+                <td>Profit for the Period</td>
+                <td class="amount">${formatCurrency(report.statementOfProfitOrLoss.profitForThePeriod)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="report-section">
+          <h3>Notes to Financial Statements</h3>
+          <ul class="notes-list">
+            ${report.notes.map(note => `<li>${note}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+
+      document.getElementById('reportContent').innerHTML = content;
+      document.getElementById('reportDisplay').classList.add('active');
+      hideAllForms();
+    }
+
+    function displayGAAPReport(report) {
+      const content = `
+        <div class="report-header">
+          <h2>US GAAP Compliance Report</h2>
+          <div class="report-meta">
+            <p>Report Date: ${new Date(report.reportDate).toLocaleDateString()}</p>
+            <p>Period: ${new Date(report.period.startDate).toLocaleDateString()} - ${new Date(report.period.endDate).toLocaleDateString()}</p>
+          </div>
+        </div>
+
+        <div class="report-section">
+          <h3>Balance Sheet</h3>
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>Assets</th>
+                <th class="amount">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${Object.entries(report.balanceSheet.assets.currentAssets).map(([key, value]) => `
+                <tr>
+                  <td>${key}</td>
+                  <td class="amount">${formatCurrency(value)}</td>
+                </tr>
+              `).join('')}
+              <tr>
+                <td>Property, Plant and Equipment</td>
+                <td class="amount">${formatCurrency(report.balanceSheet.assets.propertyPlantEquipment)}</td>
+              </tr>
+              <tr class="total-row">
+                <td>Total Assets</td>
+                <td class="amount">${formatCurrency(report.balanceSheet.assets.totalAssets)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="report-section">
+          <h3>Income Statement</h3>
+          <table class="report-table">
+            <tbody>
+              <tr>
+                <td>Total Revenues</td>
+                <td class="amount">${formatCurrency(report.incomeStatement.totalRevenues)}</td>
+              </tr>
+              <tr>
+                <td>Cost of Revenue</td>
+                <td class="amount">(${formatCurrency(report.incomeStatement.costOfRevenue)})</td>
+              </tr>
+              <tr class="total-row">
+                <td>Gross Profit</td>
+                <td class="amount">${formatCurrency(report.incomeStatement.grossProfit)}</td>
+              </tr>
+              <tr>
+                <td>Operating Income</td>
+                <td class="amount">${formatCurrency(report.incomeStatement.operatingIncome)}</td>
+              </tr>
+              <tr class="total-row">
+                <td>Net Income</td>
+                <td class="amount">${formatCurrency(report.incomeStatement.netIncome)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="report-section">
+          <h3>Notes to Financial Statements</h3>
+          <ul class="notes-list">
+            ${report.notes.map(note => `<li>${note}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+
+      document.getElementById('reportContent').innerHTML = content;
+      document.getElementById('reportDisplay').classList.add('active');
+      hideAllForms();
+    }
+
+    function displayCountryReport(report) {
+      const financialStatements = report.standard === 'IFRS' ? report.financialStatements.statementOfFinancialPosition : report.financialStatements.balanceSheet;
+      
+      const content = `
+        <div class="report-header">
+          <h2>${report.countryName} Compliance Report</h2>
+          <div class="report-meta">
+            <p>Standard: ${report.standard}</p>
+            <p>Report Date: ${new Date(report.reportDate).toLocaleDateString()}</p>
+            <p>Period: ${new Date(report.period.startDate).toLocaleDateString()} - ${new Date(report.period.endDate).toLocaleDateString()}</p>
+          </div>
+        </div>
+
+        <div class="report-section">
+          <h3>Local Requirements</h3>
+          <h4>Tax Reporting</h4>
+          <ul>
+            <li><strong>Form:</strong> ${report.localRequirements.taxReporting.form}</li>
+            <li><strong>Filing Requirement:</strong> ${report.localRequirements.taxReporting.filingRequirement}</li>
+            <li><strong>Tax Year:</strong> ${report.localRequirements.taxReporting.taxYear}</li>
+          </ul>
+          
+          <h4>Statutory Disclosures</h4>
+          <ul>
+            ${report.localRequirements.statutoryDisclosures.map(disclosure => `<li>${disclosure}</li>`).join('')}
+          </ul>
+        </div>
+
+        <div class="report-section">
+          <h3>Notes to Financial Statements</h3>
+          <ul class="notes-list">
+            ${report.notes.map(note => `<li>${note}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+
+      document.getElementById('reportContent').innerHTML = content;
+      document.getElementById('reportDisplay').classList.add('active');
+      hideAllForms();
+    }
+
+    function showLoading() {
+      document.getElementById('reportContent').innerHTML = '<div class="loading">Generating report...</div>';
+      document.getElementById('reportDisplay').classList.add('active');
+    }
+
+    function showError(message) {
+      document.getElementById('reportContent').innerHTML = `<div class="error-message">${message}</div>`;
+      document.getElementById('reportDisplay').classList.add('active');
+    }
+
+    function formatCurrency(amount) {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2
+      }).format(amount);
+    }
+
+    // Initialize
+    loadCountries();
+  </script>
+</body>
+</html>

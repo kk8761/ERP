@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compliance Management - NexaERP</title>
+  <link rel="stylesheet" href="/css/design-system.css">
+  <link rel="stylesheet" href="/css/modules.css">
+  <style>
+    .grc-container {
+      padding: 2rem;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+    }
+
+    .page-header h1 {
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--text-primary, #1a1a1a);
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-primary {
+      background: var(--primary, #3b82f6);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-dark, #2563eb);
+    }
+
+    .btn-secondary {
+      background: var(--secondary, #6b7280);
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: var(--secondary-dark, #4b5563);
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .stat-label {
+      font-size: 0.875rem;
+      color: var(--text-secondary, #6b7280);
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--text-primary, #1a1a1a);
+    }
+
+    .filters-section {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 2rem;
+    }
+
+    .filters-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .form-group label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+      color: var(--text-secondary, #4b5563);
+    }
+
+    .form-control {
+      padding: 0.625rem;
+      border: 1px solid var(--border, #d1d5db);
+      border-radius: 6px;
+      font-size: 0.875rem;
+    }
+
+    .compliance-table {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead {
+      background: var(--bg-secondary, #f9fafb);
+    }
+
+    th {
+      padding: 1rem;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.875rem;
+      color: var(--text-secondary, #6b7280);
+      border-bottom: 1px solid var(--border, #e5e7eb);
+    }
+
+    td {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border, #e5e7eb);
+      font-size: 0.875rem;
+    }
+
+    tbody tr:hover {
+      background: var(--bg-hover, #f9fafb);
+      cursor: pointer;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    .status-badge.compliant {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .status-badge.non_compliant {
+      background: #fecaca;
+      color: #991b1b;
+    }
+
+    .status-badge.partially_compliant {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .status-badge.not_assessed {
+      background: #e5e7eb;
+      color: #374151;
+    }
+
+    .regulation-badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: var(--text-secondary, #6b7280);
+    }
+
+    .empty-state-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+
+    .controls-count {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+    }
+
+    .controls-count-badge {
+      background: var(--bg-secondary, #f3f4f6);
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="grc-container">
+    <!-- Page Header -->
+    <div class="page-header">
+      <h1>Compliance Management</h1>
+      <div class="header-actions">
+        <a href="/grc/risks" class="btn btn-secondary">View Risks</a>
+        <button class="btn btn-primary" onclick="createCompliance()">+ Create Requirement</button>
+      </div>
+    </div>
+
+    <!-- Statistics -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Requirements</div>
+        <div class="stat-value" id="totalRequirements">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Compliant</div>
+        <div class="stat-value" id="compliantCount" style="color: #059669;">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Non-Compliant</div>
+        <div class="stat-value" id="nonCompliantCount" style="color: #dc2626;">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Controls</div>
+        <div class="stat-value" id="totalControls">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Control Effectiveness</div>
+        <div class="stat-value" id="avgEffectiveness">0%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Controls Due for Testing</div>
+        <div class="stat-value" id="controlsDue" style="color: #ea580c;">0</div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-section">
+      <div class="filters-grid">
+        <div class="form-group">
+          <label>Regulation</label>
+          <input type="text" class="form-control" id="filterRegulation" placeholder="Search regulation..." onchange="applyFilters()">
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select class="form-control" id="filterStatus" onchange="applyFilters()">
+            <option value="">All Statuses</option>
+            <option value="compliant">Compliant</option>
+            <option value="non_compliant">Non-Compliant</option>
+            <option value="partially_compliant">Partially Compliant</option>
+            <option value="not_assessed">Not Assessed</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Compliance Table -->
+    <div class="compliance-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Requirement #</th>
+            <th>Regulation</th>
+            <th>Requirement</th>
+            <th>Status</th>
+            <th>Controls</th>
+            <th>Last Assessment</th>
+            <th>Next Assessment</th>
+          </tr>
+        </thead>
+        <tbody id="complianceTableBody">
+          <tr>
+            <td colspan="7" class="empty-state">
+              <div class="empty-state-icon">📋</div>
+              <div>Loading compliance requirements...</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let allRequirements = [];
+
+    // Load compliance requirements on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      loadRequirements();
+      loadStatistics();
+    });
+
+    async function loadRequirements() {
+      try {
+        const response = await fetch('/api/grc/compliance');
+        const result = await response.json();
+
+        if (result.success) {
+          allRequirements = result.data;
+          renderRequirements(allRequirements);
+        }
+      } catch (error) {
+        console.error('Error loading compliance requirements:', error);
+        showError('Failed to load compliance requirements');
+      }
+    }
+
+    async function loadStatistics() {
+      try {
+        const response = await fetch('/api/grc/compliance/statistics');
+        const result = await response.json();
+
+        if (result.success) {
+          const stats = result.data;
+          document.getElementById('totalRequirements').textContent = stats.totalRequirements;
+          document.getElementById('compliantCount').textContent = stats.byStatus.compliant;
+          document.getElementById('nonCompliantCount').textContent = stats.byStatus.non_compliant;
+          document.getElementById('totalControls').textContent = stats.totalControls;
+          document.getElementById('avgEffectiveness').textContent = stats.averageControlEffectiveness.toFixed(1) + '%';
+          document.getElementById('controlsDue').textContent = stats.controlsDueForTesting;
+        }
+      } catch (error) {
+        console.error('Error loading statistics:', error);
+      }
+    }
+
+    function renderRequirements(requirements) {
+      const tbody = document.getElementById('complianceTableBody');
+
+      if (requirements.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="empty-state">
+              <div class="empty-state-icon">📋</div>
+              <div>No compliance requirements found</div>
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = requirements.map(req => `
+        <tr onclick="viewRequirement('${req.id}')">
+          <td>${req.requirementNumber}</td>
+          <td><span class="regulation-badge">${req.regulation}</span></td>
+          <td>${truncate(req.requirement, 80)}</td>
+          <td><span class="status-badge ${req.status}">${formatStatus(req.status)}</span></td>
+          <td>
+            <div class="controls-count">
+              <span class="controls-count-badge">${req.controls.length}</span>
+              <span>${req.controls.length === 1 ? 'control' : 'controls'}</span>
+            </div>
+          </td>
+          <td>${req.lastAssessmentDate ? formatDate(req.lastAssessmentDate) : '-'}</td>
+          <td>${req.nextAssessmentDate ? formatDate(req.nextAssessmentDate) : '-'}</td>
+        </tr>
+      `).join('');
+    }
+
+    function formatStatus(status) {
+      return status.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function truncate(text, length) {
+      if (text.length <= length) return text;
+      return text.substring(0, length) + '...';
+    }
+
+    function applyFilters() {
+      const regulation = document.getElementById('filterRegulation').value.toLowerCase();
+      const status = document.getElementById('filterStatus').value;
+
+      let filtered = allRequirements;
+
+      if (regulation) {
+        filtered = filtered.filter(r => r.regulation.toLowerCase().includes(regulation));
+      }
+      if (status) {
+        filtered = filtered.filter(r => r.status === status);
+      }
+
+      renderRequirements(filtered);
+    }
+
+    function viewRequirement(id) {
+      window.location.href = `/grc/compliance/${id}`;
+    }
+
+    function createCompliance() {
+      window.location.href = '/grc/compliance/new';
+    }
+
+    function showError(message) {
+      alert(message);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  NexaERP - Autonomous AI-Powered ERP Engine & Intelligent Vendor Rating System
+  AWS Amazon Developer Hackathon 2026: Alexa+, Fire TV & AWS Architecture
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 1024
+    Runtime: python3.11
+    Environment:
+      Variables:
+        ENVIRONMENT: production
+        APP_NAME: NexaERP
+        AWS_BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
+        AWS_S3_BUCKET: !Ref DocumentVaultBucket
+        AWS_SNS_TOPIC_ARN: !Ref ApprovalAlertTopic
+        AWS_CLOUDWATCH_LOG_GROUP: !Ref AuditLogGroup
+        ALEXA_SKILL_ID: !Ref AlexaSkillId
+
+Parameters:
+  AlexaSkillId:
+    Type: String
+    Default: amzn1.ask.skill.nexaerp-voice-command
+    Description: Amazon Alexa+ Skill Identifier
+
+Resources:
+  # S3 Document Vault for POs, receipts, and vendor compliance documents
+  DocumentVaultBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub nexaerp-vault-${AWS::AccountId}-${AWS::Region}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # SNS Topic for real-time manager alerts and approval routing
+  ApprovalAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: nexaerp-approval-alerts
+      DisplayName: NexaERP Governance Alerts
+
+  # CloudWatch Log Group for immutable audit and security logs
+  AuditLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/nexaerp/audit
+      RetentionInDays: 365
+
+  # Core FastAPI Backend Lambda
+  NexaERPBackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: app.main.handler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref DocumentVaultBucket
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ApprovalAlertTopic.TopicName
+        - CloudWatchPutMetricPolicy: {}
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
+      Events:
+        ApiGatewayEvent:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+  # Alexa Skill Endpoint Integration Lambda
+  NexaERPAlexaSkillFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: app.api.alexa.alexa_skill_handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
+      Events:
+        AlexaSkillEvent:
+          Type: AlexaSkill
+          Properties:
+            SkillId: !Ref AlexaSkillId
+
+Outputs:
+  HttpApiUrl:
+    Description: "HTTP API Gateway endpoint URL for NexaERP"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  DocumentBucketName:
+    Description: "Amazon S3 Document Vault"
+    Value: !Ref DocumentVaultBucket
+  SNSTopicArn:
+    Description: "Amazon SNS Topic for Approvals"
+    Value: !Ref ApprovalAlertTopic

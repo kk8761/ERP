@@ -1,0 +1,56 @@
+# Environment & Secret files
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.cert
+*.pfx
+credentials.json
+token.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+backend/.pytest_cache/
+.coverage
+htmlcov/
+*.sqlite3
+*.db
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Android / Gradle
+.gradle/
+build/
+*.lock
+
+# AI Coding Tool Artifacts
+.kiro/
+.agents/
+.claude/
+.gemini/
+skills-lock.json
+node-v20.18.0-win-x64/
+node.zip
+scratch/
+*.zip
+

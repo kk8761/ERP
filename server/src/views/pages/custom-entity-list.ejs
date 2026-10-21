@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Entities - NexaERP</title>
+  <link rel="stylesheet" href="/css/design-system.css">
+  <style>
+    .page-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+    }
+
+    .page-title {
+      font-size: 28px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #0066cc;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #0052a3;
+    }
+
+    .entity-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 20px;
+    }
+
+    .entity-card {
+      background: white;
+      border-radius: 8px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+
+    .entity-card:hover {
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .entity-card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .entity-icon {
+      font-size: 32px;
+    }
+
+    .entity-name {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .entity-description {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    .entity-stats {
+      display: flex;
+      gap: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #eee;
+    }
+
+    .entity-stat {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .entity-stat-label {
+      font-size: 12px;
+      color: #999;
+    }
+
+    .entity-stat-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #0066cc;
+    }
+
+    .entity-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #5a6268;
+    }
+
+    .btn-danger {
+      background: #dc3545;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #c82333;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+
+    .empty-state-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+
+    .empty-state-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #666;
+    }
+
+    .empty-state-description {
+      font-size: 16px;
+      margin-bottom: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    <div class="page-header">
+      <h1 class="page-title">🏗️ Custom Entities</h1>
+      <a href="/custom-entities/designer" class="btn btn-primary">
+        + Create New Entity
+      </a>
+    </div>
+
+    <% if (entities && entities.length > 0) { %>
+      <div class="entity-grid">
+        <% entities.forEach(entity => { %>
+          <div class="entity-card" onclick="window.location.href='/custom/<%= entity.tableName %>'">
+            <div class="entity-card-header">
+              <div class="entity-icon"><%= entity.icon || '📋' %></div>
+              <div class="entity-name"><%= entity.name %></div>
+            </div>
+
+            <% if (entity.description) { %>
+              <div class="entity-description"><%= entity.description %></div>
+            <% } %>
+
+            <div class="entity-stats">
+              <div class="entity-stat">
+                <div class="entity-stat-label">Fields</div>
+                <div class="entity-stat-value"><%= entity.fields.length %></div>
+              </div>
+              <div class="entity-stat">
+                <div class="entity-stat-label">Records</div>
+                <div class="entity-stat-value"><%= entity._count.records %></div>
+              </div>
+            </div>
+
+            <div class="entity-actions" onclick="event.stopPropagation()">
+              <a href="/custom/<%= entity.tableName %>" class="btn btn-sm btn-primary">
+                View Records
+              </a>
+              <button class="btn btn-sm btn-secondary" onclick="viewEntityDetails('<%= entity.id %>')">
+                Details
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="deleteEntity('<%= entity.id %>', '<%= entity.name %>')">
+                Delete
+              </button>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    <% } else { %>
+      <div class="empty-state">
+        <div class="empty-state-icon">🏗️</div>
+        <div class="empty-state-title">No Custom Entities Yet</div>
+        <div class="empty-state-description">
+          Create your first custom entity to extend your ERP system with custom data models
+        </div>
+        <a href="/custom-entities/designer" class="btn btn-primary">
+          Create Your First Entity
+        </a>
+      </div>
+    <% } %>
+  </div>
+
+  <script>
+    function viewEntityDetails(entityId) {
+      // Navigate to entity details page
+      window.location.href = `/custom-entities/api/${entityId}`;
+    }
+
+    async function deleteEntity(entityId, entityName) {
+      if (!confirm(`Are you sure you want to delete the entity "${entityName}"? This will also delete all associated records.`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/custom-entities/api/${entityId}`, {
+          method: 'DELETE',
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          alert('Entity deleted successfully');
+          window.location.reload();
+        } else {
+          alert('Error: ' + result.message);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+  </script>
+</body>
+</html>

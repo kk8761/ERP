@@ -1,0 +1,1289 @@
+/* ==========================================================================
+   ACDOCA Enterprise Universal Journal Spreadsheet Grid
+   Exact SAP GUI / ALV Grid Table Browser Reproduction
+   ========================================================================== */
+
+.acdoca-grid-container {
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  border: 1px solid #c9d2dc;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  color: #1e293b;
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+/* Full Screen Excel Mode: Locks the viewport exclusively to Excel */
+.acdoca-grid-container.is-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  z-index: 999999 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background-color: #ffffff !important;
+  animation: excelFadeIn 0.15s ease-out;
+}
+
+[data-theme="dark"] .acdoca-grid-container.is-fullscreen {
+  background-color: #0b1120 !important;
+}
+
+/* In fullscreen mode, the table expands dynamically to take all remaining vertical height */
+.acdoca-grid-container.is-fullscreen .acdoca-table-scroll {
+  flex: 1 1 0% !important;
+  max-height: none !important;
+  height: 100% !important;
+  overflow: auto !important;
+}
+
+/* Fullscreen toggle action button in toolbar */
+.excel-fullscreen-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background-color: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.excel-fullscreen-action-btn:hover {
+  background-color: #dcfce7;
+  border-color: #4ade80;
+}
+
+.excel-fullscreen-action-btn.active {
+  background-color: #047857;
+  border-color: #059669;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
+.excel-fullscreen-action-btn.active:hover {
+  background-color: #065f46;
+}
+
+[data-theme="dark"] .excel-fullscreen-action-btn {
+  background-color: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #6ee7b7;
+}
+
+[data-theme="dark"] .excel-fullscreen-action-btn.active {
+  background-color: #059669;
+  color: #ffffff;
+}
+
+.excel-key-badge {
+  font-size: 9.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.excel-fullscreen-action-btn.active .excel-key-badge {
+  background-color: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* Floating Fullscreen HUD banner */
+.excel-fullscreen-hud {
+  position: absolute;
+  top: 10px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: 11.5px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+  color: #f8fafc;
+  pointer-events: auto;
+}
+
+.excel-fullscreen-hud-exit-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  color: #fca5a5;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.excel-fullscreen-hud-exit-btn:hover {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #dc2626;
+}
+
+@keyframes excelFadeIn {
+  from { opacity: 0.85; transform: scale(0.995); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+[data-theme="dark"] .acdoca-grid-container {
+  background-color: #0f172a;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+/* 1. Header Section (Search in Table, Hits, Runtime) */
+.acdoca-header {
+  background: linear-gradient(180deg, #f8fafc 0%, #edf2f7 100%);
+  border-bottom: 1px solid #cbd5e1;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+[data-theme="dark"] .acdoca-header {
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  border-color: #334155;
+}
+
+.acdoca-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.acdoca-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.2px;
+}
+
+[data-theme="dark"] .acdoca-title {
+  color: #f8fafc;
+}
+
+.acdoca-quick-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.acdoca-quick-search input {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  outline: none;
+  width: 180px;
+}
+
+[data-theme="dark"] .acdoca-quick-search input {
+  background: #1e293b;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+
+/* Parameter Grid */
+.acdoca-param-grid {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  gap: 16px;
+  padding-top: 6px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 11px;
+}
+
+[data-theme="dark"] .acdoca-param-grid {
+  border-top-color: #334155;
+}
+
+.acdoca-param-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acdoca-param-label {
+  color: #475569;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .acdoca-param-label {
+  color: #94a3b8;
+}
+
+.acdoca-param-box {
+  background: #ffffff;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  color: #0f172a;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);
+}
+
+[data-theme="dark"] .acdoca-param-box {
+  background: #1e293b;
+  border-color: #475569;
+  color: #38bdf8;
+}
+
+.acdoca-param-active-box {
+  background: #ffffff;
+  border: 2px solid #0284c7;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  color: #0f172a;
+  text-align: center;
+  width: 56px;
+  outline: none;
+}
+
+[data-theme="dark"] .acdoca-param-active-box {
+  background: #0f172a;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+/* 2. ALV Action Toolbar */
+.acdoca-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #e9ecef;
+  border-bottom: 1px solid #cbd5e1;
+  padding: 4px 8px;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+[data-theme="dark"] .acdoca-toolbar {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.acdoca-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.acdoca-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.acdoca-icon-btn:hover {
+  background: #dde2e6;
+  border-color: #b0bcc8;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-icon-btn {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .acdoca-icon-btn:hover {
+  background: #334155;
+  border-color: #475569;
+  color: #ffffff;
+}
+
+.acdoca-alv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  height: 24px;
+  background: #ffffff;
+  border: 1px solid #b0bcc8;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.acdoca-alv-btn:hover {
+  background: #f1f5f9;
+  border-color: #64748b;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-alv-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+[data-theme="dark"] .acdoca-alv-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.acdoca-alv-btn-primary {
+  background: #10b981;
+  color: #ffffff;
+  border-color: #059669;
+}
+
+.acdoca-alv-btn-primary:hover {
+  background: #059669;
+  color: #ffffff;
+}
+
+.acdoca-separator {
+  width: 1px;
+  height: 18px;
+  background: #cbd5e1;
+  margin: 0 4px;
+}
+
+[data-theme="dark"] .acdoca-separator {
+  background: #475569;
+}
+
+.acdoca-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.acdoca-badge-balanced {
+  padding: 2px 6px;
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+  border-radius: 3px;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+[data-theme="dark"] .acdoca-badge-balanced {
+  background: #052e16;
+  color: #4ade80;
+  border-color: #166534;
+}
+
+.acdoca-badge-diff {
+  padding: 2px 6px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  border-radius: 3px;
+  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* 3. Table Data Grid */
+.acdoca-table-scroll {
+  overflow-x: auto;
+  max-height: 520px;
+  overflow-y: auto;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+[data-theme="dark"] .acdoca-table-scroll {
+  border-color: #334155;
+}
+
+.acdoca-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.acdoca-thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.acdoca-th {
+  padding: 4px 6px;
+  border-right: 1px solid #b8c4d0;
+  border-bottom: 2px solid #a3b2c2;
+  font-weight: 700;
+  font-size: 11px;
+  color: #0f172a;
+  white-space: nowrap;
+  user-select: none;
+}
+
+[data-theme="dark"] .acdoca-th {
+  border-right-color: #475569;
+  border-bottom-color: #64748b;
+  color: #f8fafc;
+}
+
+/* Distinctive Authentic Column Colors matching screenshot */
+.acdoca-th-cyan {
+  background-color: #d8edf8;
+  color: #034460;
+}
+
+[data-theme="dark"] .acdoca-th-cyan {
+  background-color: #0c4a6e;
+  color: #bae6fd;
+}
+
+.acdoca-th-yellow {
+  background-color: #fdf8cf;
+  color: #634f03;
+}
+
+[data-theme="dark"] .acdoca-th-yellow {
+  background-color: #713f12;
+  color: #fef08a;
+}
+
+.acdoca-th-white {
+  background-color: #eaeff4;
+  color: #334155;
+}
+
+[data-theme="dark"] .acdoca-th-white {
+  background-color: #1e293b;
+  color: #cbd5e1;
+}
+
+.acdoca-th-posting {
+  background-color: #e0e7ff;
+  color: #3730a3;
+}
+
+[data-theme="dark"] .acdoca-th-posting {
+  background-color: #312e81;
+  color: #c7d2fe;
+}
+
+/* Cells */
+.acdoca-tr {
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.acdoca-tr:hover {
+  filter: brightness(0.97);
+}
+
+.acdoca-tr.row-header-selected {
+  background-color: rgba(16, 124, 65, 0.08) !important;
+}
+
+.acdoca-td {
+  padding: 0;
+  border-right: 1px solid #d0dbe5;
+  border-bottom: 1px solid #e2e8f0;
+  height: 24px;
+}
+
+[data-theme="dark"] .acdoca-td {
+  border-right-color: #334155;
+  border-bottom-color: #1e293b;
+}
+
+.acdoca-td-cyan {
+  background-color: #e2f4fb;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-td-cyan {
+  background-color: #082f49;
+  color: #f0f9ff;
+}
+
+.acdoca-td-yellow {
+  background-color: #fffbcf;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-td-yellow {
+  background-color: #422006;
+  color: #fefce8;
+}
+
+.acdoca-td-white {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-td-white {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
+.acdoca-td-posting {
+  background-color: #f5f7ff;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .acdoca-td-posting {
+  background-color: #1e1b4b;
+  color: #e0e7ff;
+}
+
+.acdoca-cell-input {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: 11px;
+  color: inherit;
+  outline: none;
+}
+
+.acdoca-cell-input:focus {
+  background-color: #ffffff;
+  box-shadow: inset 0 0 0 1px #0284c7;
+}
+
+[data-theme="dark"] .acdoca-cell-input:focus {
+  background-color: #1e293b;
+  box-shadow: inset 0 0 0 1px #38bdf8;
+}
+
+/* 4. Footer Status Bar */
+.acdoca-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #e9ecef;
+  padding: 6px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #334155;
+  border-top: 1px solid #cbd5e1;
+}
+
+[data-theme="dark"] .acdoca-footer {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+.acdoca-footer-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.acdoca-footer-totals {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ==========================================================================
+   5. Microsoft Excel Properties (Formula Bar, AutoSum, Range Selection)
+   ========================================================================== */
+
+/* Formula Bar Container */
+.excel-formula-bar {
+  display: flex;
+  align-items: center;
+  background: #f8fafc;
+  border-bottom: 1px solid #cbd5e1;
+  padding: 4px 10px;
+  gap: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 11.5px;
+}
+
+[data-theme="dark"] .excel-formula-bar {
+  background: #111827;
+  border-color: #374151;
+}
+
+/* Name Box e.g. "AD3" */
+.excel-name-box {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  color: #0f172a;
+  min-width: 65px;
+  text-align: center;
+  user-select: none;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.04);
+}
+
+[data-theme="dark"] .excel-name-box {
+  background: #1e293b;
+  border-color: #475569;
+  color: #38bdf8;
+}
+
+/* Function Symbol (fx) */
+.excel-fx-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-weight: 800;
+  font-size: 13px;
+  color: #64748b;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+}
+
+.excel-fx-btn:hover {
+  background: #e2e8f0;
+  color: #0284c7;
+}
+
+[data-theme="dark"] .excel-fx-btn {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .excel-fx-btn:hover {
+  background: #374151;
+  color: #38bdf8;
+}
+
+/* Formula Input Box */
+.excel-formula-input-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.excel-formula-input {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.excel-formula-input:focus {
+  border-color: #107c41;
+  box-shadow: 0 0 0 1px #107c41;
+}
+
+[data-theme="dark"] .excel-formula-input {
+  background: #1e293b;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .excel-formula-input:focus {
+  border-color: #34d399;
+  box-shadow: 0 0 0 1px #34d399;
+}
+
+/* AutoSum Button & Dropdown */
+.excel-autosum-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.excel-autosum-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  height: 24px;
+  background: #ffffff;
+  border: 1px solid #107c41;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #107c41;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(16, 124, 65, 0.15);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.excel-autosum-btn:hover {
+  background: #ecfdf5;
+  border-color: #059669;
+  color: #047857;
+}
+
+[data-theme="dark"] .excel-autosum-btn {
+  background: #064e3b;
+  border-color: #059669;
+  color: #a7f3d0;
+}
+
+.excel-autosum-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  z-index: 50;
+  min-width: 140px;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+[data-theme="dark"] .excel-autosum-dropdown {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.excel-autosum-option {
+  padding: 5px 12px;
+  font-size: 11px;
+  color: #334155;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  border: none;
+  background: transparent;
+  width: 100%;
+}
+
+.excel-autosum-option:hover {
+  background: #f1f5f9;
+  color: #107c41;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .excel-autosum-option {
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .excel-autosum-option:hover {
+  background: #374151;
+  color: #34d399;
+}
+
+/* Excel Column Letter Row */
+.excel-col-letter {
+  display: block;
+  font-size: 9.5px;
+  color: #64748b;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 0.5px;
+  margin-bottom: 1px;
+}
+
+[data-theme="dark"] .excel-col-letter {
+  color: #94a3b8;
+}
+
+/* Cell Selection & Range Highlighting */
+.excel-th-selected {
+  background: #dcfce7 !important;
+  color: #166534 !important;
+  border-bottom: 2px solid #107c41 !important;
+  font-weight: 700 !important;
+}
+
+.excel-th-selected .excel-col-letter {
+  color: #15803d !important;
+  font-weight: 800 !important;
+}
+
+.excel-row-num-selected {
+  background: #dcfce7 !important;
+  color: #166534 !important;
+  border-right: 2px solid #107c41 !important;
+  font-weight: 800 !important;
+}
+
+[data-theme="dark"] .excel-th-selected,
+[data-theme="dark"] .excel-row-num-selected {
+  background: rgba(22, 101, 52, 0.4) !important;
+  color: #4ade80 !important;
+}
+
+/* Active Cell Focus (Green Excel border) */
+.excel-cell-active {
+  outline: 2px solid #107c41 !important;
+  outline-offset: -2px;
+  position: relative;
+  z-index: 5;
+  background-color: #ffffff !important;
+}
+
+[data-theme="dark"] .excel-cell-active {
+  background-color: #1e293b !important;
+}
+
+/* Multi-Cell Range Selection */
+.excel-cell-in-range {
+  background-color: rgba(16, 124, 65, 0.12) !important;
+}
+
+.excel-range-top {
+  border-top: 2px solid #107c41 !important;
+}
+
+.excel-range-bottom {
+  border-bottom: 2px solid #107c41 !important;
+}
+
+.excel-range-left {
+  border-left: 2px solid #107c41 !important;
+}
+
+.excel-range-right {
+  border-right: 2px solid #107c41 !important;
+}
+
+[data-theme="dark"] .excel-cell-in-range {
+  background-color: rgba(52, 211, 153, 0.18) !important;
+}
+
+/* Formula Marching Ants / Dashed Reference Highlight */
+@keyframes excelAntsPulse {
+  0% {
+    outline-color: #0284c7;
+    background-color: rgba(2, 132, 199, 0.14);
+  }
+  50% {
+    outline-color: #38bdf8;
+    background-color: rgba(2, 132, 199, 0.22);
+  }
+  100% {
+    outline-color: #0284c7;
+    background-color: rgba(2, 132, 199, 0.14);
+  }
+}
+
+.excel-formula-reference-cell {
+  outline: 2px dashed #0284c7 !important;
+  outline-offset: -2px;
+  position: relative;
+  z-index: 6;
+  animation: excelAntsPulse 1.2s ease-in-out infinite;
+}
+
+/* Formula Target Cell (The cell receiving the formula) */
+.excel-formula-target-cell {
+  outline: 2px solid #107c41 !important;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 3px rgba(16, 124, 65, 0.25) !important;
+  background-color: #ffffff !important;
+  position: relative;
+  z-index: 7;
+}
+
+[data-theme="dark"] .excel-formula-target-cell {
+  background-color: #1e293b !important;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.25) !important;
+}
+
+/* Prevent native browser text selection during cell dragging */
+.acdoca-table.is-selecting,
+.acdoca-table.is-selecting td,
+.acdoca-table.is-selecting th,
+.acdoca-table.is-selecting span {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* Corner Handle for active cell */
+.excel-corner-handle {
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  background-color: #107c41;
+  border: 1px solid #ffffff;
+  cursor: crosshair;
+  z-index: 10;
+}
+
+/* Live Excel Quick Metrics in Footer */
+.excel-metrics-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+[data-theme="dark"] .excel-metrics-pill {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.excel-formula-preview {
+  font-size: 10px;
+  color: #107c41;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+/* Excel Column Width Resizer (Drag right edge) */
+.excel-col-resizer {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 20;
+}
+
+.excel-col-resizer:hover,
+.excel-col-resizer.resizing {
+  background-color: #107c41;
+  opacity: 0.8;
+}
+
+/* Excel Row Height Resizer (Drag bottom edge of row number) */
+.excel-row-resizer {
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 100%;
+  height: 7px;
+  cursor: row-resize;
+  user-select: none;
+  z-index: 20;
+}
+
+.excel-row-resizer:hover,
+.excel-row-resizer.resizing {
+  background-color: #107c41;
+  opacity: 0.8;
+}
+
+/* Cell Size Presets Bar in Toolbar */
+.excel-cell-size-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.excel-cell-size-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .excel-cell-size-btn {
+  background: #1e293b;
+  border-color: #475569;
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .excel-cell-size-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+/* Auto-sync pill in spreadsheet footer */
+.acdoca-sync-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: #166534;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .acdoca-sync-pill {
+  color: #4ade80;
+  background: rgba(22, 101, 52, 0.25);
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+/* ==========================================================================
+   FULL SCREEN EXCEL IMMERSION MODE
+   Dedicated distraction-free workspace that fills 100% of the viewport,
+   obscuring all ERP sidebars, headers, and tabs until exited.
+   ========================================================================== */
+.acdoca-grid-container.is-fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 999999 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+  background: #ffffff !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+[data-theme="dark"] .acdoca-grid-container.is-fullscreen {
+  background: #0b1120 !important;
+}
+
+/* Make table scroll container fill remaining height dynamically */
+.acdoca-grid-container.is-fullscreen .acdoca-table-scroll {
+  flex: 1 1 0% !important;
+  max-height: none !important;
+  height: 100% !important;
+  overflow: auto !important;
+}
+
+/* Immersive Top HUD Bar */
+.excel-fullscreen-hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(90deg, #0d5f32 0%, #107c41 50%, #15803d 100%);
+  color: #ffffff;
+  padding: 6px 16px;
+  font-size: 11.5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  z-index: 50;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+  animation: hudSlideDown 0.25s ease-out;
+}
+
+@keyframes hudSlideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.excel-fullscreen-hud-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+.excel-hud-badge {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+}
+
+.excel-fullscreen-hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.excel-hud-hint {
+  font-size: 11px;
+  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.excel-key-badge {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.excel-fullscreen-hud-exit-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  color: #107c41;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.excel-fullscreen-hud-exit-btn:hover {
+  background: #f0fdf4;
+  color: #047857;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* Fullscreen Button in Title Row */
+.excel-title-fullscreen-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 4px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #15803d;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.excel-title-fullscreen-btn:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+  color: #14532d;
+}
+
+[data-theme="dark"] .excel-title-fullscreen-btn {
+  background: rgba(22, 101, 52, 0.25);
+  border-color: rgba(74, 222, 128, 0.4);
+  color: #86efac;
+}
+
+[data-theme="dark"] .excel-title-fullscreen-btn:hover {
+  background: rgba(22, 101, 52, 0.45);
+  border-color: #4ade80;
+  color: #ffffff;
+}
+
+/* Action button in Toolbar Right */
+.excel-fullscreen-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #107c41;
+  color: #ffffff;
+  border: 1px solid #0d5f32;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: 6px;
+}
+
+.excel-fullscreen-action-btn:hover {
+  background: #0d5f32;
+  box-shadow: 0 1px 4px rgba(16, 124, 65, 0.35);
+}
+
+.excel-fullscreen-action-btn.active {
+  background: #b91c1c;
+  border-color: #991b1b;
+}
+
+.excel-fullscreen-action-btn.active:hover {
+  background: #991b1b;
+  box-shadow: 0 1px 4px rgba(185, 28, 28, 0.35);
+}
+
+[data-theme="dark"] .excel-fullscreen-action-btn {
+  background: #107c41;
+  border-color: #15803d;
+}
+
+
+

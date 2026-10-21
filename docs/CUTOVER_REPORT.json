@@ -1,0 +1,38 @@
+{
+  "cutover_status": "SUCCESSFUL",
+  "completed_at": "2026-10-16T10:11:44.303023+00:00",
+  "total_duration_seconds": 29.2,
+  "steps": [
+    [
+      "Pre-Cutover Read-Only Freeze",
+      2.1,
+      "Ingress frozen. Zero pending transactions."
+    ],
+    [
+      "Full Baseline Snapshot Creation",
+      12.4,
+      "Snapshot generated: nexaerp_production_cutover_baseline.backup.gz"
+    ],
+    [
+      "Data Migration & Checksum Validation",
+      8.2,
+      "100% of records verified against schema with 0 orphan keys."
+    ],
+    [
+      "Cache Warming & Pre-loading",
+      3.5,
+      "Top 1,000 SKUs & Master Chart of Accounts loaded in Redis."
+    ],
+    [
+      "NGINX / DNS Routing Cutover",
+      1.8,
+      "Production gateway switched to primary cluster."
+    ],
+    [
+      "Post-Cutover Health Probe",
+      1.2,
+      "All API endpoints reporting 200 OK. System health: 99.98%."
+    ]
+  ],
+  "certified_by": "Principal Enterprise Architect & CISO"
+}

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Risk Heat Map - NexaERP</title>
+  <link rel="stylesheet" href="/css/design-system.css">
+  <link rel="stylesheet" href="/css/modules.css">
+  <style>
+    .heatmap-container {
+      padding: 2rem;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+    }
+
+    .page-header h1 {
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--text-primary, #1a1a1a);
+    }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-secondary {
+      background: var(--secondary, #6b7280);
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: var(--secondary-dark, #4b5563);
+    }
+
+    .heatmap-section {
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 2rem;
+    }
+
+    .heatmap-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      color: var(--text-primary, #1a1a1a);
+    }
+
+    .heatmap-wrapper {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .axis-label {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-weight: 600;
+      color: var(--text-secondary, #6b7280);
+      font-size: 0.875rem;
+    }
+
+    .heatmap-content {
+      flex: 1;
+    }
+
+    .heatmap-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .heatmap-cell {
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 2px solid transparent;
+      position: relative;
+    }
+
+    .heatmap-cell:hover {
+      transform: scale(1.05);
+      border-color: #3b82f6;
+      z-index: 10;
+    }
+
+    .cell-count {
+      font-size: 1.5rem;
+    }
+
+    .cell-label {
+      font-size: 0.75rem;
+      margin-top: 0.25rem;
+      opacity: 0.8;
+    }
+
+    /* Risk level colors */
+    .heatmap-cell[data-level="0"] {
+      background: #f3f4f6;
+      color: #9ca3af;
+    }
+
+    .heatmap-cell[data-level="1"],
+    .heatmap-cell[data-level="2"],
+    .heatmap-cell[data-level="3"],
+    .heatmap-cell[data-level="4"],
+    .heatmap-cell[data-level="5"],
+    .heatmap-cell[data-level="6"] {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .heatmap-cell[data-level="7"],
+    .heatmap-cell[data-level="8"],
+    .heatmap-cell[data-level="9"],
+    .heatmap-cell[data-level="10"],
+    .heatmap-cell[data-level="11"],
+    .heatmap-cell[data-level="12"] {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .heatmap-cell[data-level="13"],
+    .heatmap-cell[data-level="14"],
+    .heatmap-cell[data-level="15"],
+    .heatmap-cell[data-level="16"],
+    .heatmap-cell[data-level="17"],
+    .heatmap-cell[data-level="18"],
+    .heatmap-cell[data-level="19"] {
+      background: #fed7aa;
+      color: #9a3412;
+    }
+
+    .heatmap-cell[data-level="20"],
+    .heatmap-cell[data-level="21"],
+    .heatmap-cell[data-level="22"],
+    .heatmap-cell[data-level="23"],
+    .heatmap-cell[data-level="24"],
+    .heatmap-cell[data-level="25"] {
+      background: #fecaca;
+      color: #991b1b;
+    }
+
+    .axis-labels {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.75rem;
+      text-align: center;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-secondary, #6b7280);
+      margin-top: 0.5rem;
+    }
+
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin-top: 2rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border, #e5e7eb);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .legend-color {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+    }
+
+    .legend-label {
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .risks-list {
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .risks-list h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text-primary, #1a1a1a);
+    }
+
+    .risk-item {
+      padding: 1rem;
+      border: 1px solid var(--border, #e5e7eb);
+      border-radius: 8px;
+      margin-bottom: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .risk-item:hover {
+      background: var(--bg-hover, #f9fafb);
+      border-color: #3b82f6;
+    }
+
+    .risk-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .risk-item-title {
+      font-weight: 600;
+      color: var(--text-primary, #1a1a1a);
+    }
+
+    .risk-item-score {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.875rem;
+    }
+
+    .risk-item-details {
+      font-size: 0.875rem;
+      color: var(--text-secondary, #6b7280);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: var(--text-secondary, #6b7280);
+    }
+  </style>
+</head>
+<body>
+  <div class="heatmap-container">
+    <!-- Page Header -->
+    <div class="page-header">
+      <h1>Risk Heat Map</h1>
+      <a href="/grc/risks" class="btn btn-secondary">← Back to Risks</a>
+    </div>
+
+    <!-- Heat Map -->
+    <div class="heatmap-section">
+      <div class="heatmap-title">Risk Distribution by Likelihood and Impact</div>
+      
+      <div class="heatmap-wrapper">
+        <div class="axis-label">Likelihood →</div>
+        
+        <div class="heatmap-content">
+          <div class="heatmap-grid" id="heatmapGrid">
+            <!-- Grid will be populated by JavaScript -->
+          </div>
+          
+          <div class="axis-labels">
+            <div>1 - Very Low</div>
+            <div>2 - Low</div>
+            <div>3 - Medium</div>
+            <div>4 - High</div>
+            <div>5 - Very High</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-top: 1rem; font-size: 0.875rem; font-weight: 600; color: var(--text-secondary, #6b7280);">
+        ↑ Impact
+      </div>
+
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-color" style="background: #d1fae5;"></div>
+          <div class="legend-label">Low (1-6)</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #fef3c7;"></div>
+          <div class="legend-label">Medium (7-12)</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #fed7aa;"></div>
+          <div class="legend-label">High (13-19)</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #fecaca;"></div>
+          <div class="legend-label">Critical (20-25)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Selected Cell Risks -->
+    <div class="risks-list" id="risksList" style="display: none;">
+      <h2 id="risksListTitle">Risks</h2>
+      <div id="risksListContent"></div>
+    </div>
+  </div>
+
+  <script>
+    let heatMapData = null;
+
+    // Load heat map on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      loadHeatMap();
+    });
+
+    async function loadHeatMap() {
+      try {
+        const response = await fetch('/api/grc/risks/heatmap');
+        const result = await response.json();
+
+        if (result.success) {
+          heatMapData = result.data;
+          renderHeatMap(heatMapData);
+        }
+      } catch (error) {
+        console.error('Error loading heat map:', error);
+        showError('Failed to load heat map');
+      }
+    }
+
+    function renderHeatMap(data) {
+      const grid = document.getElementById('heatmapGrid');
+      const matrix = data.matrix;
+
+      // Render grid from top to bottom (impact 5 to 1), left to right (likelihood 1 to 5)
+      let html = '';
+      for (let impact = 4; impact >= 0; impact--) {
+        for (let likelihood = 0; likelihood < 5; likelihood++) {
+          const count = matrix[likelihood][impact];
+          const riskScore = (likelihood + 1) * (impact + 1);
+          const key = `${likelihood + 1}-${impact + 1}`;
+          
+          html += `
+            <div class="heatmap-cell" 
+                 data-level="${count > 0 ? riskScore : 0}"
+                 onclick="showRisks('${key}', ${likelihood + 1}, ${impact + 1})">
+              <div class="cell-count">${count}</div>
+              <div class="cell-label">Score: ${riskScore}</div>
+            </div>
+          `;
+        }
+      }
+
+      grid.innerHTML = html;
+    }
+
+    function showRisks(key, likelihood, impact) {
+      const risks = heatMapData.risks[key] || [];
+      
+      const risksList = document.getElementById('risksList');
+      const risksListTitle = document.getElementById('risksListTitle');
+      const risksListContent = document.getElementById('risksListContent');
+
+      if (risks.length === 0) {
+        risksList.style.display = 'none';
+        return;
+      }
+
+      risksListTitle.textContent = `Risks with Likelihood ${likelihood} and Impact ${impact} (${risks.length})`;
+      
+      risksListContent.innerHTML = risks.map(risk => `
+        <div class="risk-item" onclick="viewRisk('${risk.id}')">
+          <div class="risk-item-header">
+            <div class="risk-item-title">${risk.riskNumber}: ${risk.title}</div>
+            <div class="risk-item-score ${getRiskLevel(risk.riskScore)}">${risk.riskScore}</div>
+          </div>
+          <div class="risk-item-details">
+            ${risk.category} • ${formatStatus(risk.status)} • Owner: ${risk.ownerName || risk.owner}
+          </div>
+        </div>
+      `).join('');
+
+      risksList.style.display = 'block';
+      risksList.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function getRiskLevel(score) {
+      if (score <= 6) return 'low';
+      if (score <= 12) return 'medium';
+      if (score <= 19) return 'high';
+      return 'critical';
+    }
+
+    function formatStatus(status) {
+      return status.charAt(0).toUpperCase() + status.slice(1);
+    }
+
+    function viewRisk(id) {
+      window.location.href = `/grc/risks/${id}`;
+    }
+
+    function showError(message) {
+      alert(message);
+    }
+  </script>
+</body>
+</html>
