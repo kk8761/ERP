@@ -32,13 +32,14 @@ export class ViewController {
     const authenticatedUser = (req as any).user;
     const user = authenticatedUser || { name: 'Demo User (Unauthenticated)', email: 'demo@nexaerp.internal', isDemo: true };
     
-    // In demo / unauthenticated preview mode, clearly indicate demo statistics
+    // BUG-14: Explicitly identify simulated demo metrics across all views to prevent misleading users
     const stats = {
       revenue: 125000,
       orders: 342,
       customers: 156,
       products: 892,
-      isSimulatedDemoData: !authenticatedUser
+      isSimulatedDemoData: true,
+      simulationNotice: "Illustrative demo figures: Live database analytics connection pending."
     };
 
     await renderWithLayout(res, 'pages/dashboard.ejs', {

@@ -27,9 +27,9 @@ async def mcp_jsonrpc_endpoint(
     method = body.get("method", "")
     req_id = body.get("id", 1)
 
-    # Allow verified service API key (e.g. Alexa skill backend) or authenticated user
+    # SEC-20: Separate dedicated MCP service credential. Never fallback to SECRET_KEY.
     api_key = request.headers.get("x-api-key")
-    configured_mcp_key = getattr(settings, "MCP_API_KEY", None) or settings.SECRET_KEY
+    configured_mcp_key = getattr(settings, "MCP_API_KEY", None)
 
     user_id: Optional[int] = None
     user_email: Optional[str] = None
@@ -37,9 +37,10 @@ async def mcp_jsonrpc_endpoint(
     if current_user:
         user_id = current_user.id
         user_email = current_user.email
-    elif api_key and api_key == configured_mcp_key:
-        user_id = 1
-        user_email = settings.BOOTSTRAP_ADMIN_EMAIL
+    elif api_key and configured_mcp_key and api_key == configured_mcp_key:
+        # SEC-20: Map verified service key to dedicated least-privilege service account, NOT admin
+        user_id = 9999
+        user_email = "mcp-service-agent@nexaerp.internal"
 
     # Sensitive / state-changing MCP methods REQUIRE authenticated caller
     if method in ["tools/call", "resources/read", "prompts/get"] and not user_id:

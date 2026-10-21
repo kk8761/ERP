@@ -874,6 +874,9 @@ TOOL_DISPATCH_MAP = {
     "update_vendor_ratings_batch": tool_update_vendor_ratings_batch
 }
 
+# Restricted tools requiring administrative authorization
+ADMIN_ONLY_TOOLS = {"create_scheduled_workflow", "update_vendor_ratings_batch"}
+
 async def execute_typed_tool(
     tool_name: str,
     parameters: Dict[str, Any],
@@ -885,9 +888,17 @@ async def execute_typed_tool(
 ) -> Dict[str, Any]:
     """
     Validates and executes an authorized typed tool strictly within tenant boundary.
+    Enforces per-tool role authorization and least-privilege service account constraints.
     """
     if tool_name not in TOOL_DISPATCH_MAP:
         return {"status": "ERROR", "message": f"Unauthorized or unknown tool '{tool_name}'"}
+
+    # SEC-20: Block privileged administrative tools from unprivileged service accounts
+    if tool_name in ADMIN_ONLY_TOOLS and user_id == 9999:
+        return {
+            "status": "ERROR",
+            "message": f"Forbidden: Dedicated MCP service account cannot invoke administrative tool '{tool_name}'. Explicit administrator credentials required."
+        }
 
     fn = TOOL_DISPATCH_MAP[tool_name]
     params = dict(parameters)

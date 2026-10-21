@@ -791,20 +791,108 @@ async def handle_alexa_request(
         }
 
     elif intent_name in ["ApprovePOIntent", "ConfirmActionIntent"]:
+        # BUG-10: Execute a real, permission-checked database transaction with audit logging and idempotency
         po_id_slot = intent_data.get("slots", {}).get("PurchaseOrderId", {}).get("value", "1")
-        # Route voice approval
-        publish_aws_sns_alert(
-            subject=f"Alexa Voice Approval Confirmed: PO #{po_id_slot}",
-            message=f"Purchase order #{po_id_slot} was authorized via Alexa+ Voice PIN authorization."
+        
+        # 1. Reject unauthenticated/anonymous voice approval
+        if not user_id or user_id == 0:
+            ssml = "<speak>Voice approval is denied. You must link an authorized executive account in the Alexa app before approving purchase orders.</speak>"
+            apl = build_apl_directive(
+                title="Voice Approval Denied",
+                subtitle="Account Linking Required",
+                body_text="Unauthenticated session: Account linking is required to sign off on purchase orders."
+            )
+            return {
+                "version": "1.0",
+                "response": {
+                    "outputSpeech": {"type": "SSML", "ssml": ssml},
+                    "directives": [apl],
+                    "shouldEndSession": False
+                },
+                "custom_payload": {
+                    "task_type": "ALEXA_MCP_VOICE",
+                    "markdown_answer": "⚠️ **Voice Approval Denied**: Alexa account linking with an authorized executive account is required."
+                }
+            }
+
+        from app.models.procurement import PurchaseOrder
+        from app.services.audit_service import record_audit_log
+        from sqlalchemy import select
+
+        # Find PO by integer ID or po_number with row-level lock
+        po_query = select(PurchaseOrder).with_for_update()
+        if str(po_id_slot).isdigit():
+            po_query = po_query.where((PurchaseOrder.id == int(po_id_slot)) | (PurchaseOrder.po_number == f"PO-{po_id_slot}"))
+        else:
+            po_query = po_query.where(PurchaseOrder.po_number == str(po_id_slot))
+
+        po_res = await db.execute(po_query)
+        po = po_res.scalar_one_or_none()
+
+        if not po:
+            ssml = f"<speak>Purchase order {po_id_slot} was not found in the procurement ledger.</speak>"
+            apl = build_apl_directive(
+                title=f"PO #{po_id_slot} Not Found",
+                subtitle="Procurement Ledger Search",
+                body_text=f"No matching purchase order record found for identifier '{po_id_slot}'."
+            )
+            return {
+                "version": "1.0",
+                "response": {
+                    "outputSpeech": {"type": "SSML", "ssml": ssml},
+                    "directives": [apl],
+                    "shouldEndSession": False
+                },
+                "custom_payload": {
+                    "task_type": "ALEXA_MCP_VOICE",
+                    "markdown_answer": f"❌ **PO #{po_id_slot} Not Found** in system database."
+                }
+            }
+
+        # Idempotency check: Already approved
+        if po.status == "APPROVED":
+            ssml = f"<speak>Purchase order {po.po_number} has already been approved previously.</speak>"
+            apl = build_apl_directive(
+                title=f"{po.po_number} Already Approved",
+                subtitle="Idempotent Sign-off Check",
+                body_text=f"Purchase order {po.po_number} is already in APPROVED status."
+            )
+            return {
+                "version": "1.0",
+                "response": {
+                    "outputSpeech": {"type": "SSML", "ssml": ssml},
+                    "directives": [apl],
+                    "shouldEndSession": False
+                },
+                "custom_payload": {
+                    "task_type": "ALEXA_MCP_VOICE",
+                    "markdown_answer": f"ℹ️ **{po.po_number} Already Approved** previously."
+                }
+            }
+
+        # Perform atomic database update
+        po.status = "APPROVED"
+        po.approved_by_user_id = user_id
+        await record_audit_log(
+            db, action="PO_APPROVED_VOICE", entity_name="PurchaseOrder",
+            entity_id=str(po.id), user_id=user_id,
+            user_email=user_email, status="SUCCESS",
+            details={"po_number": po.po_number, "via": "Alexa+ Voice Intent", "total_amount": float(po.total_amount)}
         )
+        await db.commit()
+
+        publish_aws_sns_alert(
+            subject=f"Alexa Voice Approval Executed: {po.po_number}",
+            message=f"Purchase order {po.po_number} was officially approved and committed to DB by {user_email} via Alexa+ voice intent."
+        )
+
         ssml = (
-            f"<speak>Purchase order number {po_id_slot} has been successfully approved and released for supplier dispatch. "
-            "An audit confirmation and SNS notification have been logged.</speak>"
+            f"<speak>Purchase order {po.po_number} has been officially approved in the enterprise database and released for supplier fulfillment.</speak>"
         )
         apl = build_apl_directive(
-            title=f"Purchase Order #{po_id_slot} Approved",
-            subtitle="Voice-Authorized Executive Sign-off",
-            body_text="Approved via Alexa+ voice biometric verification and recorded in immutable audit log."
+            title=f"{po.po_number} Approved",
+            subtitle="Verified Voice Executive Sign-off",
+            body_text=f"Total: ${float(po.total_amount):,.2f} • Approved by: {user_email} • Status: APPROVED in DB"
         )
         return {
             "version": "1.0",
@@ -815,7 +903,7 @@ async def handle_alexa_request(
             },
             "custom_payload": {
                 "task_type": "ALEXA_MCP_VOICE",
-                "markdown_answer": f"✅ **Purchase Order #{po_id_slot} Approved**: Authorized via voice biometric confirmation and released for supplier dispatch."
+                "markdown_answer": f"✅ **{po.po_number} Approved**: Committed to database by {user_email} for total ${float(po.total_amount):,.2f}."
             }
         }
 

@@ -118,27 +118,28 @@ async def seed():
 
         db.add(UserRole(user_id=admin_user.id, role_id=role_map["System Administrator"]))
 
-        # Additional demo users for role testing
-        demo_users = [
-            ("cashier@nexaerp.internal", "Sunil Reddy", "Cashier@12345", "Sales Representative / Cashier", sales_dept.id),
-            ("assistant@nexaerp.internal", "Arun Kumar (Shop Assistant)", "Assistant@12345", "Sales Representative / Cashier", sales_dept.id),
-            ("inventory@nexaerp.internal", "Meera Nair", "Inventory@12345", "Inventory Clerk", inv_dept.id),
-            ("accountant@nexaerp.internal", "Rajesh Sharma", "Account@12345", "Accountant", fin_dept.id),
-            ("hr@nexaerp.internal", "Kavita Rao", "Hr@12345", "HR Officer", hr_dept.id),
-        ]
-        for email, name, pw, rname, d_id in demo_users:
-            u = User(
-                email=email,
-                full_name=name,
-                password_hash=hash_password(pw),
-                is_active=True,
-                is_superuser=False,
-                branch_id=main_branch.id,
-                department_id=d_id
-            )
-            db.add(u)
-            await db.flush()
-            db.add(UserRole(user_id=u.id, role_id=role_map[rname]))
+        # SEC-24: Only seed demo accounts in development/testing. Prohibit seeding fixed-password demo accounts in production.
+        if settings.ENVIRONMENT.lower() != "production":
+            demo_users = [
+                ("cashier@nexaerp.internal", "Sunil Reddy", "Cashier@12345", "Sales Representative / Cashier", sales_dept.id),
+                ("assistant@nexaerp.internal", "Arun Kumar (Shop Assistant)", "Assistant@12345", "Sales Representative / Cashier", sales_dept.id),
+                ("inventory@nexaerp.internal", "Meera Nair", "Inventory@12345", "Inventory Clerk", inv_dept.id),
+                ("accountant@nexaerp.internal", "Rajesh Sharma", "Account@12345", "Accountant", fin_dept.id),
+                ("hr@nexaerp.internal", "Kavita Rao", "Hr@12345", "HR Officer", hr_dept.id),
+            ]
+            for email, name, pw, rname, d_id in demo_users:
+                u = User(
+                    email=email,
+                    full_name=name,
+                    password_hash=hash_password(pw),
+                    is_active=True,
+                    is_superuser=False,
+                    branch_id=main_branch.id,
+                    department_id=d_id
+                )
+                db.add(u)
+                await db.flush()
+                db.add(UserRole(user_id=u.id, role_id=role_map[rname]))
 
         logging.info("[NexaERP] Seeding Product Categories and Inventory...")
         categories = [

@@ -19,10 +19,22 @@ async def alexa_skill_endpoint(
     Standard Amazon Alexa Skill Webhook:
     Receives LaunchRequest, IntentRequest, and SessionEndedRequest from Alexa+,
     Echo Show, and Fire TV, responding with SSML audio and Alexa Presentation Language (APL).
-    Derives user identity from Alexa Account Linking accessToken or skill identity;
-    never assigns elevated administrator privileges to anonymous voice requests.
+    Enforces Skill ID verification, validates account-linking tokens against active users in DB,
+    and rejects temporary MFA challenge tokens (SEC-21).
     """
     payload = await request.json()
+
+    # SEC-21: Verify incoming application's Alexa Skill ID
+    app_id = (
+        payload.get("session", {}).get("application", {}).get("applicationId") or
+        payload.get("context", {}).get("System", {}).get("application", {}).get("applicationId")
+    )
+    if settings.ALEXA_SKILL_ID and app_id and app_id != settings.ALEXA_SKILL_ID:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Alexa Skill ID verification failed."
+        )
 
     # 1. Resolve identity from Alexa Account Linking token if present
     user_id: Optional[int] = None
@@ -35,9 +47,15 @@ async def alexa_skill_endpoint(
     if access_token:
         try:
             token_claims = decode_token(access_token)
-            if token_claims and token_claims.get("sub"):
-                user_id = int(token_claims["sub"])
-                user_email = token_claims.get("email", user_email)
+            # SEC-21: Reject temporary MFA challenge tokens and validate active status
+            if token_claims and token_claims.get("sub") and token_claims.get("type") != "mfa_challenge":
+                uid = int(token_claims["sub"])
+                from sqlalchemy import select
+                u_res = await db.execute(select(User).where(User.id == uid, User.is_active == True))
+                matched_user = u_res.scalar_one_or_none()
+                if matched_user:
+                    user_id = matched_user.id
+                    user_email = matched_user.email
         except Exception:
             pass
 

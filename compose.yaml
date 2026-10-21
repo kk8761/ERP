@@ -5,13 +5,13 @@ services:
     container_name: nexaerp_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: nexaerp_db
-      POSTGRES_USER: nexa_user
-      POSTGRES_PASSWORD: nexa_secure_password
+      POSTGRES_DB: ${POSTGRES_DB:-nexaerp_db}
+      POSTGRES_USER: ${POSTGRES_USER:-nexa_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexa_secure_vault_pw_2026}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nexa_user -d nexaerp_db"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-nexa_user} -d $${POSTGRES_DB:-nexaerp_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -26,7 +26,9 @@ services:
     container_name: nexaerp_mongodb
     restart: unless-stopped
     environment:
-      MONGO_INITDB_DATABASE: nexaerp
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-nexaerp}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-nexa_admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-nexa_mongo_vault_pw_2026}
     volumes:
       - mongo_data:/data/db
     ports:
@@ -43,11 +45,13 @@ services:
     restart: unless-stopped
     environment:
       - ENVIRONMENT=production
-      - DATABASE_URL=postgresql+asyncpg://nexa_user:nexa_secure_password@db:5432/nexaerp_db
-      - MONGODB_URI=mongodb://mongodb:27017
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-nexa_user}:${POSTGRES_PASSWORD:-nexa_secure_vault_pw_2026}@db:5432/${POSTGRES_DB:-nexaerp_db}
+      - MONGODB_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME:-nexa_admin}:${MONGO_INITDB_ROOT_PASSWORD:-nexa_mongo_vault_pw_2026}@mongodb:27017
       - MONGODB_DB_NAME=nexaerp
       - SECRET_KEY=${SECRET_KEY}
       - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD}
+      - MCP_API_KEY=${MCP_API_KEY:-}
+      - COOKIE_SECURE=true
       - CORS_ORIGINS=http://localhost:5173,http://localhost:80,http://127.0.0.1:5173
     depends_on:
       db:

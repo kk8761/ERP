@@ -40,12 +40,15 @@ async def list_sales_orders(
     if search:
         stmt = stmt.where(SalesOrder.invoice_number.ilike(f"%{search}%"))
 
-    # Branch Isolation (SEC-15): Scope order listings to the user's branch unless executive / global administrator
+    # Branch Isolation (SEC-15 & SEC-22): Scope order listings strictly to the user's branch
     is_global_admin = current_user.is_superuser or any(
         r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
         for r in getattr(current_user, "roles", [])
     )
-    if not is_global_admin and current_user.branch_id:
+    if not is_global_admin:
+        if not current_user.branch_id:
+            # SEC-22: Non-admin users without a branch assignment cannot access unscoped cross-branch orders
+            return []
         stmt = stmt.where(SalesOrder.branch_id == current_user.branch_id)
 
     result = await db.execute(stmt)
@@ -90,6 +93,21 @@ async def create_order(
     current_user: User = Depends(require_permission("sales.create")),
     db: AsyncSession = Depends(get_db)
 ):
+    # SEC-22: Prevent client-side branch spoofing. Enforce server-derived branch context.
+    is_global_admin = current_user.is_superuser or any(
+        r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
+        for r in getattr(current_user, "roles", [])
+    )
+    if not is_global_admin:
+        if not current_user.branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Branch assignment required: Non-administrative users cannot transact without an assigned branch context."
+            )
+        order_in.branch_id = current_user.branch_id
+    elif not order_in.branch_id and current_user.branch_id:
+        order_in.branch_id = current_user.branch_id
+
     order = await create_sales_order(
         db=db,
         order_in=order_in,
@@ -99,7 +117,7 @@ async def create_order(
         db, action="SALE_COMPLETED", entity_name="SalesOrder",
         entity_id=str(order.id), user_id=current_user.id,
         user_email=current_user.email, status="SUCCESS",
-        details={"invoice": order.invoice_number, "total": float(order.total_amount)}
+        details={"invoice": order.invoice_number, "total": float(order.total_amount), "branch_id": order.branch_id}
     )
     await db.commit()
     await db.refresh(order)
@@ -150,7 +168,7 @@ async def refund_order(
     current_user: User = Depends(require_permission("sales.refund")),
     db: AsyncSession = Depends(get_db)
 ):
-    # Atomic row locking & branch isolation (BUG-05 & SEC-15)
+    # Atomic row locking & branch isolation (BUG-05, SEC-15, SEC-22)
     stmt = (
         select(SalesOrder)
         .options(selectinload(SalesOrder.items), selectinload(SalesOrder.customer))
@@ -166,11 +184,17 @@ async def refund_order(
         r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
         for r in getattr(current_user, "roles", [])
     )
-    if not is_global_admin and current_user.branch_id and order.branch_id and order.branch_id != current_user.branch_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cross-branch refund denied: Order was issued by a different branch."
-        )
+    if not is_global_admin:
+        if not current_user.branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Branch assignment required to process refunds."
+            )
+        if order.branch_id != current_user.branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cross-branch refund denied: Order was issued by a different branch."
+            )
 
     # Idempotent validation
     if order.order_status in ["RETURNED", "CANCELLED"] or order.payment_status == "REFUNDED":

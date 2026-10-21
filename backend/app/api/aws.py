@@ -97,4 +97,21 @@ async def get_s3_upload_presigned_url(
             detail=f"S3 access denied. Object key must begin with one of: {list(ALLOWED_S3_PREFIXES)}"
         )
 
+    # 3. SEC-23: Restrict sensitive key prefixes by role
+    user_roles = [r.role.name for r in getattr(current_user, "roles", []) if r.role]
+    is_admin = current_user.is_superuser or any(r in ["System Administrator", "Executive", "Managing Director"] for r in user_roles)
+    is_finance = is_admin or any("Finance" in r or "Accountant" in r for r in user_roles)
+    is_hr = is_admin or any("HR" in r for r in user_roles)
+
+    if clean_key.startswith("signatures/") and not (is_admin or is_hr):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Executive or HR privileges required to access document signatures."
+        )
+    if clean_key.startswith(("reports/", "invoices/")) and not (is_admin or is_finance):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Financial or administrative privileges required to access reports or invoices."
+        )
+
     return generate_s3_presigned_url(object_key=clean_key, operation=clean_op)

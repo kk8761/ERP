@@ -6,20 +6,54 @@ import React, { useMemo } from 'react';
  */
 export function sanitizeHtml(rawHtml) {
   if (!rawHtml) return '';
-  let clean = String(rawHtml);
-  // 1. Strip script, object, embed, iframe, form tags
+  const raw = String(rawHtml);
+
+  // If running in browser environment, use robust DOM-based tree sanitization
+  if (typeof window !== 'undefined' && typeof DOMParser !== 'undefined') {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(raw, 'text/html');
+
+      // Disallowed elements
+      const bannedTags = ['script', 'iframe', 'object', 'embed', 'form', 'link', 'base', 'applet', 'meta'];
+      bannedTags.forEach(tag => {
+        const elements = doc.querySelectorAll(tag);
+        elements.forEach(el => el.remove());
+      });
+
+      // Allowed attributes
+      const allowedAttrs = new Set(['href', 'src', 'alt', 'title', 'class', 'id', 'style', 'width', 'height', 'align', 'valign', 'bgcolor', 'border', 'cellpadding', 'cellspacing', 'colspan', 'rowspan']);
+      const allElements = doc.querySelectorAll('*');
+      allElements.forEach(el => {
+        // Strip non-allowlisted attributes and event handlers
+        Array.from(el.attributes).forEach(attr => {
+          const attrName = attr.name.toLowerCase();
+          if (attrName.startsWith('on') || !allowedAttrs.has(attrName)) {
+            el.removeAttribute(attr.name);
+          } else if (['href', 'src', 'action'].includes(attrName)) {
+            const val = attr.value.trim().toLowerCase();
+            if (val.startsWith('javascript:') || val.startsWith('vbscript:') || val.startsWith('data:text/html')) {
+              el.setAttribute(attr.name, '#');
+            }
+          }
+        });
+      });
+
+      return doc.body.innerHTML;
+    } catch (e) {
+      // Fallback to strict regex filter below if parser fails
+    }
+  }
+
+  // Fallback regex sanitizer
+  let clean = raw;
   clean = clean.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
   clean = clean.replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '');
   clean = clean.replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '');
   clean = clean.replace(/<embed\b[^>]*>/gi, '');
   clean = clean.replace(/<form\b[^<]*(?:(?!<\/form>)<[^<]*)*<\/form>/gi, '');
-
-  // 2. Strip event handler attributes (onload, onerror, onclick, etc.)
   clean = clean.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-
-  // 3. Neutralize dangerous pseudo-protocols
   clean = clean.replace(/(href|src|action)\s*=\s*["']\s*(javascript|vbscript|data:text\/html):[^"']*["']/gi, '$1="#"');
-
   return clean;
 }
 

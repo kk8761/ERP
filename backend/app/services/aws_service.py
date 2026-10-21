@@ -204,15 +204,52 @@ def generate_s3_presigned_url(
 ) -> Dict[str, Any]:
     """
     Generates an Amazon S3 presigned URL for secure document upload or retrieval.
+    Uses boto3 when AWS credentials are provided; clearly flags simulation mode when unconfigured.
     """
     bucket = settings.AWS_S3_BUCKET
-    url = f"https://{bucket}.s3.{settings.AWS_REGION}.amazonaws.com/{object_key}?X-Amz-Expires={expires_in_seconds}&presigned=mock"
+    region = settings.AWS_REGION
+    
+    # Check if real AWS credentials are provided
+    if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+        try:
+            import boto3
+            from botocore.config import Config
+            s3_client = boto3.client(
+                "s3",
+                region_name=region,
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                config=Config(signature_version="s3v4")
+            )
+            client_method = "put_object" if operation.lower() == "put_object" else "get_object"
+            url = s3_client.generate_presigned_url(
+                ClientMethod=client_method,
+                Params={"Bucket": bucket, "Key": object_key},
+                ExpiresIn=expires_in_seconds
+            )
+            return {
+                "bucket": bucket,
+                "key": object_key,
+                "operation": operation,
+                "presigned_url": url,
+                "expires_in_seconds": expires_in_seconds,
+                "is_simulated": False,
+                "mode": "AWS_S3_V4"
+            }
+        except Exception as exc:
+            logger.warning(f"[AWS S3] boto3 presigned generation failed ({exc}); falling back to simulated sandbox URL.")
+
+    # Sandbox / simulated mode when AWS credentials are not configured
+    url = f"https://{bucket}.s3.{region}.amazonaws.com/{object_key}?X-Amz-Expires={expires_in_seconds}&mode=sandbox_simulated"
     return {
         "bucket": bucket,
         "key": object_key,
         "operation": operation,
         "presigned_url": url,
-        "expires_in_seconds": expires_in_seconds
+        "expires_in_seconds": expires_in_seconds,
+        "is_simulated": True,
+        "mode": "SIMULATED_SANDBOX",
+        "notice": "AWS credentials not configured. Presigned URL generated in sandbox/simulated mode."
     }
 
 def get_recent_cloudwatch_events(limit: int = 20) -> List[Dict[str, Any]]:

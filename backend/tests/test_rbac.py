@@ -82,6 +82,12 @@ async def test_cashier_denied_sensitive_operations(client: AsyncClient, admin_au
     cfg_res = await client.post("/api/admin/system/config/update", json={"key": "k", "value": "v", "reason": "r"}, headers=headers)
     assert cfg_res.status_code == 403
 
+    bulk_res = await client.post("/api/admin/system/users/bulk-create", json=[], headers=headers)
+    assert bulk_res.status_code == 403
+
+    maint_res = await client.post("/api/admin/system/database/maintenance/run", json={"action": "INDEX_OPTIMIZATION"}, headers=headers)
+    assert maint_res.status_code == 403
+
     # But Cashier CAN view products and dashboard
     res = await client.get("/api/inventory/products", headers=headers)
     assert res.status_code == 200

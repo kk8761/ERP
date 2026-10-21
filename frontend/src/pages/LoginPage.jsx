@@ -416,40 +416,42 @@ export default function LoginPage() {
               </div>
             </form>
 
-            {/* Dynamic Demo Credentials based on selected Profile */}
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px' }}>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', textAlign: 'center' }}>
-                {profileType === 'company' ? 'Company HQ Roles (Click to fill):' : 'Store Operator Accounts (Click to fill):'}
+            {/* Dynamic Demo Credentials based on selected Profile (Development Only) */}
+            {!import.meta.env.PROD && (
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', textAlign: 'center' }}>
+                  {profileType === 'company' ? 'Company HQ Roles (Click to fill):' : 'Store Operator Accounts (Click to fill):'}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                  {(profileType === 'company' ? [
+                    { role: 'System Admin', email: 'admin@nexaerp.internal', pass: 'Admin@NexaERP2026!' },
+                    { role: 'Accountant', email: 'accountant@nexaerp.internal', pass: 'Account@12345' },
+                    { role: 'Inventory Mgr', email: 'inventory@nexaerp.internal', pass: 'Inventory@12345' },
+                    { role: 'HR Manager', email: 'hr@nexaerp.internal', pass: 'Hr@12345' }
+                  ] : [
+                    { role: 'Cashier / POS', email: 'cashier@nexaerp.internal', pass: 'Cashier@12345' },
+                    { role: 'Shop Assistant', email: 'assistant@nexaerp.internal', pass: 'Assistant@12345' }
+                  ]).map((p, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleDemoLogin(p.email, p.pass)}
+                      className="btn btn-ghost"
+                      style={{
+                        fontSize: '11.5px',
+                        padding: '6px 8px',
+                        justifyContent: 'flex-start',
+                        backgroundColor: 'var(--bg-subtle)',
+                        borderRadius: 'var(--radius-sm)'
+                      }}
+                    >
+                      <UserCheck size={13} color={profileType === 'company' ? 'var(--primary)' : '#10b981'} />
+                      <span>{p.role}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                {(profileType === 'company' ? [
-                  { role: 'System Admin', email: 'admin@nexaerp.internal', pass: 'Admin@NexaERP2026!' },
-                  { role: 'Accountant', email: 'accountant@nexaerp.internal', pass: 'Account@12345' },
-                  { role: 'Inventory Mgr', email: 'inventory@nexaerp.internal', pass: 'Inventory@12345' },
-                  { role: 'HR Manager', email: 'hr@nexaerp.internal', pass: 'Hr@12345' }
-                ] : [
-                  { role: 'Cashier / POS', email: 'cashier@nexaerp.internal', pass: 'Cashier@12345' },
-                  { role: 'Shop Assistant', email: 'assistant@nexaerp.internal', pass: 'Assistant@12345' }
-                ]).map((p, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => handleDemoLogin(p.email, p.pass)}
-                    className="btn btn-ghost"
-                    style={{
-                      fontSize: '11.5px',
-                      padding: '6px 8px',
-                      justifyContent: 'flex-start',
-                      backgroundColor: 'var(--bg-subtle)',
-                      borderRadius: 'var(--radius-sm)'
-                    }}
-                  >
-                    <UserCheck size={13} color={profileType === 'company' ? 'var(--primary)' : '#10b981'} />
-                    <span>{p.role}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            )}
           </>
         )}
 

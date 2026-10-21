@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "procurement@nexaerp.internal"
     SMTP_FROM_NAME: str = "NexaERP Enterprise Mailer"
 
+    # MCP Integration Service Credential (SEC-20)
+    MCP_API_KEY: Optional[str] = os.getenv("MCP_API_KEY", None)
+
     # AWS Amazon Developer Challenge 2026 Integrations (Alexa+, Fire TV, Bedrock, S3, SNS, CloudWatch)
     AWS_REGION: str = os.getenv("AWS_REGION", "us-east-1")
     AWS_ACCESS_KEY_ID: Optional[str] = os.getenv("AWS_ACCESS_KEY_ID", None)
@@ -79,25 +82,31 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     def model_post_init(self, __context: Any) -> None:
-        import logging
-        import secrets
         known_insecure = (
             "dev_super_secret",
             "nexa_erp_dev_super_secret_key",
-            "nexa_erp_production_secret_key_override_2026"
+            "nexa_erp_production_secret_key_override_2026",
+            "secret",
+            "changeme"
         )
-        is_known_insecure = any(s in self.SECRET_KEY for s in known_insecure) or len(self.SECRET_KEY) < 32
 
         if self.ENVIRONMENT.lower() == "production":
-            if is_known_insecure:
-                # Generate cryptographic 256-bit entropy key to prevent known signature forge (SEC-03)
-                self.SECRET_KEY = secrets.token_hex(32)
-                logging.warning("[SECURITY SEC-03] Insecure or default SECRET_KEY detected in production. Automatically initialized high-entropy 256-bit secret key.")
+            # SEC-25: Fail fast if session cookies are insecure in production
+            if not self.COOKIE_SECURE:
+                raise ValueError(
+                    "[SECURITY SEC-25] Production deployment requires COOKIE_SECURE=true to prevent transmission of session cookies over unencrypted HTTP."
+                )
 
-            if self.BOOTSTRAP_ADMIN_PASSWORD == "Admin@NexaERP2026!":
-                # SEC-07: Prohibit known default admin password in production
-                generated_pwd = "Nexa#" + secrets.token_urlsafe(16) + "$2026"
-                self.BOOTSTRAP_ADMIN_PASSWORD = generated_pwd
-                logging.warning(f"[SECURITY SEC-07] Default bootstrap admin password detected in production. Rotated to generated secret. Please supply BOOTSTRAP_ADMIN_PASSWORD via environment manager.")
+            # SEC-03 / BUG-11: Fail fast if SECRET_KEY is missing, too short, or a known default
+            if not self.SECRET_KEY or any(s in self.SECRET_KEY.lower() for s in known_insecure) or len(self.SECRET_KEY) < 32:
+                raise ValueError(
+                    "[SECURITY SEC-03/BUG-11] Startup blocked: A strong, non-default SECRET_KEY (minimum 32 characters) must be explicitly configured in production environment variables."
+                )
+
+            # SEC-07 / BUG-11: Fail fast if BOOTSTRAP_ADMIN_PASSWORD is empty or known default
+            if not self.BOOTSTRAP_ADMIN_PASSWORD or not self.BOOTSTRAP_ADMIN_PASSWORD.strip() or self.BOOTSTRAP_ADMIN_PASSWORD == "Admin@NexaERP2026!":
+                raise ValueError(
+                    "[SECURITY SEC-07/BUG-11] Startup blocked: A strong, non-empty, non-default BOOTSTRAP_ADMIN_PASSWORD must be explicitly provided in production environment variables."
+                )
 
 settings = Settings()
