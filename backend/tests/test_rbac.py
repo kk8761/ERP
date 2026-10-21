@@ -17,6 +17,10 @@ async def test_admin_has_full_rbac_access(client: AsyncClient, admin_auth_token:
     res = await client.get("/api/hr/payroll", headers=headers)
     assert res.status_code == 200
 
+    # Admin can access system admin dashboard (SEC-14)
+    res = await client.get("/api/admin/system/dashboard", headers=headers)
+    assert res.status_code == 200
+
 @pytest.mark.asyncio
 async def test_cashier_denied_sensitive_operations(client: AsyncClient, admin_auth_token: str):
     import uuid
@@ -69,6 +73,14 @@ async def test_cashier_denied_sensitive_operations(client: AsyncClient, admin_au
     # Cashier cannot approve purchase orders -> 403 Forbidden
     res = await client.post("/api/procurement/purchase-orders/1/approve", headers=headers)
     assert res.status_code == 403
+
+    # Cashier cannot access System Admin Dashboard or Tools (SEC-14) -> 403 Forbidden
+    sys_res = await client.get("/api/admin/system/dashboard", headers=headers)
+    assert sys_res.status_code == 403
+    assert "System Administrator" in sys_res.json()["detail"] or "Access denied" in sys_res.json()["detail"]
+
+    cfg_res = await client.post("/api/admin/system/config/update", json={"key": "k", "value": "v", "reason": "r"}, headers=headers)
+    assert cfg_res.status_code == 403
 
     # But Cashier CAN view products and dashboard
     res = await client.get("/api/inventory/products", headers=headers)

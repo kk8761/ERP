@@ -1,7 +1,7 @@
 from typing import Optional, List
 from decimal import Decimal
 from datetime import date
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 class AccountCreate(BaseModel):
     code: str
@@ -21,9 +21,17 @@ class AccountOut(BaseModel):
 
 class JournalLineIn(BaseModel):
     account_id: int
-    debit: Decimal = Decimal("0.00")
-    credit: Decimal = Decimal("0.00")
+    debit: Decimal = Field(default=Decimal("0.00"), ge=0)
+    credit: Decimal = Field(default=Decimal("0.00"), ge=0)
     description: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_single_positive_side(self) -> "JournalLineIn":
+        if self.debit < 0 or self.credit < 0:
+            raise ValueError("Debit and credit amounts must be non-negative.")
+        if (self.debit > 0 and self.credit > 0) or (self.debit == 0 and self.credit == 0):
+            raise ValueError("Each journal line must specify either a positive debit or a positive credit amount, not both or neither.")
+        return self
 
 class JournalEntryCreate(BaseModel):
     entry_date: date = Field(default_factory=date.today)

@@ -1,4 +1,5 @@
 from typing import List, Optional
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,14 @@ async def list_sales_orders(
         stmt = stmt.where(SalesOrder.order_status == status)
     if search:
         stmt = stmt.where(SalesOrder.invoice_number.ilike(f"%{search}%"))
+
+    # Branch Isolation (SEC-15): Scope order listings to the user's branch unless executive / global administrator
+    is_global_admin = current_user.is_superuser or any(
+        r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
+        for r in getattr(current_user, "roles", [])
+    )
+    if not is_global_admin and current_user.branch_id:
+        stmt = stmt.where(SalesOrder.branch_id == current_user.branch_id)
 
     result = await db.execute(stmt)
     orders = result.scalars().all()
@@ -141,16 +150,33 @@ async def refund_order(
     current_user: User = Depends(require_permission("sales.refund")),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(SalesOrder).options(selectinload(SalesOrder.items)).where(SalesOrder.id == order_id)
+    # Atomic row locking & branch isolation (BUG-05 & SEC-15)
+    stmt = (
+        select(SalesOrder)
+        .options(selectinload(SalesOrder.items), selectinload(SalesOrder.customer))
+        .where(SalesOrder.id == order_id)
+        .with_for_update()
+    )
     res = await db.execute(stmt)
     order = res.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    if order.order_status == "RETURNED":
-        raise HTTPException(status_code=400, detail="Order is already returned/refunded")
+    is_global_admin = current_user.is_superuser or any(
+        r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
+        for r in getattr(current_user, "roles", [])
+    )
+    if not is_global_admin and current_user.branch_id and order.branch_id and order.branch_id != current_user.branch_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cross-branch refund denied: Order was issued by a different branch."
+        )
 
-    # Restore inventory
+    # Idempotent validation
+    if order.order_status in ["RETURNED", "CANCELLED"] or order.payment_status == "REFUNDED":
+        raise HTTPException(status_code=400, detail="Order is already returned and refunded. Duplicate refund prevented.")
+
+    # Atomically restore inventory for each item
     for item in order.items:
         await adjust_product_stock(
             db=db,
@@ -165,11 +191,15 @@ async def refund_order(
     order.order_status = "RETURNED"
     order.payment_status = "REFUNDED"
 
+    # Reconcile customer total spend if assigned
+    if order.customer:
+        order.customer.total_spend = max(Decimal("0.00"), (order.customer.total_spend or Decimal("0.00")) - order.total_amount)
+
     await record_audit_log(
         db, action="SALE_REFUNDED", entity_name="SalesOrder",
         entity_id=str(order.id), user_id=current_user.id,
         user_email=current_user.email, status="SUCCESS",
-        details={"invoice": order.invoice_number, "refund_amount": float(order.total_amount)}
+        details={"invoice": order.invoice_number, "refund_amount": float(order.total_amount), "branch_id": order.branch_id}
     )
     await db.commit()
     return {"message": f"Order {order.invoice_number} successfully refunded and stock replenished"}

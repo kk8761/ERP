@@ -70,9 +70,12 @@ def mock_fast_smtp_during_tests(monkeypatch):
 @pytest.fixture(autouse=True)
 def reset_waf_quarantine():
     from app.services.intrusion_defense_service import reset_quarantine_state
+    from app.api.auth import reset_mfa_tracking
     reset_quarantine_state()
+    reset_mfa_tracking()
     yield
     reset_quarantine_state()
+    reset_mfa_tracking()
 
 @pytest_asyncio.fixture(scope="function")
 async def client():

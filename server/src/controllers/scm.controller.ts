@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import scmService from '../services/scm.service';
 import { sendSuccess, sendError } from '../utils/response';
+import bcrypt from 'bcryptjs';
 
 export class SCMController {
   
@@ -414,11 +415,14 @@ export class SCMController {
         return sendError(res, 'Supplier ID, username, and password are required', 400);
       }
       
-      // TODO: Hash password before storing
+      // Hash vendor password securely before storage (SEC-16)
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+
       const access = await scmService.createVendorPortalAccess({
         supplierId,
         username,
-        password, // Should be hashed
+        password: hashedPassword,
         permissions
       });
       

@@ -17,14 +17,16 @@ import {
   Smartphone
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../services/api';
 
 export default function LoginPage() {
   const { login, verify2FA } = useAuth();
+  const isDev = !import.meta.env.PROD;
   
   // Profile type: 'company' (HQ / Executive / Admin / Finance) vs 'shopkeeper' (Store / Retail / POS / Cashier)
   const [profileType, setProfileType] = useState('company');
-  const [email, setEmail] = useState('admin@nexaerp.internal');
-  const [password, setPassword] = useState('Admin@NexaERP2026!');
+  const [email, setEmail] = useState(isDev ? 'admin@nexaerp.internal' : '');
+  const [password, setPassword] = useState(isDev ? 'Admin@NexaERP2026!' : '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -39,12 +41,14 @@ export default function LoginPage() {
   const handleProfileSwitch = (type) => {
     setProfileType(type);
     setError('');
-    if (type === 'company') {
-      setEmail('admin@nexaerp.internal');
-      setPassword('Admin@NexaERP2026!');
-    } else {
-      setEmail('cashier@nexaerp.internal');
-      setPassword('Cashier@12345');
+    if (isDev) {
+      if (type === 'company') {
+        setEmail('admin@nexaerp.internal');
+        setPassword('Admin@NexaERP2026!');
+      } else {
+        setEmail('cashier@nexaerp.internal');
+        setPassword('Cashier@12345');
+      }
     }
   };
 
@@ -112,7 +116,10 @@ export default function LoginPage() {
     setRefreshingQr(true);
     setError('');
     try {
-      const res = await fetch(`/api/auth/mfa/refresh-qr/${mfaData.temp_token}`, { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/api/auth/mfa/refresh-qr/${mfaData.temp_token}`, {
+        method: 'POST',
+        credentials: 'include'
+      });
       if (res.ok) {
         const data = await res.json();
         setMfaData(prev => ({

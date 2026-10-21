@@ -157,10 +157,14 @@ async def test_alexa_vendor_scorecard_and_sales_summary(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_alexa_simulation_endpoint(client: AsyncClient):
-    """Verify in-browser / Fire TV voice simulation API."""
+async def test_alexa_simulation_endpoint(client: AsyncClient, admin_auth_token: str):
+    """Verify in-browser / Fire TV voice simulation API requires auth and returns voice responses."""
     sim_payload = {"query": "Find low-stock products"}
-    res = await client.post("/api/alexa/simulate", json=sim_payload)
+    res = await client.post(
+        "/api/alexa/simulate",
+        json=sim_payload,
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
+    )
     assert res.status_code == 200
     data = res.json()
     assert "response" in data
@@ -191,3 +195,49 @@ async def test_approval_routing_workflow_above_threshold(client: AsyncClient, ad
     assert "50000" in data["workflow_created"]["condition"] or "50,000" in data["workflow_created"]["condition"]
     assert len(data["plan_steps"]) >= 2
     assert "50,000" in data["answer"] or "50000" in data["answer"]
+
+
+@pytest.mark.asyncio
+async def test_alexa_simulate_auth(client: AsyncClient, admin_auth_token: str):
+    """
+    Verify SEC-11: /api/alexa/simulate requires authentication.
+    """
+    client.cookies.clear()
+    unauth_res = await client.post("/api/alexa/simulate", json={"query": "Find low-stock products"})
+    assert unauth_res.status_code == 401
+
+    auth_res = await client.post(
+        "/api/alexa/simulate",
+        json={"query": "Find low-stock products"},
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
+    )
+    assert auth_res.status_code == 200
+    data = auth_res.json()
+    assert "response" in data
+
+
+@pytest.mark.asyncio
+async def test_aws_security_restrictions(client: AsyncClient, admin_auth_token: str):
+    """
+    Verify SEC-04: AWS operations require authentication and reject malicious S3 keys.
+    """
+    client.cookies.clear()
+    # 1. Unauthenticated request to /api/aws/status must be rejected with 401
+    unauth_status = await client.get("/api/aws/status")
+    assert unauth_status.status_code == 401
+
+    headers = {"Authorization": f"Bearer {admin_auth_token}"}
+
+    # 2. Invalid S3 operation must be rejected with 400
+    bad_op = await client.get("/api/aws/s3/presigned-url?key=receipts/doc.pdf&operation=delete_bucket", headers=headers)
+    assert bad_op.status_code == 400
+
+    # 3. Path traversal in S3 key must be rejected with 400
+    traversal = await client.get("/api/aws/s3/presigned-url?key=receipts/../../etc/passwd", headers=headers)
+    assert traversal.status_code == 400
+
+    # 4. Unapproved prefix must be rejected with 403
+    unapproved = await client.get("/api/aws/s3/presigned-url?key=private_keys/id_rsa", headers=headers)
+    assert unapproved.status_code == 403
+
+

@@ -16,7 +16,7 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     networks:
       - nexaerp_net
 
@@ -30,7 +30,7 @@ services:
     volumes:
       - mongo_data:/data/db
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     networks:
       - nexaerp_net
 
@@ -46,7 +46,8 @@ services:
       - DATABASE_URL=postgresql+asyncpg://nexa_user:nexa_secure_password@db:5432/nexaerp_db
       - MONGODB_URI=mongodb://mongodb:27017
       - MONGODB_DB_NAME=nexaerp
-      - SECRET_KEY=nexa_erp_production_secret_key_override_2026
+      - SECRET_KEY=${SECRET_KEY}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD}
       - CORS_ORIGINS=http://localhost:5173,http://localhost:80,http://127.0.0.1:5173
     depends_on:
       db:

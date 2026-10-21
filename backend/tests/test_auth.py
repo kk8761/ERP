@@ -95,3 +95,30 @@ async def test_logout_revokes_token(client: AsyncClient, cashier_auth_token: str
     )
     assert res.status_code == 401
     assert "revoked" in res.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_mfa_invalid_and_replay_rejected(client: AsyncClient):
+    res = await client.post("/api/auth/login", json={
+        "email": settings.BOOTSTRAP_ADMIN_EMAIL,
+        "password": settings.BOOTSTRAP_ADMIN_PASSWORD
+    })
+    assert res.status_code == 200
+    data = res.json()
+    temp_token = data["temp_token"]
+
+    # 1. Non-numeric or wrong format code must be rejected
+    res_bad_fmt = await client.post("/api/auth/verify-2fa", json={
+        "temp_token": temp_token,
+        "code": "abcdef"
+    })
+    assert res_bad_fmt.status_code in [401, 422]
+
+    # 2. Arbitrary wrong 6-digit code must be rejected (SEC-01 bypass prevented)
+    res_wrong = await client.post("/api/auth/verify-2fa", json={
+        "temp_token": temp_token,
+        "code": "000000"
+    })
+    assert res_wrong.status_code == 401
+    assert "Invalid 6-digit verification code" in res_wrong.json()["detail"]
+

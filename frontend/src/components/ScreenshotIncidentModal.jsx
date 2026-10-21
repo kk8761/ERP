@@ -4,9 +4,12 @@ import {
   ExternalLink, Maximize2, AlertTriangle, Monitor, Download
 } from 'lucide-react';
 
+import { API_BASE_URL } from '../services/api';
+
 export default function ScreenshotIncidentModal({ incident, onClose, onReviewed }) {
   const [isReviewing, setIsReviewing] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [reviewError, setReviewError] = useState('');
 
   if (!incident) return null;
 
@@ -15,27 +18,33 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
   const handleReview = async () => {
     try {
       setIsReviewing(true);
-      const token = localStorage.getItem('token') || localStorage.getItem('nexaerp_token');
+      setReviewError('');
+      const token = localStorage.getItem('nexaerp_token') || localStorage.getItem('token');
       if (!isIDS) {
-        const res = await fetch(`/api/security/screenshot-incidents/${incident.id}/review`, {
+        const res = await fetch(`${API_BASE_URL}/api/security/screenshot-incidents/${incident.id}/review`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           },
+          credentials: 'include',
           body: JSON.stringify({ is_reviewed: true })
         });
-        if (res.ok) {
-          const updated = await res.json();
-          if (onReviewed) onReviewed(updated);
-          onClose();
-          return;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || `Server returned HTTP ${res.status}`);
         }
+        const updated = await res.json();
+        if (onReviewed) onReviewed(updated);
+        onClose();
+        return;
       }
+      // For IDS intrusions, verify resolution
       if (onReviewed) onReviewed({ ...incident, is_reviewed: true });
       onClose();
     } catch (err) {
       console.error('Failed to review security incident:', err);
+      setReviewError(`Review failed: ${err.message}. Changes were not saved to server.`);
     } finally {
       setIsReviewing(false);
     }
@@ -145,6 +154,20 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
           flexDirection: 'column',
           gap: '20px'
         }}>
+          {reviewError && (
+            <div style={{
+              padding: '12px 16px',
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '8px',
+              color: '#ef4444',
+              fontSize: '0.875rem',
+              fontWeight: 500
+            }}>
+              ⚠️ {reviewError}
+            </div>
+          )}
+
           {/* Metadata Cards Grid */}
           <div style={{
             display: 'grid',

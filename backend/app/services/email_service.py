@@ -313,7 +313,13 @@ async def send_business_email(
         priority=priority
     )
 
-    delivery_status = "SENT" if smtp_result.get("success") else "FAILED"
+    if not smtp_result.get("success"):
+        delivery_status = "FAILED"
+    elif smtp_result.get("is_simulated"):
+        delivery_status = "SIMULATED"
+    else:
+        delivery_status = "SENT"
+
     raw_headers = smtp_result.get("raw_headers")
     att_json = json.dumps(attachments) if attachments else None
 
@@ -342,7 +348,7 @@ async def send_business_email(
         action="B2B_EMAIL_DISPATCHED",
         entity_name="OutgoingEmailLog",
         user_id=sent_by_user_id,
-        status="SUCCESS" if delivery_status == "SENT" else "FAILURE",
+        status="SUCCESS" if delivery_status in ("SENT", "SIMULATED") else "FAILURE",
         details={
             "recipient": recipient_email,
             "sender": from_email,

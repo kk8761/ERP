@@ -113,6 +113,19 @@ def require_permission(required_permission: str):
         )
     return permission_dependency
 
+def require_admin_user():
+    """Dependency verifying caller is an administrator or executive with administrative permissions."""
+    async def admin_dependency(user: User = Depends(get_current_user)) -> User:
+        effective_perms: Set[str] = getattr(user, "effective_permissions", set())
+        has_admin_role = any(r.role and r.role.name in ["System Administrator", "Executive"] for r in getattr(user, "roles", []))
+        if user.is_superuser or has_admin_role or "system_admin.manage" in effective_perms or "settings.manage" in effective_perms:
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. System Administrator or Executive privileges required."
+        )
+    return admin_dependency
+
 async def get_current_user_optional(
     request: Request,
     auth_header: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),

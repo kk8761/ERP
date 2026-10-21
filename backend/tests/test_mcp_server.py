@@ -41,13 +41,15 @@ async def test_mcp_initialize_and_manifest(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_mcp_tools_list_and_call(client: AsyncClient):
+@pytest.mark.asyncio
+async def test_mcp_tools_list_and_call(client: AsyncClient, admin_auth_token: str):
     """
-    Verify MCP Tools List & Call for Alexa+ Agents:
-    - tools/list exposes typed schemas for search_inventory, compare_suppliers, etc.
-    - tools/call executes search_inventory deterministically and returns JSON content.
+    Verify MCP Tools List & Call:
+    - tools/list exposes schemas
+    - Unauthenticated tools/call is REJECTED (SEC-02)
+    - Authenticated tools/call succeeds using caller identity
     """
-    # 1. tools/list
+    # 1. tools/list (public metadata)
     tools_payload = {
         "jsonrpc": "2.0",
         "id": 2,
@@ -63,7 +65,7 @@ async def test_mcp_tools_list_and_call(client: AsyncClient):
     assert "get_vendor_scorecard" in tool_names
     assert "create_draft_purchase_order" in tool_names
 
-    # 2. tools/call -> search_inventory
+    # 2. tools/call WITHOUT auth MUST FAIL with error -32001
     call_payload = {
         "jsonrpc": "2.0",
         "id": 3,
@@ -73,10 +75,22 @@ async def test_mcp_tools_list_and_call(client: AsyncClient):
             "arguments": {"low_stock_only": True}
         }
     }
-    c_res = await client.post("/api/mcp", json=call_payload)
+    client.cookies.clear()
+    unauth_res = await client.post("/api/mcp", json=call_payload)
+    assert unauth_res.status_code == 200
+    unauth_data = unauth_res.json()
+    assert "error" in unauth_data
+    assert unauth_data["error"]["code"] == -32001
+
+    # 3. tools/call WITH admin_auth_token MUST SUCCEED
+    c_res = await client.post(
+        "/api/mcp",
+        json=call_payload,
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
+    )
     assert c_res.status_code == 200
     c_data = c_res.json()
-    assert c_data["result"]["isError"] is False
+    assert c_data.get("result", {}).get("isError") is False
     content_text = c_data["result"]["content"][0]["text"]
     parsed_result = json.loads(content_text)
     assert "count" in parsed_result
@@ -84,11 +98,11 @@ async def test_mcp_tools_list_and_call(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_mcp_resources_list_and_read(client: AsyncClient):
+async def test_mcp_resources_list_and_read(client: AsyncClient, admin_auth_token: str):
     """
     Verify MCP Resources List & Read:
     - resources/list lists available ERP resource URIs
-    - resources/read returns live low-stock ledger for erp://inventory/low-stock
+    - resources/read requires auth and returns live low-stock ledger
     """
     # 1. resources/list
     r_list_req = {
@@ -103,14 +117,18 @@ async def test_mcp_resources_list_and_read(client: AsyncClient):
     assert "erp://inventory/low-stock" in uris
     assert "erp://procurement/vendor-scorecards" in uris
 
-    # 2. resources/read
+    # 2. resources/read with auth
     r_read_req = {
         "jsonrpc": "2.0",
         "id": 5,
         "method": "resources/read",
         "params": {"uri": "erp://inventory/low-stock"}
     }
-    read_res = await client.post("/api/mcp", json=r_read_req)
+    read_res = await client.post(
+        "/api/mcp",
+        json=r_read_req,
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
+    )
     assert read_res.status_code == 200
     contents = read_res.json()["result"]["contents"]
     assert len(contents) > 0
@@ -119,7 +137,7 @@ async def test_mcp_resources_list_and_read(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_mcp_prompts_list_and_get(client: AsyncClient):
+async def test_mcp_prompts_list_and_get(client: AsyncClient, admin_auth_token: str):
     """
     Verify MCP Prompts List & Get:
     - prompts/list returns registered workflow prompt templates
@@ -147,8 +165,27 @@ async def test_mcp_prompts_list_and_get(client: AsyncClient):
             "arguments": {"urgency": "CRITICAL"}
         }
     }
-    get_res = await client.post("/api/mcp", json=p_get_req)
+    get_res = await client.post(
+        "/api/mcp",
+        json=p_get_req,
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
+    )
     assert get_res.status_code == 200
     res_data = get_res.json()["result"]
     assert len(res_data["messages"]) > 0
     assert "CRITICAL" in res_data["messages"][0]["content"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_metadata_endpoints_auth(client: AsyncClient, admin_auth_token: str):
+    """
+    Verify SEC-12: /api/mcp/tools and /api/mcp/resources require authenticated credentials.
+    """
+    client.cookies.clear()
+    unauth_tools = await client.get("/api/mcp/tools")
+    assert unauth_tools.status_code == 401
+
+    auth_tools = await client.get("/api/mcp/tools", headers={"Authorization": f"Bearer {admin_auth_token}"})
+    assert auth_tools.status_code == 200
+    assert len(auth_tools.json()["tools"]) > 0
+

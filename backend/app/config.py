@@ -79,9 +79,25 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     def model_post_init(self, __context: Any) -> None:
-        if self.ENVIRONMENT.lower() == "production" and "dev_super_secret" in self.SECRET_KEY:
-            import secrets
-            # Generate cryptographic 256-bit entropy key to prevent insecure default in production
-            self.SECRET_KEY = secrets.token_hex(32)
+        import logging
+        import secrets
+        known_insecure = (
+            "dev_super_secret",
+            "nexa_erp_dev_super_secret_key",
+            "nexa_erp_production_secret_key_override_2026"
+        )
+        is_known_insecure = any(s in self.SECRET_KEY for s in known_insecure) or len(self.SECRET_KEY) < 32
+
+        if self.ENVIRONMENT.lower() == "production":
+            if is_known_insecure:
+                # Generate cryptographic 256-bit entropy key to prevent known signature forge (SEC-03)
+                self.SECRET_KEY = secrets.token_hex(32)
+                logging.warning("[SECURITY SEC-03] Insecure or default SECRET_KEY detected in production. Automatically initialized high-entropy 256-bit secret key.")
+
+            if self.BOOTSTRAP_ADMIN_PASSWORD == "Admin@NexaERP2026!":
+                # SEC-07: Prohibit known default admin password in production
+                generated_pwd = "Nexa#" + secrets.token_urlsafe(16) + "$2026"
+                self.BOOTSTRAP_ADMIN_PASSWORD = generated_pwd
+                logging.warning(f"[SECURITY SEC-07] Default bootstrap admin password detected in production. Rotated to generated secret. Please supply BOOTSTRAP_ADMIN_PASSWORD via environment manager.")
 
 settings = Settings()

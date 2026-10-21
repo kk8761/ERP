@@ -7,6 +7,7 @@ import {
 import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import UniversalDataImportModal from '../components/UniversalDataImportModal';
+import SafeHtmlPreview from '../components/SafeHtmlPreview';
 
 export default function ProcurementPage({ initialTab = 'suppliers', initialAction = '' }) {
   const { hasPermission } = useAuth();
@@ -757,10 +758,22 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
                         {mail.subject}
                       </td>
                       <td>
-                        <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                          <CheckCircle2 size={12} />
-                          <span>{mail.status || 'SENT'}</span>
-                        </span>
+                        {mail.status === 'SIMULATED' ? (
+                          <span className="badge badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#d97706', border: '1px solid rgba(245, 158, 11, 0.3)' }} title="Delivered to ERP internal ledger only (Simulated Sandbox)">
+                            <Clock size={12} />
+                            <span>SIMULATED</span>
+                          </span>
+                        ) : mail.status === 'FAILED' ? (
+                          <span className="badge badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <AlertCircle size={12} />
+                            <span>FAILED</span>
+                          </span>
+                        ) : (
+                          <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <CheckCircle2 size={12} />
+                            <span>{mail.status || 'SENT'}</span>
+                          </span>
+                        )}
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <button
@@ -990,12 +1003,11 @@ export default function ProcurementPage({ initialTab = 'suppliers', initialActio
               <div style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '6px', marginBottom: '16px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
                 <div><strong>Subject:</strong> {selectedEmailPreview.subject}</div>
                 <div><strong>Reference:</strong> {selectedEmailPreview.document_reference}</div>
-                <div><strong>Status:</strong> <span style={{ color: '#059669', fontWeight: 600 }}>{selectedEmailPreview.status}</span></div>
+                <div><strong>Status:</strong> <span style={{ color: selectedEmailPreview.status === 'SIMULATED' ? '#d97706' : (selectedEmailPreview.status === 'FAILED' ? '#dc2626' : '#059669'), fontWeight: 600 }}>{selectedEmailPreview.status === 'SIMULATED' ? 'SIMULATED (Internal Sandbox Ledger)' : selectedEmailPreview.status}</span></div>
               </div>
-              <div
-                dangerouslySetInnerHTML={{ __html: selectedEmailPreview.body_html }}
-                style={{ border: '1px solid #e2e8f0', borderRadius: '6px', overflow: 'hidden' }}
-              />
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
+                <SafeHtmlPreview html={selectedEmailPreview.body_html} minHeight="300px" />
+              </div>
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setSelectedEmailPreview(null)} className="btn btn-primary" style={{ padding: '6px 18px', fontSize: '13px' }}>

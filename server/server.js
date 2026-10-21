@@ -15,20 +15,36 @@ const rateLimit = require('express-rate-limit');
 const app    = express();
 const server = http.createServer(app);
 
-// ─── CORS ─────────────────────────────────────────────────
+// ─── CORS (SEC-05 & SEC-13: Strict Origin Validation) ────────
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'https://dapper-kheer-031b2c.netlify.app',
+  'https://nexaerp-frontend.onrender.com',
+  'https://nexaerp-frontend-mlae.onrender.com',
   'http://localhost:8080',
   'http://127.0.0.1:8080',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
   'http://localhost:5500',
   'http://127.0.0.1:5500',
-].filter(Boolean);
+  'http://localhost:3000',
+  'http://127.0.0.1:3000'
+].filter(Boolean).map(o => o.replace(/\/$/, ''));
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.some(o => origin.startsWith(o))) return callback(null, true);
-    callback(null, true); // Permissive in dev; tighten in prod
+    if (!origin) return callback(null, true); // Direct CLI / curl / native apps
+    const normalized = origin.replace(/\/$/, '');
+    if (allowedOrigins.includes(normalized)) {
+      return callback(null, true);
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      // In local development, permit loopback origins
+      if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized)) {
+        return callback(null, true);
+      }
+    }
+    return callback(new Error(`CORS request blocked: Origin '${origin}' is not on NexaERP trusted allowlist.`));
   },
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
@@ -37,8 +53,8 @@ app.use(cors({
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ─── Rate Limiting ─────────────────────────────────────────
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true, legacyHeaders: false }));

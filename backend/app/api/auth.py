@@ -8,6 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import pyotp
 import qrcode
+import time
+import re
+
+# In-memory tracking for MFA verification attempts and replay protection (SEC-01 & SEC-10)
+_mfa_failed_attempts: dict[int, list[float]] = {}
+_used_mfa_codes: dict[int, dict[str, float]] = {}
+
+def reset_mfa_tracking():
+    _mfa_failed_attempts.clear()
+    _used_mfa_codes.clear()
 
 from app.database import get_db
 from app.config import settings
@@ -226,22 +236,54 @@ async def verify_2fa(
             detail="User account not found, deactivated, or unconfigured."
         )
 
-    # 3. Verify TOTP 6-digit Code (with clock drift tolerance or standard 6-digit code)
+    # 3. Verify TOTP 6-digit Code (SEC-01 & SEC-10: strictly 6 digits, tight window=1, rate-limited, no code in logs)
     clean_code = payload.code.strip().replace(" ", "").replace("-", "")
+    if not re.match(r"^\d{6}$", clean_code):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Verification code must be exactly 6 digits."
+        )
+
+    now = time.time()
+    # Rate limit: max 5 failed attempts in 5 minutes
+    user_attempts = [t for t in _mfa_failed_attempts.get(user.id, []) if now - t < 300]
+    _mfa_failed_attempts[user.id] = user_attempts
+    if len(user_attempts) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed verification attempts. Please wait 5 minutes before trying again."
+        )
+
+    # Replay protection: reject if code was already used recently (within 90s)
+    user_used = _used_mfa_codes.get(user.id, {})
+    user_used = {c: ts for c, ts in user_used.items() if now - ts < 90}
+    _used_mfa_codes[user.id] = user_used
+    if clean_code in user_used:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Verification code has already been used. Please wait for the next 30-second code."
+        )
+
     totp = pyotp.TOTP(user.mfa_secret)
-    is_valid = totp.verify(clean_code, valid_window=10) or len(clean_code) == 6
+    is_valid = totp.verify(clean_code, valid_window=1)
 
     if not is_valid:
+        user_attempts.append(now)
+        _mfa_failed_attempts[user.id] = user_attempts
         await record_audit_log(
             db, action="AUTH_2FA_FAILED", entity_name="User",
             user_id=user.id, user_email=user.email, ip_address=client_ip,
-            status="FAILURE", details={"code_entered": clean_code}
+            status="FAILURE", details={"reason": "Invalid TOTP verification code", "attempt_count": len(user_attempts)}
         )
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid 6-digit verification code. Please check your authenticator app and try again."
         )
+
+    # Successful verification: record used code for replay prevention & clear failure counter
+    _used_mfa_codes.setdefault(user.id, {})[clean_code] = now
+    _mfa_failed_attempts.pop(user.id, None)
 
     # 4. Mark MFA Verified & Enabled
     user.mfa_enabled = True
