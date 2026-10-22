@@ -431,6 +431,10 @@ async def tool_create_draft_purchase_order(
         qty = int(it.get("quantity", 1))
         unit_cost = it.get("unit_cost")
 
+        # BUG-18: Reject non-positive quantities and negative costs
+        if qty <= 0:
+            return {"status": "ERROR", "message": f"Validation error: Quantity for product '{p_name}' must be greater than zero (received {qty})."}
+
         p_res = await db.execute(select(Product).where(or_(
             Product.name.ilike(f"%{p_name.strip()}%"),
             Product.sku.ilike(f"%{p_name.strip()}%")
@@ -440,6 +444,9 @@ async def tool_create_draft_purchase_order(
             return {"status": "ERROR", "message": f"Product '{p_name}' not found in catalog"}
 
         u_cost = Decimal(str(unit_cost)) if unit_cost is not None else prod.cost_price
+        if u_cost < Decimal("0.00"):
+            return {"status": "ERROR", "message": f"Validation error: Unit cost for product '{p_name}' cannot be negative (received {u_cost})."}
+
         l_total = u_cost * qty
         total_val += l_total
         prepared_items.append({
@@ -874,7 +881,22 @@ TOOL_DISPATCH_MAP = {
     "update_vendor_ratings_batch": tool_update_vendor_ratings_batch
 }
 
-# Restricted tools requiring administrative authorization
+# SEC-30: Per-tool required permissions for robust RBAC enforcement
+TOOL_REQUIRED_PERMISSIONS = {
+    "create_scheduled_workflow": "settings.manage",
+    "update_vendor_ratings_batch": "procurement.manage",
+    "create_draft_purchase_order": "procurement.create",
+    "get_hr_leave_and_attendance_summary": "hr.view",
+    "get_overdue_invoices_and_receivables": "finance.view",
+    "search_inventory": "inventory.view",
+    "calculate_reorder_recommendations": "inventory.view",
+    "compare_suppliers": "procurement.view",
+    "get_vendor_scorecard": "procurement.view",
+    "get_order_evaluation": "procurement.view",
+    "summarize_sales": "sales.view",
+    "list_scheduled_workflows": "settings.manage"
+}
+
 ADMIN_ONLY_TOOLS = {"create_scheduled_workflow", "update_vendor_ratings_batch"}
 
 async def execute_typed_tool(
@@ -888,17 +910,45 @@ async def execute_typed_tool(
 ) -> Dict[str, Any]:
     """
     Validates and executes an authorized typed tool strictly within tenant boundary.
-    Enforces per-tool role authorization and least-privilege service account constraints.
+    Enforces per-tool role authorization and least-privilege service account constraints (SEC-30).
     """
     if tool_name not in TOOL_DISPATCH_MAP:
         return {"status": "ERROR", "message": f"Unauthorized or unknown tool '{tool_name}'"}
 
-    # SEC-20: Block privileged administrative tools from unprivileged service accounts
-    if tool_name in ADMIN_ONLY_TOOLS and user_id == 9999:
-        return {
-            "status": "ERROR",
-            "message": f"Forbidden: Dedicated MCP service account cannot invoke administrative tool '{tool_name}'. Explicit administrator credentials required."
-        }
+    # SEC-30: Enforce RBAC per tool for all callers
+    req_perm = TOOL_REQUIRED_PERMISSIONS.get(tool_name)
+    
+    # 1. MCP Service Account (id 9999) permissions
+    if user_id == 9999:
+        if tool_name in ADMIN_ONLY_TOOLS or tool_name in ["create_draft_purchase_order", "get_hr_leave_and_attendance_summary"]:
+            return {
+                "status": "ERROR",
+                "message": f"Forbidden: Dedicated MCP service account cannot invoke restricted tool '{tool_name}'. Administrator credentials required."
+            }
+    # 2. Authenticated ERP User permissions
+    elif user_id > 0 and user_id != 1 and user_email != settings.BOOTSTRAP_ADMIN_EMAIL:
+        from app.models.auth import User, UserRole, Role
+        from sqlalchemy.orm import selectinload
+        u_stmt = select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id)
+        u_res = await db.execute(u_stmt)
+        u = u_res.scalar_one_or_none()
+        if u and not u.is_superuser:
+            user_role_names = [ur.role.name for ur in (u.roles or []) if getattr(ur, "role", None)]
+            is_admin_user = any(r in ["System Administrator", "Executive", "Managing Director"] for r in user_role_names)
+            if not is_admin_user:
+                if tool_name in ADMIN_ONLY_TOOLS:
+                    return {
+                        "status": "ERROR",
+                        "message": f"Forbidden: Administrative authorization required to execute '{tool_name}'."
+                    }
+                # Check effective permissions
+                from app.authorization.rbac_engine import get_user_effective_permissions
+                user_perms = await get_user_effective_permissions(u, db)
+                if req_perm and req_perm not in user_perms:
+                    return {
+                        "status": "ERROR",
+                        "message": f"Forbidden: Insufficient permissions to execute tool '{tool_name}'. Missing '{req_perm}'."
+                    }
 
     fn = TOOL_DISPATCH_MAP[tool_name]
     params = dict(parameters)

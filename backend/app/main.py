@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI):
         ("purchase_orders", "tax_duties_cost", "NUMERIC(12, 2) DEFAULT 0", "NUMERIC(12, 2) DEFAULT 0"),
         ("employees", "reports_to_id", "INTEGER REFERENCES employees(id)", "INTEGER REFERENCES employees(id)"),
         ("employees", "hierarchy_role", "VARCHAR(30) DEFAULT 'MEMBER'", "VARCHAR(30) DEFAULT 'MEMBER'"),
+        ("intrusion_events", "is_reviewed", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT 0"),
     ]
     for tbl, col, pg_def, sqlite_def in migrations:
         try:

@@ -1,13 +1,14 @@
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+import json
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user_optional
+from app.auth.dependencies import get_current_user
 from app.models.auth import User
 from app.models.inventory import Product
 from app.models.sales import SalesOrder
@@ -22,27 +23,42 @@ class ModuleSyncPayload(BaseModel):
     client_timestamp: Optional[str] = None
     modules: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
-# In-memory storage for active module draft backups (e.g. ACDOCA spreadsheet drafts, POS offline queue)
+# SEC-32: Bounded in-memory storage for active module draft backups (max 200 items, max 64KB per draft)
 _MODULE_DRAFT_CACHE: Dict[str, Any] = {}
+MAX_TOTAL_DRAFTS = 200
+MAX_DRAFT_SIZE_BYTES = 65536
 
 @router.post("/all", status_code=status.HTTP_200_OK)
 async def sync_all_modules(
     payload: ModuleSyncPayload,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Synchronizes state across all ERP modules every 30 seconds.
     Accepts pending client drafts (Finance spreadsheet lines, Inventory adjustments, etc.)
     and returns real-time refreshed state and delta metrics across modules.
+    Enforces authentication and memory bounding (SEC-32).
     """
     sync_id = str(uuid.uuid4())
     now_utc = datetime.now(timezone.utc)
-    user_id = current_user.id if current_user else "anonymous"
+    user_id = current_user.id
 
-    # Store any incoming client drafts (e.g. ACDOCA spreadsheet work-in-progress)
+    # Store any incoming client drafts with bounding
     if payload.modules:
         for module_name, module_data in payload.modules.items():
+            encoded = json.dumps(module_data)
+            if len(encoded.encode("utf-8")) > MAX_DRAFT_SIZE_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Draft payload for module '{module_name}' exceeds maximum allowed size (64KB)."
+                )
+
+            # Evict oldest entry if cache exceeds bounds
+            if len(_MODULE_DRAFT_CACHE) >= MAX_TOTAL_DRAFTS:
+                oldest_key = next(iter(_MODULE_DRAFT_CACHE))
+                _MODULE_DRAFT_CACHE.pop(oldest_key, None)
+
             cache_key = f"{user_id}:{module_name}"
             _MODULE_DRAFT_CACHE[cache_key] = {
                 "synced_at": now_utc.isoformat(),
@@ -104,7 +120,7 @@ async def sync_all_modules(
 
 @router.get("/status", status_code=status.HTTP_200_OK)
 async def get_sync_status(
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Returns the real-time synchronization health and interval metadata.

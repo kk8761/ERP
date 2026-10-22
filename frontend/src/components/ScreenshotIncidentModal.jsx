@@ -39,7 +39,22 @@ export default function ScreenshotIncidentModal({ incident, onClose, onReviewed 
         onClose();
         return;
       }
-      // For IDS intrusions, verify resolution
+      // For IDS intrusions, verify resolution on the server (SEC-39)
+      const numericId = incident.numeric_id || (typeof incident.id === 'string' && incident.id.startsWith('ids-') ? parseInt(incident.id.replace('ids-', ''), 10) : incident.id);
+      const res = await fetch(`${API_BASE_URL}/api/security/intrusion-events/${numericId}/review`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        credentials: 'include',
+        body: JSON.stringify({ is_reviewed: true })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server returned HTTP ${res.status}`);
+      }
+      const updated = await res.json();
       if (onReviewed) onReviewed({ ...incident, is_reviewed: true });
       onClose();
     } catch (err) {

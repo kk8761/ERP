@@ -560,6 +560,45 @@ async def commit_batch_import(
     if not records:
         raise HTTPException(status_code=400, detail="No records to import.")
 
+    # SEC-26: Enforce entity-specific permissions
+    REQUIRED_IMPORT_PERMS = {
+        "vendors": "procurement.manage",
+        "suppliers": "procurement.manage",
+        "products": "inventory.manage",
+        "catalog": "inventory.manage",
+        "inventory": "inventory.manage",
+        "employees": "hr.manage",
+        "hr": "hr.manage",
+        "staff": "hr.manage",
+        "chart_of_accounts": "finance.manage",
+        "accounts": "finance.manage",
+        "general_ledger": "finance.manage",
+        "customers": "sales.manage",
+    }
+    required_perm = REQUIRED_IMPORT_PERMS.get(entity_type)
+    user_perms = getattr(current_user, "effective_permissions", set())
+    is_admin = current_user.is_superuser or any(
+        r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
+        for r in getattr(current_user, "roles", [])
+    )
+    if not is_admin and required_perm and (required_perm not in user_perms):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied: Importing {entity_type} records requires '{required_perm}' permission."
+        )
+
+    # SEC-26: Batch size cap
+    if len(records) > 500:
+        raise HTTPException(status_code=400, detail="Batch size exceeds maximum limit of 500 records per import.")
+
+    # SEC-26: Branch ownership validation
+    if payload.branch_id and not is_admin:
+        if current_user.branch_id and payload.branch_id != current_user.branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: You cannot import records into branch {payload.branch_id}. Your account is scoped to branch {current_user.branch_id}."
+            )
+
     created_count = 0
     updated_count = 0
     errors = []
@@ -624,6 +663,13 @@ async def commit_batch_import(
                 cost_price = Decimal(str(_clean_num(r.get("cost_price"), 75.0)))
                 stock = int(_clean_num(r.get("current_stock"), 50))
                 reorder = int(_clean_num(r.get("reorder_level"), 15))
+
+                # SEC-26: Reject negative price or stock values
+                if sell_price < 0 or cost_price < 0 or stock < 0 or reorder < 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Validation error: Negative price or stock values are rejected for product '{name}'."
+                    )
 
                 if existing:
                     existing.selling_price = sell_price

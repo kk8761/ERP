@@ -24,17 +24,37 @@ async def alexa_skill_endpoint(
     """
     payload = await request.json()
 
-    # SEC-21: Verify incoming application's Alexa Skill ID
+    # SEC-21 / SEC-34: Fail closed on application's Alexa Skill ID verification in production
     app_id = (
         payload.get("session", {}).get("application", {}).get("applicationId") or
         payload.get("context", {}).get("System", {}).get("application", {}).get("applicationId")
     )
-    if settings.ALEXA_SKILL_ID and app_id and app_id != settings.ALEXA_SKILL_ID:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Alexa Skill ID verification failed."
-        )
+    from fastapi import HTTPException
+    if settings.ALEXA_SKILL_ID and (settings.ENVIRONMENT.lower() == "production" or app_id):
+        if not app_id or app_id != settings.ALEXA_SKILL_ID:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Alexa Skill ID verification failed (missing or unauthorized Application ID)."
+            )
+
+    # SEC-34: Validate request timestamp freshness (150-second tolerance per Alexa specification)
+    req_timestamp = payload.get("request", {}).get("timestamp")
+    if req_timestamp:
+        try:
+            from datetime import datetime, timezone
+            clean_ts = req_timestamp.replace("Z", "+00:00")
+            parsed_time = datetime.fromisoformat(clean_ts)
+            now = datetime.now(timezone.utc)
+            if abs((now - parsed_time).total_seconds()) > 150:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid Alexa request: Timestamp expired or outside allowable 150-second window."
+                )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Alexa request: Malformed ISO-8601 timestamp."
+            )
 
     # 1. Resolve identity from Alexa Account Linking token if present
     user_id: Optional[int] = None

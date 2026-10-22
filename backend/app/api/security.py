@@ -222,6 +222,41 @@ async def review_screenshot_incident(
     await db.refresh(incident)
     return incident
 
+@router.post("/intrusion-events/{event_id}/review")
+async def review_intrusion_event(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    SEC-39: Mark an IDS cyberattack intrusion event as reviewed / resolved by the security admin.
+    """
+    if not _is_security_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrative privileges required to review IDS intrusion events."
+        )
+
+    stmt = select(IntrusionEvent).where(IntrusionEvent.id == event_id)
+    res = await db.execute(stmt)
+    event = res.scalar_one_or_none()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Intrusion event not found.")
+
+    event.is_reviewed = True
+    await record_audit_log(
+        db,
+        action="IDS_INTRUSION_REVIEWED",
+        entity_name="IntrusionEvent",
+        entity_id=event.id,
+        user_id=current_user.id,
+        status="SUCCESS",
+        details={"reviewed_by": current_user.email, "event_id": event.id, "attack_type": event.attack_type}
+    )
+    await db.commit()
+    await db.refresh(event)
+    return {"id": event.id, "is_reviewed": event.is_reviewed, "status": "RESOLVED"}
+
 @router.get("/screenshot-incidents/stats")
 async def get_screenshot_incident_stats(
     current_user: User = Depends(get_current_user),
@@ -229,7 +264,14 @@ async def get_screenshot_incident_stats(
 ):
     """
     Summary counts of screenshot DLP incidents for the TopNav notification badge and SOC dashboard.
+    Enforces security admin access to avoid leaking user browsing activity (SEC-36).
     """
+    if not _is_security_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrative privileges required to access security incident statistics."
+        )
+
     total_stmt = select(func.count(ScreenshotIncident.id))
     unreviewed_stmt = select(func.count(ScreenshotIncident.id)).where(ScreenshotIncident.is_reviewed == False)
     
@@ -244,9 +286,8 @@ async def get_screenshot_incident_stats(
     recent_res = await db.execute(recent_stmt)
     recent_incidents = recent_res.scalars().all()
 
-    # Also tally recent intrusion events (e.g., SQL injections)
-    cutoff_24h = datetime.now(timezone.utc) - timedelta(hours=24)
-    ids_stmt = select(func.count(IntrusionEvent.id)).where(IntrusionEvent.detected_at >= cutoff_24h)
+    # Also tally unreviewed intrusion events (SEC-39)
+    ids_stmt = select(func.count(IntrusionEvent.id)).where(IntrusionEvent.is_reviewed == False)
     ids_res = await db.execute(ids_stmt)
     ids_unreviewed = ids_res.scalar() or 0
 
@@ -311,7 +352,7 @@ async def get_security_notifications(
             "threat_score": ev.threat_score,
             "action_taken": ev.action_taken,
             "detected_at": ev.detected_at.isoformat() if ev.detected_at else datetime.now(timezone.utc).isoformat(),
-            "is_reviewed": False,
+            "is_reviewed": getattr(ev, "is_reviewed", False),
             "user_name": "External / Untrusted Client",
             "user_email": "gateway-probe@untrusted",
             "summary": f"Hostile {ev.attack_type} pattern intercepted at {ev.request_path}. System Administrator notified."

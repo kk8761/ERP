@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_admin_user
 from app.models.auth import User
 from app.services.disaster_recovery_service import DisasterRecoveryService
 from app.schemas.disaster_recovery import (
@@ -17,7 +17,11 @@ from app.schemas.disaster_recovery import (
     BackupAlertOut
 )
 
-router = APIRouter(prefix="/api/disaster-recovery", tags=["Disaster Recovery & Backup Management"])
+router = APIRouter(
+    prefix="/api/disaster-recovery",
+    tags=["Disaster Recovery & Backup Management"],
+    dependencies=[Depends(require_admin_user())]
+)
 
 # -----------------------------------------------------------------------------
 # 43.2 DISASTER RECOVERY PLAN & MONTHLY TESTING (Requirements 29.4, 29.5)

@@ -11,9 +11,20 @@ import qrcode
 import time
 import re
 
-# In-memory tracking for MFA verification attempts and replay protection (SEC-01 & SEC-10)
+# In-memory tracking for MFA verification attempts and replay protection (SEC-01, SEC-10, SEC-37)
 _mfa_failed_attempts: dict[int, list[float]] = {}
 _used_mfa_codes: dict[int, dict[str, float]] = {}
+MAX_MFA_TRACKED_USERS = 5000
+
+def _prune_mfa_trackers(now: float):
+    if len(_mfa_failed_attempts) > MAX_MFA_TRACKED_USERS:
+        stale_users = [uid for uid, attempts in _mfa_failed_attempts.items() if not attempts or now - attempts[-1] > 300]
+        for uid in stale_users:
+            _mfa_failed_attempts.pop(uid, None)
+    if len(_used_mfa_codes) > MAX_MFA_TRACKED_USERS:
+        stale_users = [uid for uid, codes in _used_mfa_codes.items() if not any(now - ts < 90 for ts in codes.values())]
+        for uid in stale_users:
+            _used_mfa_codes.pop(uid, None)
 
 def reset_mfa_tracking():
     _mfa_failed_attempts.clear()
@@ -245,6 +256,7 @@ async def verify_2fa(
         )
 
     now = time.time()
+    _prune_mfa_trackers(now)
     # Rate limit: max 5 failed attempts in 5 minutes
     user_attempts = [t for t in _mfa_failed_attempts.get(user.id, []) if now - t < 300]
     _mfa_failed_attempts[user.id] = user_attempts

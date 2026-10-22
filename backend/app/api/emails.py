@@ -28,6 +28,23 @@ from app.services.order_tracking_service import get_order_tracking_flow, update_
 
 router = APIRouter(prefix="/api/emails", tags=["Email & AI Mailbox Hub"])
 
+# SEC-33: Enterprise Email & Mailbox Access Policy
+SHARED_MAILBOXES = {"support@nexaerp.internal", "info@nexaerp.internal", "sales@nexaerp.internal", "all@nexaerp.internal", "contact@nexaerp.internal"}
+
+def _is_email_admin(user: User) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    roles = [r.role.name for r in getattr(user, "roles", []) if getattr(r, "role", None)]
+    if any(r in ["System Administrator", "Executive", "Branch Manager"] for r in roles):
+        return True
+    perms = getattr(user, "effective_permissions", set()) or set()
+    return bool(perms & {"system_admin.manage", "settings.manage", "communication.manage"})
+
+def _user_can_access_email(user: User, recipient_email: str) -> bool:
+    if _is_email_admin(user):
+        return True
+    return recipient_email == user.email or recipient_email in SHARED_MAILBOXES
+
 # Schemas
 class AttachmentItem(BaseModel):
     filename: str
@@ -222,6 +239,14 @@ async def list_inbox_emails(
             )
         )
 
+    if not _is_email_admin(current_user):
+        stmt = stmt.where(
+            or_(
+                ReceivedEmail.recipient_email == current_user.email,
+                ReceivedEmail.recipient_email.in_(SHARED_MAILBOXES)
+            )
+        )
+
     stmt = stmt.offset(offset).limit(limit)
     res = await db.execute(stmt)
     return res.scalars().all()
@@ -239,6 +264,9 @@ async def get_inbox_email(
     email_obj = res.scalar_one_or_none()
     if not email_obj:
         raise HTTPException(status_code=404, detail="Email not found")
+
+    if not _user_can_access_email(current_user, email_obj.recipient_email):
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this email message.")
 
     if not email_obj.is_read:
         email_obj.is_read = True
@@ -261,6 +289,9 @@ async def toggle_star(
     if not email_obj:
         raise HTTPException(status_code=404, detail="Email not found")
 
+    if not _user_can_access_email(current_user, email_obj.recipient_email):
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this email message.")
+
     email_obj.is_starred = not (email_obj.is_starred or False)
     await db.commit()
     return {"id": email_obj.id, "is_starred": email_obj.is_starred}
@@ -278,6 +309,9 @@ async def toggle_read(
     email_obj = res.scalar_one_or_none()
     if not email_obj:
         raise HTTPException(status_code=404, detail="Email not found")
+
+    if not _user_can_access_email(current_user, email_obj.recipient_email):
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this email message.")
 
     email_obj.is_read = not (email_obj.is_read or False)
     await db.commit()
@@ -297,6 +331,9 @@ async def toggle_trash(
     if not email_obj:
         raise HTTPException(status_code=404, detail="Email not found")
 
+    if not _user_can_access_email(current_user, email_obj.recipient_email):
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this email message.")
+
     email_obj.is_trash = not (email_obj.is_trash or False)
     await db.commit()
     return {"id": email_obj.id, "is_trash": email_obj.is_trash}
@@ -314,6 +351,9 @@ async def toggle_archive(
     email_obj = res.scalar_one_or_none()
     if not email_obj:
         raise HTTPException(status_code=404, detail="Email not found")
+
+    if not _user_can_access_email(current_user, email_obj.recipient_email):
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have access to this email message.")
 
     email_obj.is_archived = not (email_obj.is_archived or False)
     await db.commit()
@@ -342,7 +382,15 @@ async def list_sent_emails(
     db: AsyncSession = Depends(get_db)
 ):
     """Lists dispatched outgoing emails."""
-    stmt = select(OutgoingEmailLog).order_by(desc(OutgoingEmailLog.created_at)).offset(offset).limit(limit)
+    stmt = select(OutgoingEmailLog).order_by(desc(OutgoingEmailLog.created_at))
+    if not _is_email_admin(current_user):
+        stmt = stmt.where(
+            or_(
+                OutgoingEmailLog.sent_by_user_id == current_user.id,
+                OutgoingEmailLog.sender_email == current_user.email
+            )
+        )
+    stmt = stmt.offset(offset).limit(limit)
     res = await db.execute(stmt)
     return res.scalars().all()
 

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_permission
 from app.models.auth import User
 from app.models.org import Organization, Branch, Department, Warehouse
 from app.models.sales import SalesOrder
@@ -36,45 +36,11 @@ async def list_mnc_branches(
     """
     Returns all enterprise subsidiaries, regional hubs, and operational branches
     under the Multinational Corporation (MNC) parent organization.
+    Strictly read-only: does not mutate or inject sample data on GET requests (BUG-23).
     """
-    # Fetch all branches with departments & warehouses
     stmt = select(Branch).order_by(Branch.id)
     res = await db.execute(stmt)
     branches = res.scalars().all()
-
-    # Pre-populate sample international branches if only 1-2 exist
-    if len(branches) < 3:
-        org_res = await db.execute(select(Organization).limit(1))
-        org = org_res.scalar_one_or_none()
-        org_id = org.id if org else 1
-
-        b_mumbai = Branch(
-            organization_id=org_id,
-            name="Mumbai Financial Center",
-            code="BR-MUM-FIN",
-            city="Mumbai",
-            address="BKC G-Block, Bandra Kurla Complex"
-        )
-        b_dubai = Branch(
-            organization_id=org_id,
-            name="Dubai MENA Regional Hub",
-            code="BR-DXB-MENA",
-            city="Dubai",
-            address="DIFC Trade Center, Sheikh Zayed Road"
-        )
-        b_singapore = Branch(
-            organization_id=org_id,
-            name="Singapore APAC Regional Office",
-            code="BR-SIN-APAC",
-            city="Singapore",
-            address="Marina Bay Financial Centre Tower 2"
-        )
-        db.add_all([b_mumbai, b_dubai, b_singapore])
-        await db.commit()
-
-        # Re-fetch
-        res = await db.execute(select(Branch).order_by(Branch.id))
-        branches = res.scalars().all()
 
     output = []
     for b in branches:
@@ -90,7 +56,7 @@ async def list_mnc_branches(
         emp_count_res = await db.execute(select(func.count(Employee.id)).where(Employee.branch_id == b.id))
         emp_count = emp_count_res.scalar() or 0
 
-        # Calculate revenue for branch
+        # Calculate real revenue for branch from sales ledger
         rev_res = await db.execute(
             select(func.sum(SalesOrder.total_amount)).where(SalesOrder.branch_id == b.id)
         )
@@ -143,9 +109,9 @@ async def list_mnc_branches(
             "address": b.address or "Corporate Regional Hub",
             "is_active": b.is_active,
             "employees_count": emp_count,
-            "departments_count": max(dep_count, 4),
-            "warehouses_count": max(wh_count, 1),
-            "gross_revenue": gross_rev if gross_rev > 0 else 125000.0,
+            "departments_count": dep_count,
+            "warehouses_count": wh_count,
+            "gross_revenue": gross_rev,
             "is_hq": (b.id == 1 or "main" in lower_name or "hq" in lower_code or "global hq" in lower_name),
             "status": "OPERATIONAL"
         })
@@ -156,12 +122,12 @@ async def list_mnc_branches(
 @router.post("")
 async def create_mnc_branch(
     payload: BranchCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("settings.manage")),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Provisions a new subsidiary, regional office, or distribution branch in the MNC.
-    Automatically sets up standard departmental structures and default warehouse storage.
+    Provisions a new subsidiary, regional office, or distribution branch in the MNC (SEC-29).
+    Requires administrative settings.manage permission.
     """
     # Check duplicate code
     existing_res = await db.execute(select(Branch).where(Branch.code == payload.code.strip()))
@@ -365,18 +331,26 @@ async def switch_branch_context(
         raise HTTPException(status_code=404, detail="Branch not found")
 
     if not is_exec_or_admin:
+        # SEC-28: Fail closed. If employee has no access authorization record, deny cross-branch access.
+        is_primary = (current_user.branch_id == branch.id)
         doc = await document_store.find_document("employee_access_authorizations", {"email": current_user.email})
-        if doc:
+        if not doc:
+            if not is_primary:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Access Denied: No cross-branch access authorization record found for {current_user.email}."
+                )
+        else:
             allowed = doc.get("accessible_branches", [])
             policy = doc.get("branch_access_policy", "ASSIGNED_ONLY")
             if policy == "ASSIGNED_ONLY" and "ALL" not in allowed:
                 match = any(
-                    b.lower() in branch.name.lower() or branch.name.lower() in b.lower() or b == branch.code 
+                    b.lower() in branch.name.lower() or branch.name.lower() in b.lower() or b == branch.code or b == str(branch.id)
                     for b in allowed
                 )
-                if not match:
+                if not match and not is_primary:
                     raise HTTPException(
-                        status_code=403,
+                        status_code=status.HTTP_403_FORBIDDEN,
                         detail=f"Access Denied: You are not authorized to access '{branch.name}'. Your authorized branches: {', '.join(allowed)}."
                     )
 

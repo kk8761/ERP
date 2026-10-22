@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_permission
 from app.models.auth import User, UserRole
 from app.models.org import Organization, Branch
 from app.authorization.rbac_engine import get_user_effective_roles_and_permissions
@@ -102,7 +102,18 @@ async def update_user_profile(
         if ex.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Email already registered to another user")
         current_user.email = payload.email.strip().lower()
-    if payload.branch_id is not None:
+
+    # SEC-27: Prohibit self-service branch transfers through profile editing
+    if payload.branch_id is not None and payload.branch_id != current_user.branch_id:
+        is_admin = current_user.is_superuser or any(
+            r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
+            for r in getattr(current_user, "roles", [])
+        )
+        if not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Branch assignments cannot be self-modified. An official administrative transfer is required."
+            )
         current_user.branch_id = payload.branch_id
 
     await record_audit_log(
@@ -167,10 +178,10 @@ async def get_company_settings(
 @router.put("/company")
 async def update_company_settings(
     payload: CompanySettingsUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("settings.manage")),
     db: AsyncSession = Depends(get_db)
 ):
-    """Updates organizational settings."""
+    """Updates organizational settings (SEC-27 & SEC-38). Requires settings.manage permission."""
     org_res = await db.execute(select(Organization).limit(1))
     org = org_res.scalar_one_or_none()
     if org:
@@ -192,7 +203,11 @@ async def update_company_settings(
     return {
         "success": True,
         "message": "Company configuration and enterprise settings updated successfully.",
-        "settings": payload.model_dump()
+        "organization": {
+            "name": org.name if org else payload.name,
+            "tax_identifier": org.tax_identifier if org else payload.tax_identifier,
+            "currency": org.currency if org else payload.currency
+        }
     }
 
 

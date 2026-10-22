@@ -21,6 +21,8 @@ backend/.pytest_cache/
 htmlcov/
 *.sqlite3
 *.db
+backups/
+*.backup*
 
 # Node / Frontend
 frontend/node_modules/
