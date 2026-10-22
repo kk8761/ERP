@@ -82,11 +82,13 @@ async def lifespan(app: FastAPI):
         ("branches", "country", "VARCHAR(50) DEFAULT 'IN'", "VARCHAR(50) DEFAULT 'IN'"),
         ("branches", "currency", "VARCHAR(10) DEFAULT 'INR'", "VARCHAR(10) DEFAULT 'INR'"),
         ("users", "last_login_at", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP"),
-        # BUG-36 & SEC-51: Safe migration for organization_id multi-tenancy columns
+        # BUG-36, SEC-51 & SEC-68: Safe migration for organization_id multi-tenancy columns
         ("users", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
         ("products", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
         ("suppliers", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
         ("customers", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("accounts", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("journal_entries", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
         ("sync_idempotency_records", "payload_hash", "VARCHAR(64)", "VARCHAR(64)"),
     ]
     for tbl, col, pg_def, sqlite_def in migrations:
@@ -219,6 +221,8 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text(f"UPDATE customers SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
                 await conn.execute(text(f"UPDATE suppliers SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
                 await conn.execute(text(f"UPDATE products SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE accounts SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE journal_entries SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
 
             # 6. BUG-48 & BUG-58 Verification: In a multi-organization environment, fail startup if unresolved ownership remains
             if len(org_rows) > 1:

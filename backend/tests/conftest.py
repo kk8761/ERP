@@ -7,7 +7,7 @@ from httpx import AsyncClient, ASGITransport
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.main import app
-from sqlalchemy import text
+from sqlalchemy import text, select
 from app.database import AsyncSessionLocal, engine, Base
 from app.config import settings
 
@@ -32,7 +32,7 @@ async def setup_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-        for tbl in ["users", "products", "suppliers", "customers"]:
+        for tbl in ["users", "products", "suppliers", "customers", "accounts", "journal_entries"]:
             try:
                 await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN organization_id INTEGER"))
             except Exception:
@@ -112,6 +112,55 @@ async def setup_db():
             await conn.execute(text("ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP"))
         except Exception:
             pass
+
+    try:
+        from app.seed_data import seed
+        await seed()
+    except Exception:
+        pass
+
+    async with AsyncSessionLocal() as session:
+        from app.models.auth import User
+        from app.auth.security import hash_password
+        u_res = await session.execute(select(User).where(User.email == settings.BOOTSTRAP_ADMIN_EMAIL))
+        admin = u_res.scalar_one_or_none()
+        if admin:
+            admin.password_hash = hash_password(settings.BOOTSTRAP_ADMIN_PASSWORD)
+            admin.is_active = True
+            admin.is_superuser = True
+            admin.failed_login_attempts = 0
+            admin.locked_until = None
+        else:
+            admin = User(
+                email=settings.BOOTSTRAP_ADMIN_EMAIL,
+                full_name=settings.BOOTSTRAP_ADMIN_NAME,
+                password_hash=hash_password(settings.BOOTSTRAP_ADMIN_PASSWORD),
+                is_active=True,
+                is_superuser=True,
+                organization_id=1
+            )
+            session.add(admin)
+
+        c_res = await session.execute(select(User).where(User.email == "cashier@nexaerp.internal"))
+        cashier = c_res.scalar_one_or_none()
+        if cashier:
+            cashier.password_hash = hash_password("Cashier@12345")
+            cashier.is_active = True
+            cashier.failed_login_attempts = 0
+            cashier.locked_until = None
+        else:
+            cashier = User(
+                email="cashier@nexaerp.internal",
+                full_name="Sunil Reddy",
+                password_hash=hash_password("Cashier@12345"),
+                is_active=True,
+                is_superuser=False,
+                organization_id=1
+            )
+            session.add(cashier)
+
+        await session.commit()
+
     yield
 
 @pytest.fixture(autouse=True)

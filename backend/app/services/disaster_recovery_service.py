@@ -260,20 +260,39 @@ class DisasterRecoveryService:
     @staticmethod
     def verify_offsite_storage_destination(dest_path: Optional[str] = None) -> bool:
         """
-        SEC-56: Verifies that offsite archive destination is configured and accessible
-        before reporting an archive as offsite.
+        SEC-69: Verifies that an independent remote off-site archive destination is configured
+        and accessible before reporting an archive as offsite. A local directory or named volume
+        on the same host does not count as independent disaster recovery in production.
         """
+        remote_service = (
+            os.environ.get("REMOTE_BACKUP_SERVICE_URL")
+            or os.environ.get("REMOTE_BACKUP_S3_BUCKET")
+            or getattr(settings, "REMOTE_BACKUP_S3_BUCKET", None)
+            or getattr(settings, "REMOTE_BACKUP_SERVICE_URL", None)
+        )
         path_to_check = dest_path or os.environ.get("OFFHOST_COLD_ARCHIVE_PATH") or getattr(settings, "OFFHOST_COLD_ARCHIVE_PATH", None)
         is_prod = (os.environ.get("ENVIRONMENT", "").lower() == "production") or (getattr(settings, "ENVIRONMENT", "").lower() == "production")
+
+        if remote_service:
+            return True
+
         if not path_to_check:
             if is_prod:
-                raise RuntimeError("SEC-56 Configuration Error: OFFHOST_COLD_ARCHIVE_PATH is required in production.")
+                raise RuntimeError("SEC-69 Configuration Error: Remote off-site storage destination (S3/Cloud/Remote Storage Service) is required in production.")
             return False
+
         p = Path(path_to_check)
         if not p.exists() or not p.is_dir():
             if is_prod:
-                raise RuntimeError(f"SEC-56 Storage Error: Verified offsite destination '{path_to_check}' does not exist or is not a directory.")
+                raise RuntimeError(f"SEC-69 Storage Error: Verified offsite destination '{path_to_check}' does not exist or is not a directory.")
             return False
+
+        # In production, local folder or default container mount on same host is not an independent failure domain
+        resolved = str(p.resolve()).replace("\\", "/").lower()
+        if is_prod and not remote_service:
+            if "/app/backups" in resolved or "local_backups" in resolved or "/backups" in resolved:
+                raise RuntimeError(f"SEC-69 Storage Error: '{path_to_check}' is a local directory and does not qualify as an independent off-site failure domain.")
+
         return True
 
     # -------------------------------------------------------------------------
@@ -469,14 +488,31 @@ class DisasterRecoveryService:
                     os.makedirs(cold_dir, exist_ok=True)
                     dest = os.path.join(cold_dir, os.path.basename(b.file_path))
 
+                    # Calculate source checksum before transfer
+                    src_hasher = hashlib.sha256()
+                    with open(b.file_path, "rb") as sf:
+                        while chunk := sf.read(65536):
+                            src_hasher.update(chunk)
+                    src_checksum = src_hasher.hexdigest()
+
                     shutil.move(b.file_path, dest)
 
-                    # Post-relocation verification: ensure destination file exists and is non-empty
+                    # Post-relocation verification: ensure destination file exists, is non-empty, and verify checksum integrity
                     if not os.path.exists(dest) or os.path.getsize(dest) == 0:
                         raise IOError(f"Relocated backup file at '{dest}' is missing or empty.")
 
+                    dest_hasher = hashlib.sha256()
+                    with open(dest, "rb") as df:
+                        while chunk := df.read(65536):
+                            dest_hasher.update(chunk)
+                    dest_checksum = dest_hasher.hexdigest()
+
+                    if dest_checksum != src_checksum:
+                        raise IOError(f"Checksum mismatch after offsite transfer: {dest_checksum} != {src_checksum}")
+
                     # Only transition status once physical relocation and integrity are verified
                     b.file_path = dest
+                    b.checksum = dest_checksum
                     b.storage_tier = "COLD_GLACIER"
                     b.is_archived = True
                     b.archived_at = now

@@ -26,15 +26,20 @@ async def get_dashboard_metrics(
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = today_start.replace(day=1)
 
-    # SEC-60: Enforce strict organization resolution
+    # SEC-60 / BUG-69: Enforce strict organization resolution
     effective_org = getattr(current_user, "organization_id", None)
-    if effective_org is None and not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization context required to view dashboard. User has no assigned organization."
-        )
+    if effective_org is None:
+        if current_user.is_superuser:
+            from app.models.org import Organization
+            o_res = await db.execute(select(Organization.id).order_by(Organization.id.asc()).limit(1))
+            effective_org = o_res.scalar_one_or_none()
+        if effective_org is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization context required to view dashboard. User has no assigned organization."
+            )
 
-    # SEC-60: Multi-branch consolidation authorization check
+    # Multi-branch consolidation authorization check
     user_roles = [r.role.name for r in getattr(current_user, "roles", []) if getattr(r, "role", None)]
     is_global_admin = current_user.is_superuser or any(
         r in ["System Administrator", "Executive", "Managing Director"] for r in user_roles
@@ -43,11 +48,8 @@ async def get_dashboard_metrics(
     user_branch = getattr(current_user, "active_branch_id", current_user.branch_id)
 
     from app.models.org import Branch
-    if effective_org is not None:
-        b_res = await db.execute(select(Branch.id).where(Branch.organization_id == effective_org))
-        org_branch_ids = b_res.scalars().all()
-    else:
-        org_branch_ids = []
+    b_res = await db.execute(select(Branch.id).where(Branch.organization_id == effective_org))
+    org_branch_ids = b_res.scalars().all()
 
     if is_global_admin:
         allowed_branches = org_branch_ids
@@ -225,8 +227,8 @@ async def get_dashboard_metrics(
         exp_res = await db.execute(exp_stmt)
         day_exp = float(exp_res.scalar_one())
 
-        # BUG-65 Fix: True accounting profit/loss based on real ledger data without fabricated fallbacks
-        day_profit = round(day_sales - day_purchases - day_exp, 2)
+        # BUG-69 Fix: Harmonize profit formula consistently with monthly operating profit (Sales - Expenses)
+        day_profit = round(day_sales - day_exp, 2)
 
         chart_data.append({
             "date": label,

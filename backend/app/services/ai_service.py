@@ -8,11 +8,14 @@ import urllib.error
 from decimal import Decimal
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone, date, timedelta
+from fastapi import HTTPException, status
 from sqlalchemy import select, func, desc, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
+from app.models.auth import User, UserRole
+from app.authorization.rbac_engine import get_user_effective_permissions
 from app.models.org import Organization, Branch
 from app.models.sales import SalesOrder
 from app.models.inventory import Product
@@ -193,14 +196,23 @@ async def _fetch_live_erp_context(
     b_res = await db.execute(branch_stmt)
     org_branch_ids = [b for b in b_res.scalars().all()]
 
-    # 2. Products in catalog
-    prod_stmt = select(Product).where(Product.is_active == True).order_by(Product.current_stock.asc()).limit(20)
+    # 2. Products in catalog (strictly scoped to this organization)
+    prod_stmt = (
+        select(Product)
+        .where(Product.organization_id == organization_id, Product.is_active == True)
+        .order_by(Product.current_stock.asc())
+        .limit(20)
+    )
     prod_res = await db.execute(prod_stmt)
     products = prod_res.scalars().all()
     low_stock = [p for p in products if p.current_stock <= p.reorder_level]
 
-    # 3. Active registered vendors
-    vend_stmt = select(Supplier).where(Supplier.status == "ACTIVE").limit(10)
+    # 3. Active registered vendors (strictly scoped to this organization)
+    vend_stmt = (
+        select(Supplier)
+        .where(Supplier.organization_id == organization_id, Supplier.status == "ACTIVE")
+        .limit(10)
+    )
     vend_res = await db.execute(vend_stmt)
     suppliers = vend_res.scalars().all()
 
@@ -229,11 +241,13 @@ async def _fetch_live_erp_context(
         po_conditions.append(PurchaseOrder.branch_id == branch_id)
     elif org_branch_ids:
         po_conditions.append(PurchaseOrder.branch_id.in_(org_branch_ids))
+    else:
+        po_conditions.append(PurchaseOrder.branch_id == -999)
 
     po_stmt = (
         select(PurchaseOrder)
         .options(selectinload(PurchaseOrder.supplier))
-        .where(and_(*po_conditions) if po_conditions else True)
+        .where(and_(*po_conditions))
         .order_by(desc(PurchaseOrder.created_at))
         .limit(5)
     )
@@ -301,15 +315,23 @@ async def _try_execute_action(
     # --- ACTION 1: CREATE PURCHASE ORDER ---
     is_po_cmd = bool(re.search(r'\b(create\s+(?:a\s+|an\s+)?(?:po|purchase\s+order)|issue\s+(?:a\s+|an\s+)?(?:po|purchase\s+order)|place\s+(?:a\s+|an\s+)?(?:po|order)|make\s+(?:a\s+|an\s+)?(?:po|purchase\s+order))\b', p_lower))
     if is_po_cmd:
-        supp_res = await db.execute(select(Supplier))
+        user_obj = (await db.execute(select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id))).scalar_one_or_none()
+        user_perms = await get_user_effective_permissions(user_obj, db) if user_obj else set()
+        if not user_obj or (not user_obj.is_superuser and "procurement.create" not in user_perms):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: 'procurement.create' required to create purchase orders via AI."
+            )
+
+        supp_res = await db.execute(select(Supplier).where(Supplier.organization_id == organization_id))
         all_suppliers = supp_res.scalars().all()
-        prod_res = await db.execute(select(Product))
+        prod_res = await db.execute(select(Product).where(Product.organization_id == organization_id))
         all_products = prod_res.scalars().all()
 
         if not all_suppliers or not all_products:
             return {
                 "executed": False,
-                "message": "Cannot issue Purchase Order: Requires at least one registered supplier and product in master catalog."
+                "message": "Cannot issue Purchase Order: Requires at least one registered supplier and product in your company master catalog."
             }
 
         # Resolve product
@@ -475,9 +497,17 @@ async def _try_execute_action(
     # --- ACTION 2: CREATE PURCHASE REQUISITION ---
     is_pr_cmd = bool(re.search(r'\b(create\s+pr|create\s+purchase\s+requisition|raise\s+pr|raise\s+requisition|new\s+pr)\b', p_lower))
     if is_pr_cmd:
-        prod_res = await db.execute(select(Product))
+        user_obj = (await db.execute(select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id))).scalar_one_or_none()
+        user_perms = await get_user_effective_permissions(user_obj, db) if user_obj else set()
+        if not user_obj or (not user_obj.is_superuser and "procurement.create" not in user_perms):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: 'procurement.create' required to create purchase requisitions via AI."
+            )
+
+        prod_res = await db.execute(select(Product).where(Product.organization_id == organization_id))
         all_products = prod_res.scalars().all()
-        supp_res = await db.execute(select(Supplier))
+        supp_res = await db.execute(select(Supplier).where(Supplier.organization_id == organization_id))
         all_suppliers = supp_res.scalars().all()
 
         target_prod = None
@@ -572,7 +602,15 @@ async def _try_execute_action(
     # --- ACTION 3: ADJUST INVENTORY / STOCK ---
     is_stock_cmd = bool(re.search(r'\b(adjust\s+stock|update\s+stock|add\s+\d+\s+stock|replenish\s+stock|change\s+stock)\b', p_lower))
     if is_stock_cmd:
-        prod_res = await db.execute(select(Product))
+        user_obj = (await db.execute(select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id))).scalar_one_or_none()
+        user_perms = await get_user_effective_permissions(user_obj, db) if user_obj else set()
+        if not user_obj or (not user_obj.is_superuser and "inventory.adjust" not in user_perms):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: 'inventory.adjust' required to adjust stock via AI."
+            )
+
+        prod_res = await db.execute(select(Product).where(Product.organization_id == organization_id))
         all_products = prod_res.scalars().all()
         target_prod = None
         for p in all_products:
@@ -637,6 +675,14 @@ async def _try_execute_action(
     # --- ACTION 4: ADD / ONBOARD VENDOR ---
     is_vendor_cmd = bool(re.search(r'\b(add\s+vendor|create\s+vendor|register\s+vendor|register\s+supplier|new\s+vendor|onboard\s+vendor|onboard\s+supplier)\b', p_lower))
     if is_vendor_cmd:
+        user_obj = (await db.execute(select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id))).scalar_one_or_none()
+        user_perms = await get_user_effective_permissions(user_obj, db) if user_obj else set()
+        if not user_obj or (not user_obj.is_superuser and "procurement.create" not in user_perms and "procurement.manage" not in user_perms):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: 'procurement.create' or 'procurement.manage' required to onboard vendors via AI."
+            )
+
         name_match = re.search(r'(?:vendor|supplier|named|name)\s+([A-Za-z0-9\s&]+?)(?:\s+with|\s+email|\s+phone|$)', prompt, re.IGNORECASE)
         vendor_name = name_match.group(1).strip() if name_match else ""
         
@@ -671,6 +717,7 @@ async def _try_execute_action(
         vendor_phone = phone_match.group(0) if phone_match else "+91 98765 43210"
 
         new_vendor = Supplier(
+            organization_id=organization_id,
             vendor_code=f"VEND-{uuid.uuid4().hex[:4].upper()}",
             name=vendor_name,
             email=vendor_email,

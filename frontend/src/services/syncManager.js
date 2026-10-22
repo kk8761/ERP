@@ -73,16 +73,19 @@ export async function triggerSyncNow() {
       })
     });
 
-    // BUG-63: Invoke authorized processing endpoint to durably commit drafts
-    const hasDrafts = Object.keys(modulesPayload).length > 0;
+    // BUG-63 & BUG-66: Invoke authorized processing endpoint to durably commit drafts
+    const processingRequired = Object.keys(modulesPayload).length > 0 || res.status === 'PENDING';
     let processRes = null;
-    if (hasDrafts || res.status === 'PENDING') {
+    let processError = null;
+
+    if (processingRequired) {
       try {
         processRes = await apiRequest('/api/sync/process', {
           method: 'POST'
         });
       } catch (procErr) {
-        console.warn('[SyncManager] Draft processing encountered issue:', procErr);
+        processError = procErr;
+        console.error('[SyncManager] Draft processing failed:', procErr);
       }
     }
 
@@ -90,8 +93,16 @@ export async function triggerSyncNow() {
     lastMetrics = res.module_metrics || null;
     secondsRemaining = SYNC_INTERVAL_SEC;
 
-    const isFullyCommitted = !processRes || (processRes.pending_remaining === 0 && (!processRes.errors || processRes.errors.length === 0));
-    broadcastSyncState(isFullyCommitted ? 'success' : 'partial');
+    // BUG-66: Validate the actual response returned by the backend
+    const processSucceeded = !processingRequired || (
+      !processError &&
+      processRes?.status === 'SUCCESS' &&
+      Array.isArray(processRes.errors) &&
+      processRes.errors.length === 0 &&
+      processRes.synced === processRes.total_evaluated
+    );
+
+    broadcastSyncState(processSucceeded ? 'success' : 'error');
 
     // Notify modules that server sync has completed so they can update themselves
     window.dispatchEvent(new CustomEvent('nexaerp:module_synced', {

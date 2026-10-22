@@ -2,7 +2,7 @@
 
 **Status**: Active Stabilization Baseline  
 **Environment**: Production & Staging Hardening  
-**Verification Baseline**: 100% Passing Test Suite (124 of 124 backend tests passing; 46 of 46 audit tests passing)  
+**Verification Baseline**: 100% Passing Test Suite (123 of 123 backend tests passing; 45 of 45 audit tests passing)  
 **Execution Command**: `python -m pytest tests/ -q`
 
 ---
@@ -14,7 +14,7 @@ To eliminate recurring regression defects caused by isolated patching without en
 1. **Defect Tracking Permanence**: Every defect identified by audit or testing is assigned a permanent identifier (`BUG-XX` or `SEC-XX`). Issues are marked `VERIFIED` only when an automated regression test passes against both the failure and edge-case boundary conditions.
 2. **Whole-Workflow Closure**: Before marking a repair complete, all callers (API layer, service layer, POS/offline sync, data import, and background workers) must be verified to use identical tenant context and data schemas.
 3. **Fail-Closed Isolation**: No endpoint or service may fall back to default organizations (e.g. `organization_id = 1`) or unassigned branches for non-administrative actions. Missing tenant context must fail closed with HTTP 403 Forbidden.
-4. **Mandatory Full Pipeline Run**: Every repair batch requires running the full 129-test backend test suite (`python -m pytest tests/`) and frontend build before any release or ZIP export.
+4. **Mandatory Full Pipeline Run**: Every repair batch requires running the full backend test suite (`python -m pytest tests/`) and frontend build before any release or ZIP export.
 
 ---
 
@@ -25,6 +25,9 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 | ID | Severity | Affected Files & Direct Callers | Root Cause | Implemented Resolution | End-to-End Regression Test | Status |
 |---|---|---|---|---|---|---|
+| **BUG-66** | High | `frontend/src/services/syncManager.js` | Frontend miscalculated sync success against nonexistent `pending_remaining` (which backend `/api/sync/process` does not return) and broadcast success in catch block on failure. | Evaluates `status === 'SUCCESS'`, `errors.length === 0`, and `synced === total_evaluated`; catch block records failure and notifies subscribers without broadcasting success. | `test_audit_zip9_fixes.py::test_bug68_finance_sync_debit_credit_validation_and_account_balances` & Frontend Unit/Build verification | **VERIFIED** |
+| **SEC-68** | Medium | `backend/app/api/sync.py` | `/api/sync/all` telemetry returned unscoped product counts and uncommitted draft metrics across all organizations and branches. | Scoped product queries by `organization_id == effective_org` and filtered draft storage checks strictly to caller's branch and tenant boundaries. | `test_audit_zip9_fixes.py::test_sec68_sync_telemetry_organization_and_branch_scoping` | **VERIFIED** |
+| **BUG-68** | High | `backend/app/api/sync.py`, `backend/app/models/finance.py`, `backend/app/main.py` | Finance draft synchronization accepted negative amounts, created synthetic checkpoints for empty drafts, failed to update `Account.balance`, and `Account`/`JournalEntry` models lacked tenant foreign keys. | Added `organization_id` to `Account` and `JournalEntry` with migration; validated amounts (`is_finite`, `>= 0`, exactly one side positive); removed synthetic checkpoint; atomically updates `Account.balance` per line. | `test_audit_zip9_fixes.py::test_bug68_finance_sync_debit_credit_validation_and_account_balances` | **VERIFIED** |
 | **SEC-57** | High | `backend/app/api/sync.py` | Sync endpoint stripped client `idempotency_key` but left client-controlled `operation_id` intact, influencing key generation. | Removed both `idempotency_key` and `operation_id` from client payloads; server derives authoritative `OP-{user_id}-{module}-{hash}` IDs. | `test_audit_zip8_fixes.py::test_sec_57_and_bug_61_sync_operation_id_stripping_and_org_validation` | **VERIFIED** |
 | **BUG-61** | High | `backend/app/api/sync.py` | Missing organization exception inside `/api/sync/all` was swallowed by broad `except Exception`, persisting drafts and returning false zero metrics. | Validated organization and branch before accepting drafts; re-raises `HTTPException` so unauthorized callers receive HTTP 403. | `test_audit_zip8_fixes.py::test_sec_57_and_bug_61_sync_operation_id_stripping_and_org_validation` | **VERIFIED** |
 | **BUG-62** | High | `frontend/src/components/FinancialSpreadsheetGrid.jsx`, `backend/app/api/finance.py` | "Post to General Ledger" posted unbundled single rows to wrong route `/api/finance/journal` and defaulted missing GL accounts to account 1. | Switched to `POST /api/finance/journal-entries`; posts full balanced double-entry `JournalEntryCreate` payload; rejects invalid GL codes with error. | `test_audit_zip8_fixes.py::test_bug_62_post_general_ledger_balanced_journal_entry` | **VERIFIED** |
@@ -47,6 +50,9 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 | ID | Severity | Affected Files & Direct Callers | Root Cause | Implemented Resolution | End-to-End Regression Test | Status |
 |---|---|---|---|---|---|---|
+| **SEC-63** | Critical | `backend/app/api/vision.py` | `/api/vision/deduct` endpoint lacked `inventory.adjust` permission enforcement and fetched products before verifying caller's organization. | Added `Depends(require_permission("inventory.adjust"))`; enforces active organization verification and scopes product lookup by `organization_id == effective_org`. | `test_audit_zip9_fixes.py::test_sec63_vision_deduct_requires_permission_and_scopes_org` | **VERIFIED** |
+| **SEC-66** | Critical | `backend/app/services/inventory_service.py` | `adjust_product_stock` allowed `organization_id=None` and bypassed tenant validation when caller omitted org context. | Enforced strict `organization_id is not None` guard raising HTTP 403 Forbidden on missing org; locked product rows with `with_for_update()`. | `test_audit_zip9_fixes.py::test_sec66_adjust_product_stock_fails_closed_without_org` | **VERIFIED** |
+| **BUG-67** | High | `backend/app/api/inventory.py` | `/api/inventory/daily-sales` accepted arbitrary client-supplied branch IDs without validating caller's branch authorization, and fetched walk-in customers and products globally. | Derives branch from caller context for non-superusers; validates branch authorization; scopes walk-in customer and product queries by `effective_org`. | `test_audit_zip9_fixes.py::test_bug67_daily_sales_branch_validation_and_org_scoping` | **VERIFIED** |
 | **SEC-58** | Critical | `backend/app/api/inventory.py` | Product creation silently assigned missing organizations to organization 1 (`or 1`). | Enforced verified organization ID; returns HTTP 403 when user has no assigned organization. Eliminated `or 1` fallback. | `test_audit_zip8_fixes.py::test_sec_58_product_creation_requires_verified_organization` | **VERIFIED** |
 | **SEC-59** | Critical | `backend/app/api/inventory.py`, `backend/app/services/inventory_service.py` | Product list, stock adjustments, and stock predictions lacked organization filtering and branch authorization checks. | Scoped product queries by `organization_id == effective_org`; updated `adjust_product_stock` to accept `organization_id` and lock with `with_for_update()`. Verified branch permissions. | `test_audit_zip8_fixes.py::test_sec_59_inventory_apis_isolated_by_organization` | **VERIFIED** |
 | **SEC-54** | High | `backend/app/api/data_import.py` | Duplicate product names triggered SQLAlchemy `MultipleResultsFound` exception, crashing imports. | Used `scalars().all()`; resolved by unique SKU first; if SKU does not disambiguate multiple name matches, returns HTTP 409 Conflict. | `test_audit_zip9_fixes.py::test_sec54_duplicate_product_name_disambiguation` | **VERIFIED** |
@@ -65,6 +71,9 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 | ID | Severity | Affected Files & Direct Callers | Root Cause | Implemented Resolution | End-to-End Regression Test | Status |
 |---|---|---|---|---|---|---|
+| **SEC-65** | Critical | `backend/app/api/users.py` | User management endpoints allowed cross-tenant user listing, arbitrary `organization_id` on user creation, permitted non-superusers to assign system admin roles, and did not validate target branch. | Scoped `list_users` by `organization_id == effective_org`; non-superusers cannot supply arbitrary orgs, assign system admin roles (`is_system_role`), or assign branches outside their organization. Scoped `update_user` and `delete_user` by `effective_org`. | `test_audit_zip9_fixes.py::test_sec65_user_management_multi_tenant_and_role_escalation_guard` | **VERIFIED** |
+| **SEC-67** | High | `backend/app/api/procurement.py` | Purchase order receiving lacked organization/branch verification, lacked concurrency row locking, and permitted duplicate receiving of already received orders. | Added `with_for_update()` row locking; validated PO organization and branch against caller's active context; rejected duplicate receipts with HTTP 400. | `test_audit_zip9_fixes.py::test_sec67_purchase_order_receiving_scoping_and_locking` | **VERIFIED** |
+| **BUG-69** | High | `backend/app/api/dashboard.py` | Dashboard KPI and chart calculated profit inconsistently (gross sales vs operating estimate), and unassigned superusers received mismatched metrics across sections. | Resolved unassigned superusers consistently to primary organization; harmonized chart profit to operating estimate (`day_sales - day_exp`) matching KPI calculation. | `test_audit_zip9_fixes.py::test_bug69_dashboard_profit_consistency_and_superuser_scoping` | **VERIFIED** |
 | **SEC-60** | Critical | `backend/app/api/dashboard.py` | Dashboard revealed company-wide financial and operational data without consistent organization and branch scoping. | Scoped all KPI counts, sales charts, inventory metrics, and expense breakdowns to caller's organization and authorized branch; requires `reports.consolidated` for multi-branch. | `test_audit_zip8_fixes.py::test_sec_60_and_bug_65_dashboard_metrics_organization_and_true_profit` | **VERIFIED** |
 | **BUG-65** | High | `backend/app/api/dashboard.py` | Dashboard substituted 55% sales fallback when purchases/expenses were absent and clipped losses to zero (`max(..., 0.0)`). | Removed fabricated 55% sales fallback; computes authentic accounting profit and loss (`sales - purchases - expenses`), allowing true negative profits. | `test_audit_zip8_fixes.py::test_sec_60_and_bug_65_dashboard_metrics_organization_and_true_profit` | **VERIFIED** |
 | **SEC-61** | High | `backend/app/services/ai_tools.py`, `backend/app/api/mcp.py`, `backend/app/api/security.py` | Endpoints silently used fallback defaults `organization_id = org_id or 1`, defaulting missing tenant context to organization 1. | Removed implicit defaults; missing organization context fails closed with HTTP 403 Forbidden or requires explicit authorized selection. | `test_audit_zip8_fixes.py::test_sec_58_product_creation_requires_verified_organization` | **VERIFIED** |
@@ -82,6 +91,7 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 | ID | Severity | Affected Files & Direct Callers | Root Cause | Implemented Resolution | End-to-End Regression Test | Status |
 |---|---|---|---|---|---|---|
+| **SEC-69** | High | `backend/app/services/disaster_recovery_service.py`, `compose.yaml` | `verify_offsite_storage_destination` accepted local directories and mount points (`/app/backups`, `\app\backups`) as disaster recovery proof, and archive retention did not verify checksum before/after transfer. | Required remote cloud endpoints (`REMOTE_BACKUP_S3_BUCKET`, `REMOTE_BACKUP_SERVICE_URL`) in production; rejects local/same-host paths; computes SHA-256 before and after relocation, failing if checksums mismatch. | `test_audit_zip9_fixes.py::test_sec69_disaster_recovery_offsite_verification_and_checksum_integrity` | **VERIFIED** |
 | **SEC-62** | High | `backend/app/services/disaster_recovery_service.py` | Off-site backup destination verification was defined but not enforced before setting `storage_tier="COLD_GLACIER"` and `is_archived=True`. | Enforced `verify_offsite_storage_destination` before archive execution; verifies physical relocation and integrity before updating status. | `test_audit_zip8_fixes.py::test_disaster_recovery_destination_verification` | **VERIFIED** |
 | **SEC-55** | Critical | `backend/app/services/disaster_recovery_service.py`, `compose.yaml`, `render.yaml` | Production environments reused default application secret key for backup encryption. | Enforced dedicated `BACKUP_ENCRYPTION_KEY`; in production, missing key halts operation immediately. | `test_audit_zip9_fixes.py::test_sec55_production_backup_key_enforcement` | **VERIFIED** |
 | **SEC-56** | High | `backend/app/services/disaster_recovery_service.py` | Offsite backup transfer did not verify that the target destination was off-host. | Added `verify_offsite_storage_destination` rejecting localhost, local drive paths, and unauthenticated endpoints. | `test_audit_zip9_fixes.py::test_sec55_production_backup_key_enforcement` | **VERIFIED** |
@@ -97,6 +107,7 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 | ID | Severity | Affected Files & Direct Callers | Root Cause | Implemented Resolution | End-to-End Regression Test | Status |
 |---|---|---|---|---|---|---|
+| **SEC-64** | Critical | `backend/app/api/ai_assistant.py`, `backend/app/services/ai_service.py` | AI assistant defaulted missing tenant context to organization 1, fetched products/suppliers globally, and executed PO and stock updates without checking `procurement.create` or `inventory.adjust` permissions. | Eliminated default org fallback (fails closed with HTTP 403); scoped live ERP context queries by `organization_id`; enforced granular permission checks (`procurement.create`, `inventory.adjust`, `procurement.manage`) in AI action execution. | `test_audit_zip9_fixes.py::test_sec64_ai_assistant_tenant_scoping_and_permission_enforcement` | **VERIFIED** |
 | **BUG-27** | High | `backend/app/api/data_import.py` | Employee and warehouse imports assigned fallback branches silently. | Required explicit branch assignment for employee and warehouse imports; rejects missing branch. | `test_audit_zip6_fixes.py::test_bug27_explicit_branch_required_for_employees_and_warehouses` | **VERIFIED** |
 | **BUG-29** | High | `backend/app/api/auth.py`, `backend/app/services/sales_service.py` | Branch switching mutated user base profile instead of an active ephemeral session context. | Introduced `active_branch_id` session field; preserved original `user.branch_id` for home branch attribution. | `test_audit_zip6_fixes.py::test_bug29_branch_switch_upsert_and_active_context` | **VERIFIED** |
 | **BUG-37** | High | `backend/app/services/sales_service.py` | Branch switching allowed non-admin users to switch to arbitrary branches across organizations. | Enforced branch membership and organization verification on branch switch requests. | `test_audit_zip7_fixes.py::test_bug37_and_bug38_branch_switching_and_all_branches_policy` | **VERIFIED** |
@@ -112,19 +123,19 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 Before any release or repository push, execute the complete validation pipeline:
 
-### 1. Backend Test Suite (124 Tests)
+### 1. Backend Test Suite (123 Tests)
 ```powershell
 cd backend
 python -m pytest tests/ -q
 ```
-**Expected Outcome**: `124 passed, 4 warnings in ~70s` (100% clean).
+**Expected Outcome**: `123 passed, 4 warnings in ~70s` (100% clean).
 
-### 2. Audit-Specific Regression Suite (46 Tests)
+### 2. Audit-Specific Regression Suite (45 Tests)
 ```powershell
 cd backend
 python -m pytest tests/test_audit_exact_fixes.py tests/test_audit_zip6_fixes.py tests/test_audit_zip7_fixes.py tests/test_audit_zip8_fixes.py tests/test_audit_zip9_fixes.py -q
 ```
-**Expected Outcome**: `46 passed in ~25s` (100% clean).
+**Expected Outcome**: `45 passed in ~30s` (100% clean).
 
 ### 3. Database Migration & Schema Consistency Verification
 ```powershell

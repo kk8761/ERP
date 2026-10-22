@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 import json
 import hashlib
@@ -137,40 +137,56 @@ async def sync_all_modules(
                 )
 
     try:
+        from app.models.org import Branch
+        b_res = await db.execute(select(Branch.id).where(Branch.organization_id == effective_org))
+        org_branch_ids = b_res.scalars().all()
+
+        if is_admin:
+            allowed_branches = org_branch_ids
+        elif branch_id and branch_id in org_branch_ids:
+            allowed_branches = [branch_id]
+        elif org_branch_ids:
+            allowed_branches = [org_branch_ids[0]]
+        else:
+            allowed_branches = []
+
         # 1. Inventory stats (BUG-52 & SEC-53: Scoped strictly to user's organization)
         prod_q = select(func.count(Product.id)).where(Product.organization_id == effective_org)
         prod_count_res = await db.execute(prod_q)
         total_products = prod_count_res.scalar_one() or 0
 
+        # 2. Sales stats (SEC-68: branch and organization scoped)
+        if allowed_branches:
+            sales_q = select(func.count(SalesOrder.id)).where(SalesOrder.branch_id.in_(allowed_branches))
+            order_count_res = await db.execute(sales_q)
+            total_sales_orders = order_count_res.scalar_one() or 0
+        else:
+            total_sales_orders = 0
 
-
-        # 2. Sales stats (branch-scoped)
-        sales_q = select(func.count(SalesOrder.id))
-        if not is_admin and branch_id is not None:
-            sales_q = sales_q.where(SalesOrder.branch_id == branch_id)
-        order_count_res = await db.execute(sales_q)
-        total_sales_orders = order_count_res.scalar_one() or 0
-
-        # 3. Finance stats (filtered by creator for non-admins)
-        journal_q = select(func.count(JournalEntry.id))
+        # 3. Finance stats (SEC-68: filtered by organization and creator for non-admins)
+        journal_q = select(func.count(JournalEntry.id)).where(
+            or_(JournalEntry.organization_id == effective_org, JournalEntry.organization_id.is_(None))
+        )
         if not is_admin:
             journal_q = journal_q.where(JournalEntry.created_by_user_id == user_id)
         journal_count_res = await db.execute(journal_q)
         total_journals = journal_count_res.scalar_one() or 0
 
-        # 4. Procurement stats (branch-scoped)
-        po_q = select(func.count(PurchaseOrder.id))
-        if not is_admin and branch_id is not None:
-            po_q = po_q.where(PurchaseOrder.branch_id == branch_id)
-        po_count_res = await db.execute(po_q)
-        total_pos = po_count_res.scalar_one() or 0
+        # 4. Procurement stats (SEC-68: branch and organization scoped)
+        if allowed_branches:
+            po_q = select(func.count(PurchaseOrder.id)).where(PurchaseOrder.branch_id.in_(allowed_branches))
+            po_count_res = await db.execute(po_q)
+            total_pos = po_count_res.scalar_one() or 0
+        else:
+            total_pos = 0
 
-        # 5. HR stats (branch-scoped)
-        emp_q = select(func.count(Employee.id))
-        if not is_admin and branch_id is not None:
-            emp_q = emp_q.where(Employee.branch_id == branch_id)
-        emp_count_res = await db.execute(emp_q)
-        total_employees = emp_count_res.scalar_one() or 0
+        # 5. HR stats (SEC-68: branch and organization scoped)
+        if allowed_branches:
+            emp_q = select(func.count(Employee.id)).where(Employee.branch_id.in_(allowed_branches))
+            emp_count_res = await db.execute(emp_q)
+            total_employees = emp_count_res.scalar_one() or 0
+        else:
+            total_employees = 0
 
         # 6. Unread Email stats (user-scoped for non-admins)
         from app.models.email_log import ReceivedEmail
@@ -436,6 +452,7 @@ async def process_pending_drafts(
                 total_d = Decimal("0.00")
                 total_c = Decimal("0.00")
 
+                accounts_to_update = {}
                 for v in vouchers:
                     gl_code = str(v.get("gl_account") or "").strip()
                     if not gl_code:
@@ -448,14 +465,18 @@ async def process_pending_drafts(
                             status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"Invalid numeric debit or credit in finance draft for account '{gl_code}'."
                         )
-                    if d_val == 0 and c_val == 0:
-                        continue
-                    if d_val > 0 and c_val > 0:
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Line for account '{gl_code}' cannot have both debit and credit."
-                        )
+
+                    # BUG-68 Fix: Validate finite, non-negative, and exactly one positive side
+                    if not d_val.is_finite() or not c_val.is_finite():
+                        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Amounts for account '{gl_code}' must be finite numbers.")
+                    if d_val < 0 or c_val < 0:
+                        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Amounts for account '{gl_code}' cannot be negative.")
+                    if (d_val > 0 and c_val > 0) or (d_val == 0 and c_val == 0):
+                        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Line for account '{gl_code}' must have exactly one positive side (debit or credit).")
+
                     acc_stmt = select(Account).where(func.lower(Account.code) == gl_code.lower())
+                    if user_org_id is not None:
+                        acc_stmt = acc_stmt.where(or_(Account.organization_id == user_org_id, Account.organization_id.is_(None)))
                     acc = (await db.execute(acc_stmt)).scalar_one_or_none()
                     if not acc or not acc.is_active:
                         raise HTTPException(
@@ -464,6 +485,7 @@ async def process_pending_drafts(
                         )
                     total_d += d_val
                     total_c += c_val
+                    accounts_to_update[acc.id] = acc
                     lines_to_post.append(
                         JournalEntryLine(
                             account_id=acc.id,
@@ -473,33 +495,42 @@ async def process_pending_drafts(
                         )
                     )
 
-                if lines_to_post:
-                    if len(lines_to_post) < 2:
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Double-entry journal requires at least two line items."
-                        )
-                    if total_d != total_c:
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Double-entry imbalance! Total Debit ({total_d}) != Total Credit ({total_c})"
-                        )
-                    entry_num = f"JE-SYNC-{uuid.uuid4().hex[:6].upper()}"
-                    je = JournalEntry(
-                        entry_number=entry_num,
-                        entry_date=now.date(),
-                        reference="SYNC-ACDOCA",
-                        description=data.get("description") or "Synced from ACDOCA spreadsheet draft",
-                        total_debit=total_d,
-                        total_credit=total_c,
-                        is_posted=True,
-                        created_by_user_id=user_id,
-                        lines=lines_to_post
+                # BUG-68 Fix: Reject drafts with fewer than two valid lines (remove synthetic checkpoint)
+                if len(lines_to_post) < 2:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Double-entry journal requires at least two valid line items."
                     )
-                    db.add(je)
-                    ref_id = entry_num
-                else:
-                    ref_id = f"FIN-CHECKPOINT-{now.strftime('%Y%m%d%H%M%S')}"
+                if total_d != total_c:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Double-entry imbalance! Total Debit ({total_d}) != Total Credit ({total_c})"
+                    )
+
+                entry_num = f"JE-SYNC-{uuid.uuid4().hex[:6].upper()}"
+                je = JournalEntry(
+                    entry_number=entry_num,
+                    entry_date=now.date(),
+                    reference="SYNC-ACDOCA",
+                    description=data.get("description") or "Synced from ACDOCA spreadsheet draft",
+                    total_debit=total_d,
+                    total_credit=total_c,
+                    organization_id=user_org_id,
+                    is_posted=True,
+                    created_by_user_id=user_id,
+                    lines=lines_to_post
+                )
+                db.add(je)
+
+                # BUG-68 Fix: Update corresponding Account.balance in the same database transaction
+                for line in lines_to_post:
+                    acc = accounts_to_update[line.account_id]
+                    if acc.account_type in ["ASSET", "EXPENSE"]:
+                        acc.balance += (line.debit - line.credit)
+                    else:
+                        acc.balance += (line.credit - line.debit)
+
+                ref_id = entry_num
 
             else:
                 # BUG-41: Reject unsupported modules

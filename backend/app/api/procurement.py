@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user, require_permission
+from app.auth.dependencies import get_current_user, require_permission, is_admin_or_exec
 from app.models.auth import User
 from app.models.procurement import Supplier, PurchaseOrder, PurchaseOrderItem
 from app.models.inventory import Product
@@ -319,15 +319,43 @@ async def receive_goods(
     current_user: User = Depends(require_permission("procurement.receive")),
     db: AsyncSession = Depends(get_db)
 ):
+    user_org = getattr(current_user, "organization_id", None)
+    if user_org is None and not getattr(current_user, "is_superuser", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required to receive purchase orders."
+        )
+
+    # SEC-67: Lock row with SELECT ... FOR UPDATE to prevent race conditions on concurrent receipts
     stmt = (
         select(PurchaseOrder)
         .options(selectinload(PurchaseOrder.items), selectinload(PurchaseOrder.supplier))
         .where(PurchaseOrder.id == po_id)
+        .with_for_update()
     )
     res = await db.execute(stmt)
     po = res.scalar_one_or_none()
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
+
+    # SEC-67: Validate organization and authorized branch scoping
+    if user_org is not None:
+        if po.branch_id:
+            from app.models.org import Branch
+            b_res = await db.execute(select(Branch).where(Branch.id == po.branch_id))
+            b_obj = b_res.scalar_one_or_none()
+            if b_obj and b_obj.organization_id != user_org:
+                raise HTTPException(status_code=404, detail="Purchase order not found in your organization")
+        elif po.supplier and getattr(po.supplier, "organization_id", None) and po.supplier.organization_id != user_org:
+            raise HTTPException(status_code=404, detail="Purchase order not found in your organization")
+
+        is_admin = is_admin_or_exec(current_user)
+        user_branch = getattr(current_user, "active_branch_id", current_user.branch_id)
+        if not is_admin and user_branch is not None and po.branch_id and po.branch_id != user_branch:
+            raise HTTPException(status_code=403, detail="Not authorized to receive purchase orders for this branch")
+
+    if po.status == "RECEIVED":
+        raise HTTPException(status_code=400, detail="Purchase order has already been received")
 
     if po.status != "APPROVED":
         raise HTTPException(status_code=400, detail="Purchase order must be APPROVED before goods receipt")
@@ -343,7 +371,7 @@ async def receive_goods(
             user_id=current_user.id,
             reference_id=po.po_number,
             notes=f"Goods receipt for {po.po_number}",
-            organization_id=getattr(current_user, "organization_id", None)
+            organization_id=user_org or 1
         )
 
     po.status = "RECEIVED"

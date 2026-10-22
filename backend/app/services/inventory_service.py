@@ -21,10 +21,20 @@ async def adjust_product_stock(
     quantity_change < 0 decreases stock.
     SEC-59: Scoped strictly to authenticated organization.
     """
-    stmt = select(Product).where(Product.id == product_id)
-    if organization_id is not None:
-        stmt = stmt.where(Product.organization_id == organization_id)
-    stmt = stmt.with_for_update()
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for stock adjustment mutations."
+        )
+
+    stmt = (
+        select(Product)
+        .where(
+            Product.id == product_id,
+            Product.organization_id == organization_id
+        )
+        .with_for_update()
+    )
     result = await db.execute(stmt)
     product = result.scalar_one_or_none()
 

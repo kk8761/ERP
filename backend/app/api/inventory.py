@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user, require_permission
+from app.auth.dependencies import get_current_user, require_permission, is_admin_or_exec
 from app.models.auth import User
 from app.models.inventory import Product, ProductCategory, StockMovement
 from app.models.sales import SalesOrder, SalesOrderItem, Customer
@@ -515,7 +515,15 @@ async def record_daily_sale_and_update_prediction(
     Records an immediate sale transaction for a product and recalculates
     the updated stock exhaustion prediction and shift in exhaustion date.
     """
-    prod_res = await db.execute(select(Product).where(Product.id == payload.product_id))
+    effective_org = getattr(current_user, "organization_id", None)
+    if not effective_org and not getattr(current_user, "is_superuser", False):
+        raise HTTPException(status_code=403, detail="Organization context required to record sales.")
+    effective_org = effective_org or 1
+
+    # Scope product lookup by organization
+    prod_res = await db.execute(
+        select(Product).where(Product.id == payload.product_id, Product.organization_id == effective_org)
+    )
     product = prod_res.scalar_one_or_none()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -526,15 +534,36 @@ async def record_daily_sale_and_update_prediction(
             detail=f"Insufficient stock for '{product.name}'. In stock: {product.current_stock}, requested: {payload.quantity}"
         )
 
-    # 1. Fetch walk-in or default customer
-    cust_res = await db.execute(select(Customer).limit(1))
+    # BUG-67 Fix: Branch authorization - ordinary users derive branch from active context
+    is_admin = is_admin_or_exec(current_user)
+    user_branch = getattr(current_user, "active_branch_id", current_user.branch_id)
+    if not is_admin:
+        effective_branch = user_branch or payload.branch_id
+        if user_branch is not None and payload.branch_id is not None and payload.branch_id != user_branch:
+            user_perms = getattr(current_user, "effective_permissions", set())
+            if "reports.consolidated" not in user_perms and "branches.switch" not in user_perms:
+                raise HTTPException(status_code=403, detail="Not authorized to record sales for another branch.")
+    else:
+        effective_branch = payload.branch_id or user_branch
+
+    # Validate branch belongs to organization
+    if effective_branch:
+        from app.models.org import Branch
+        b_res = await db.execute(select(Branch).where(Branch.id == effective_branch, Branch.organization_id == effective_org))
+        if not b_res.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Specified branch does not belong to your organization.")
+
+    # 1. Fetch walk-in or default customer scoped to organization
+    cust_res = await db.execute(
+        select(Customer).where(Customer.organization_id == effective_org).limit(1)
+    )
     customer = cust_res.scalar_one_or_none()
     customer_id = customer.id if customer else None
 
     # 2. Record official SalesOrder via service
     order_in = SalesOrderCreate(
         customer_id=customer_id,
-        branch_id=payload.branch_id,
+        branch_id=effective_branch,
         payment_method="CASH",
         discount_amount=Decimal("0.00"),
         notes=payload.notes,
@@ -549,7 +578,7 @@ async def record_daily_sale_and_update_prediction(
         db=db,
         order_in=order_in,
         cashier_user_id=current_user.id,
-        organization_id=current_user.organization_id
+        organization_id=effective_org
     )
 
     # Audit log
