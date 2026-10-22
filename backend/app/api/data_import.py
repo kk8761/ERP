@@ -4,6 +4,7 @@ import csv
 import json
 import base64
 import uuid
+import math
 import logging
 from typing import Optional, List, Dict, Any
 from decimal import Decimal, InvalidOperation
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, is_admin_or_exec
 from app.models.auth import User
 from app.models.sales import Customer
 from app.models.procurement import Supplier
@@ -643,10 +644,7 @@ async def commit_batch_import(
         )
 
     user_perms = getattr(current_user, "effective_permissions", set())
-    is_admin = current_user.is_superuser or any(
-        r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
-        for r in getattr(current_user, "roles", [])
-    )
+    is_admin = is_admin_or_exec(current_user)
     if not is_admin and not any(p in user_perms for p in allowed_perms):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -685,14 +683,23 @@ async def commit_batch_import(
         else:
             effective_branch_id = payload.branch_id or user_active_branch
 
-    # Validate that branch exists in DB
+    # SEC-46: Resolve organization from user's authoritative DB context and validate branch
+    user_org_id = getattr(current_user, "organization_id", None) or 1
     if effective_branch_id is not None:
         b_res = await db.execute(select(Branch).where(Branch.id == effective_branch_id))
-        if not b_res.scalar_one_or_none():
+        branch_obj = b_res.scalar_one_or_none()
+        if not branch_obj:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Branch ID {effective_branch_id} does not exist."
             )
+        if getattr(branch_obj, "organization_id", None) is not None:
+            if getattr(current_user, "organization_id", None) is not None and branch_obj.organization_id != current_user.organization_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Branch {effective_branch_id} does not belong to your organization."
+                )
+            user_org_id = branch_obj.organization_id
 
     batch_id = payload.batch_id or f"IMP-{uuid.uuid4().hex[:8].upper()}"
     created_count = 0
@@ -706,21 +713,34 @@ async def commit_batch_import(
                 if not name:
                     continue
 
-                # Check if exists by name or vendor_code
+                # SEC-46: Scope existing-record lookups strictly to the importing organization
                 v_code = _clean_str(r.get("vendor_code"))
-                v_filter = [Supplier.name == name]
+                existing = None
                 if v_code:
-                    v_filter.append(Supplier.vendor_code == v_code)
-                existing_res = await db.execute(select(Supplier).where(or_(*v_filter)))
-                existing = existing_res.scalars().first()
+                    existing_res = await db.execute(
+                        select(Supplier).where(Supplier.vendor_code == v_code, Supplier.organization_id == user_org_id)
+                    )
+                    existing = existing_res.scalar_one_or_none()
+                if not existing:
+                    existing_res = await db.execute(
+                        select(Supplier).where(Supplier.name == name, Supplier.organization_id == user_org_id)
+                    )
+                    existing = existing_res.scalar_one_or_none()
 
+                # BUG-43 Fix: Strictly validate vendor ratings against finite 0.0 - 100.0 range
                 raw_rating = r.get("rating_score") if r.get("rating_score") is not None else r.get("rating")
                 rating_score = None
                 if raw_rating is not None and str(raw_rating).strip() != "" and str(raw_rating).strip().upper() != "UNRATED":
                     try:
-                        rating_score = float(raw_rating)
+                        val = float(raw_rating)
+                        if math.isnan(val) or math.isinf(val) or val < 0.0 or val > 100.0:
+                            raise ValueError()
+                        rating_score = round(val, 2)
                     except (ValueError, TypeError):
-                        raise HTTPException(status_code=400, detail=f"Invalid rating_score for vendor '{name}'. Must be numeric or unrated.")
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid rating_score for vendor '{name}'. Must be a finite number between 0 and 100, or unrated."
+                        )
 
                 if existing:
                     # Update fields
@@ -737,8 +757,9 @@ async def commit_batch_import(
                         existing.rating_score = rating_score
                     updated_count += 1
                 else:
-                    # BUG-28 Fix: Do not invent Hyderabad, Net 30 Days, or 92.5 score
+                    # SEC-46 & BUG-28 Fix: Assign organization_id and do not invent Hyderabad, Net 30, or 92.5
                     sup = Supplier(
+                        organization_id=user_org_id,
                         name=name,
                         vendor_code=v_code or f"VEND-{uuid.uuid4().hex[:6].upper()}",
                         vendor_account_group="Standard Vendor",
@@ -761,14 +782,41 @@ async def commit_batch_import(
             default_cat = cat_res.scalar_one_or_none()
             default_cat_id = default_cat.id if default_cat else 1
 
+            # SEC-45: Granular permissions for create, update, and stock adjustment
+            has_inv_create = is_admin or ("inventory.create" in user_perms) or ("inventory.manage" in user_perms)
+            has_inv_update = is_admin or ("inventory.update" in user_perms) or ("inventory.manage" in user_perms)
+            has_inv_adjust = is_admin or ("inventory.adjust" in user_perms) or ("inventory.manage" in user_perms)
+
             for r in records:
                 name = _clean_str(r.get("name"))
                 if not name:
                     continue
 
                 sku = _clean_str(r.get("sku")) or f"SKU-{re.sub(r'[^A-Z0-9]', '', name.upper())[:8]}"
-                existing_res = await db.execute(select(Product).where(or_(Product.sku == sku, Product.name == name)))
-                existing = existing_res.scalar_one_or_none()
+
+                # BUG-42 & SEC-46: Look up SKU first, check org ownership and detect cross-product ambiguity
+                sku_match_res = await db.execute(select(Product).where(Product.sku == sku))
+                sku_match = sku_match_res.scalar_one_or_none()
+
+                name_match_res = await db.execute(
+                    select(Product).where(Product.name == name, or_(Product.organization_id == user_org_id, Product.organization_id.is_(None)))
+                )
+                name_match = name_match_res.scalar_one_or_none()
+
+                if sku_match and name_match and sku_match.id != name_match.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Ambiguous product match for '{name}' with SKU '{sku}': SKU belongs to product ID {sku_match.id} ('{sku_match.name}') while name belongs to ID {name_match.id}."
+                    )
+
+                existing = sku_match or name_match
+                if existing and existing.organization_id is None:
+                    existing.organization_id = user_org_id
+                elif existing and existing.organization_id != user_org_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Product with SKU '{sku}' belongs to another organization."
+                    )
 
                 raw_sell = r.get("selling_price")
                 raw_cost = r.get("cost_price")
@@ -782,15 +830,27 @@ async def commit_batch_import(
                 reorder = parse_int(raw_reorder, f"Product '{name}' reorder_level", allow_zero=True, allow_negative=False) if raw_reorder is not None else 0
 
                 if existing:
+                    # SEC-45: Modifying existing product details or prices requires inventory.update
+                    if not has_inv_update:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"Access denied: Modifying existing product '{existing.name}' requires 'inventory.update' permission."
+                        )
+
                     old_stock = existing.current_stock
                     existing.selling_price = sell_price
                     existing.cost_price = cost_price
-                    existing.current_stock = stock
                     existing.reorder_level = reorder
 
-                    # BUG-26 Fix: Record stock adjustment movement
+                    # SEC-45: Modifying stock of existing product requires inventory.adjust
                     stock_diff = stock - old_stock
                     if stock_diff != 0:
+                        if not has_inv_adjust:
+                            raise HTTPException(
+                                status_code=status.HTTP_403_FORBIDDEN,
+                                detail=f"Access denied: Adjusting stock level for existing product '{existing.name}' requires 'inventory.adjust' permission."
+                            )
+                        existing.current_stock = stock
                         m_type = "ADJUSTMENT_IN" if stock_diff > 0 else "ADJUSTMENT_OUT"
                         movement = StockMovement(
                             product_id=existing.id,
@@ -805,7 +865,16 @@ async def commit_batch_import(
                         db.add(movement)
                     updated_count += 1
                 else:
+                    # SEC-45: Creating new product requires inventory.create
+                    if not has_inv_create:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"Access denied: Creating new product '{name}' requires 'inventory.create' permission."
+                        )
+
+                    # SEC-46: Assign organization_id on creation
                     prod = Product(
+                        organization_id=user_org_id,
                         name=name,
                         sku=sku,
                         barcode=_clean_str(r.get("barcode")) or None,
@@ -829,7 +898,7 @@ async def commit_batch_import(
                             previous_stock=0,
                             new_stock=stock,
                             reference_id=f"IMPORT-{batch_id}",
-                            notes=f"Initial opening stock imported via batch {batch_id}",
+                            notes=f"Initial stock balance via import batch {batch_id}",
                             created_by_user_id=current_user.id
                         )
                         db.add(movement)

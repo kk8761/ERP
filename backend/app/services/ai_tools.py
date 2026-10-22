@@ -180,7 +180,7 @@ async def tool_search_inventory(
 ) -> Dict[str, Any]:
     stmt = select(Product).where(Product.is_active == True)
     if organization_id is not None:
-        stmt = stmt.where(or_(Product.organization_id == organization_id, Product.organization_id.is_(None)))
+        stmt = stmt.where(Product.organization_id == organization_id)
     if query:
         q = f"%{query.strip()}%"
         stmt = stmt.where(or_(Product.name.ilike(q), Product.sku.ilike(q), Product.barcode.ilike(q)))

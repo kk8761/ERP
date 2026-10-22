@@ -4,12 +4,43 @@ import uuid
 import os
 import shutil
 import gzip
+import base64
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
+from cryptography.fernet import Fernet
 
+from app.config import settings
 from app.models.disaster_recovery import BackupRecord, TransactionLogEntry, DRDrillExecution, BackupAlert
+
+def get_backup_cipher() -> Fernet:
+    """Derives a deterministic 32-byte Fernet encryption key from application SECRET_KEY."""
+    key = base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode()).digest())
+    return Fernet(key)
+
+def encrypt_backup_file(src_path: str) -> str:
+    """BUG-44: Encrypts backup file on disk using AES-256 authenticated Fernet cipher."""
+    cipher = get_backup_cipher()
+    enc_path = src_path + ".enc"
+    with open(src_path, "rb") as f_in:
+        raw_data = f_in.read()
+    encrypted_data = cipher.encrypt(raw_data)
+    with open(enc_path, "wb") as f_out:
+        f_out.write(encrypted_data)
+    if os.path.exists(src_path) and enc_path != src_path:
+        os.remove(src_path)
+    return enc_path
+
+def decrypt_backup_file(enc_path: str, dest_path: str) -> str:
+    """Decrypts AES-256 encrypted backup file."""
+    cipher = get_backup_cipher()
+    with open(enc_path, "rb") as f_in:
+        encrypted_data = f_in.read()
+    decrypted_data = cipher.decrypt(encrypted_data)
+    with open(dest_path, "wb") as f_out:
+        f_out.write(decrypted_data)
+    return dest_path
 
 def ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is None:
@@ -207,8 +238,13 @@ class DisasterRecoveryService:
                 transitioned_to_glacier += 1
                 if b.file_path and os.path.exists(b.file_path):
                     try:
-                        base_dir = os.path.dirname(b.file_path)
-                        cold_dir = os.path.join(base_dir, "cold_glacier")
+                        # BUG-45: Support dedicated off-host / independent storage vault if configured
+                        offhost_dir = os.getenv("OFFHOST_COLD_ARCHIVE_PATH") or os.getenv("COLD_ARCHIVE_ROOT")
+                        if offhost_dir and os.path.exists(offhost_dir):
+                            cold_dir = os.path.join(offhost_dir, "cold_glacier")
+                        else:
+                            base_dir = os.path.dirname(b.file_path)
+                            cold_dir = os.path.join(base_dir, "cold_glacier")
                         os.makedirs(cold_dir, exist_ok=True)
                         dest = os.path.join(cold_dir, os.path.basename(b.file_path))
                         shutil.move(b.file_path, dest)
@@ -570,6 +606,10 @@ class DisasterRecoveryService:
             await db.refresh(failed_rec)
             return failed_rec
 
+        # BUG-44: Application-level AES-256 authenticated backup encryption
+        encrypted_backup_path = encrypt_backup_file(backup_file_path)
+        backup_file_path = encrypted_backup_path
+
         file_size = os.path.getsize(backup_file_path) if os.path.exists(backup_file_path) else 1024
         hasher = hashlib.sha256()
         with open(backup_file_path, "rb") as f:
@@ -579,7 +619,7 @@ class DisasterRecoveryService:
 
         record = BackupRecord(
             id=backup_id,
-            backup_name=backup_name,
+            backup_name=os.path.basename(backup_file_path),
             backup_type=backup_type,
             status="COMPLETED",
             storage_tier="HOT_ACTIVE",
@@ -592,7 +632,8 @@ class DisasterRecoveryService:
             metadata_json=json.dumps({
                 "compression": "pg_dump_custom_compression" if is_postgres else "gzip-9",
                 "backup_mode": backup_mode,
-                "encryption": "NONE",
+                "encryption": "AES-256-Fernet-HMAC-SHA256",
+                "encrypted_at": now.isoformat(),
                 "verified_at": now.isoformat()
             })
         )

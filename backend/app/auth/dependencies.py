@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, Set
 from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, status, Request
@@ -6,11 +7,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+logger = logging.getLogger(__name__)
+
 from app.database import get_db
 from app.config import settings
 from app.auth.security import decode_token
 from app.models.auth import User, RevokedToken, UserRole, Role
 from app.authorization.rbac_engine import get_user_effective_permissions
+
+ADMIN_ROLES = {"System Administrator", "Executive", "Managing Director", "Admin"}
+
+def is_admin_or_exec(user: User) -> bool:
+    """Shared helper to verify if user has administrative or executive role privileges."""
+    if getattr(user, "is_superuser", False):
+        return True
+    roles = getattr(user, "roles", []) or []
+    return any(getattr(r, "role", None) and r.role.name in ADMIN_ROLES for r in roles)
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -98,17 +110,14 @@ async def get_current_user(
     setattr(user, "effective_permissions", user_perms)
     setattr(user, "current_token_jti", jti)
 
-    # BUG-29: Load active branch context for user from session store without mutating permanently assigned branch_id
+    # BUG-29 & BUG-38: Load active branch context for user from session store without mutating permanently assigned branch_id
     active_branch_id = user.branch_id
     try:
         from app.services.document_store import document_store
         ctx = await document_store.find_document("user_session_branch_context", {"user_id": user.id})
         if ctx and "active_branch_id" in ctx:
             switched_id = ctx["active_branch_id"]
-            is_admin = user.is_superuser or any(
-                r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
-                for r in getattr(user, "roles", [])
-            )
+            is_admin = is_admin_or_exec(user)
             if switched_id is None:
                 if is_admin:
                     active_branch_id = None
@@ -118,9 +127,26 @@ async def get_current_user(
                 # Validate authorization in employee_access_authorizations
                 auth_doc = await document_store.find_document("employee_access_authorizations", {"email": user.email})
                 if auth_doc:
+                    raw_policy = auth_doc.get("branch_access_policy", "ASSIGNED_ONLY")
+                    policy = raw_policy if raw_policy in {"ASSIGNED_ONLY", "ALL_BRANCHES", "CUSTOM_LIST"} else "ASSIGNED_ONLY"
                     allowed = auth_doc.get("accessible_branches", [])
-                    if "ALL" in allowed or switched_id in allowed or str(switched_id) in [str(x) for x in allowed]:
-                        active_branch_id = switched_id
+                    is_permitted = False
+                    if policy == "ALL_BRANCHES" or "ALL" in allowed:
+                        is_permitted = True
+                    elif policy == "CUSTOM_LIST":
+                        if switched_id in allowed or str(switched_id) in [str(x) for x in allowed]:
+                            is_permitted = True
+
+                    if is_permitted:
+                        # Verify branch exists, is active, and belongs to user's authorized organization
+                        from app.models.org import Branch
+                        b_stmt = select(Branch).where(Branch.id == switched_id, Branch.is_active == True)
+                        if getattr(user, "organization_id", None) is not None:
+                            b_stmt = b_stmt.where(Branch.organization_id == user.organization_id)
+                        b_res = await db.execute(b_stmt)
+                        valid_b = b_res.scalar_one_or_none()
+                        if valid_b:
+                            active_branch_id = switched_id
     except Exception as e:
         logger.warning("Could not resolve active branch context: %s", e)
 

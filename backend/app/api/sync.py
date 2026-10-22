@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import json
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, is_admin_or_exec
 from app.models.auth import User
 from app.models.inventory import Product
 from app.models.sales import SalesOrder
@@ -49,8 +49,8 @@ async def sync_all_modules(
 
     # Store incoming client drafts with durable persistence and memory bounding
     # Branch scoping: non-admins require an assigned branch
-    is_admin = getattr(current_user, "is_superuser", False)
-    branch_id = getattr(current_user, "branch_id", None)
+    is_admin = is_admin_or_exec(current_user)
+    branch_id = getattr(current_user, "active_branch_id", current_user.branch_id) or current_user.branch_id
     if not is_admin and branch_id is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -186,12 +186,20 @@ async def process_pending_drafts(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    BUG-35 Worker Endpoint:
+    BUG-35, SEC-44, BUG-40, BUG-41 Worker Endpoint:
     Processes and applies pending client drafts from module_drafts durable collection
-    to authoritative business tables with strict idempotency and marks status SYNCED.
+    to authoritative business tables with:
+    - SEC-44: Explicit module permission enforcement (sales.create, expenses.record).
+    - BUG-40: Atomic concurrency claiming and durable idempotency key enforcement.
+    - BUG-41: Rejection of unsupported modules / missing data and truthful SYNCED status.
+    - Active branch context application for branch-scoped business records.
     """
     user_id = current_user.id
     now = datetime.now(timezone.utc)
+    is_admin = is_admin_or_exec(current_user)
+    user_perms = getattr(current_user, "effective_permissions", set())
+    active_branch = getattr(current_user, "active_branch_id", current_user.branch_id) or current_user.branch_id
+
     pending_drafts = await document_store.find_documents("module_drafts", {"user_id": user_id, "status": "PENDING"})
 
     processed_count = 0
@@ -204,59 +212,142 @@ async def process_pending_drafts(
         data = draft.get("data", {})
         idempotency_key = data.get("idempotency_key") or f"IDEMP-{draft_id}-{draft.get('updated_at', '')}"
 
+        # BUG-40: Check whether draft or idempotency key was already applied
+        if data.get("_applied"):
+            await document_store.update_document(
+                "module_drafts",
+                {"id": draft_id},
+                {"status": "SYNCED", "processed_at": now.isoformat(), "idempotency_key": idempotency_key}
+            )
+            synced_count += 1
+            continue
+
+        # BUG-40: Atomically claim draft to prevent concurrent duplicate processing
+        claimed = await document_store.update_document(
+            "module_drafts",
+            {"id": draft_id, "status": "PENDING"},
+            {"status": "PROCESSING", "claim_time": now.isoformat()}
+        )
+        if not claimed:
+            continue
+
         processed_count += 1
         try:
+            # SEC-44 & BUG-41: Validate module support and required permissions
             if module_name == "sales":
-                # Apply sales draft order if items provided
-                items = data.get("items", [])
-                if items and not data.get("_applied"):
-                    from app.schemas.sales import SalesOrderCreate, SalesOrderItemCreate
-                    from app.services.sales_service import create_sales_order
-                    # Validate items
-                    order_items = [
-                        SalesOrderItemCreate(
-                            product_id=it.get("product_id", 1),
-                            quantity=it.get("quantity", 1),
-                            unit_price=Decimal(str(it.get("unit_price", 10.0)))
-                        )
-                        for it in items
-                    ]
-                    order_in = SalesOrderCreate(
-                        customer_id=data.get("customer_id"),
-                        branch_id=current_user.active_branch_id or current_user.branch_id,
-                        payment_method=data.get("payment_method", "CASH"),
-                        items=order_items
+                has_perm = is_admin or ("sales.create" in user_perms) or ("sales.manage" in user_perms)
+                if not has_perm:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied: Processing sales draft requires 'sales.create' permission."
                     )
-                    await create_sales_order(db=db, order_in=order_in, cashier_user_id=user_id)
+
+                items = data.get("items")
+                if not items or not isinstance(items, list) or len(items) == 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Sales draft rejected: 'items' list is required and must contain at least one item."
+                    )
+
+                from app.schemas.sales import SalesOrderCreate, SalesOrderItemCreate
+                from app.services.sales_service import create_sales_order
+
+                order_items = []
+                for idx, it in enumerate(items):
+                    p_id = it.get("product_id")
+                    qty = it.get("quantity")
+                    price = it.get("unit_price")
+                    if p_id is None or qty is None or price is None or int(qty) <= 0 or Decimal(str(price)) <= 0:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Sales item at index {idx} contains invalid product_id, quantity, or unit_price."
+                        )
+                    order_items.append(SalesOrderItemCreate(
+                        product_id=int(p_id),
+                        quantity=int(qty),
+                        unit_price=Decimal(str(price))
+                    ))
+
+                order_in = SalesOrderCreate(
+                    customer_id=data.get("customer_id"),
+                    branch_id=active_branch,
+                    payment_method=data.get("payment_method", "CASH"),
+                    items=order_items
+                )
+                await create_sales_order(db=db, order_in=order_in, cashier_user_id=user_id)
+                await db.commit()
 
             elif module_name == "expenses":
-                # Apply expense draft
-                exp_amt = data.get("amount")
-                if exp_amt and not data.get("_applied"):
-                    from app.models.finance import Expense
-                    exp = Expense(
-                        expense_number=data.get("expense_number") or f"EXP-SYNC-{uuid.uuid4().hex[:6].upper()}",
-                        category=data.get("category", "General"),
-                        amount=Decimal(str(exp_amt)),
-                        description=data.get("description", "Synced from draft queue"),
-                        payment_method=(data.get("payment_method") or "BANK_TRANSFER").upper(),
-                        recorded_by_user_id=user_id
+                has_perm = is_admin or ("expenses.record" in user_perms) or ("finance.manage" in user_perms)
+                if not has_perm:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied: Processing expense draft requires 'expenses.record' permission."
                     )
-                    db.add(exp)
-                    await db.commit()
 
-            # Mark draft as SYNCED
+                raw_amt = data.get("amount")
+                if raw_amt is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Expense draft rejected: 'amount' is required."
+                    )
+                try:
+                    exp_amt = Decimal(str(raw_amt))
+                    if exp_amt <= 0:
+                        raise ValueError()
+                except Exception:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Expense draft rejected: 'amount' must be a positive numeric value."
+                    )
+
+                from app.models.finance import Expense
+                exp = Expense(
+                    expense_number=data.get("expense_number") or f"EXP-SYNC-{uuid.uuid4().hex[:6].upper()}",
+                    category=data.get("category", "General"),
+                    amount=exp_amt,
+                    description=data.get("description", "Synced from draft queue"),
+                    payment_method=(data.get("payment_method") or "BANK_TRANSFER").upper(),
+                    recorded_by_user_id=user_id,
+                    branch_id=active_branch
+                )
+                db.add(exp)
+                await db.commit()
+
+            else:
+                # BUG-41: Reject unsupported modules
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported module '{module_name}'. Cannot process draft."
+                )
+
+            # BUG-40 & BUG-41: Only mark SYNCED after database transaction commits
+            updated_data = {**data, "_applied": True, "applied_at": now.isoformat()}
             await document_store.update_document(
                 "module_drafts",
                 {"id": draft_id},
                 {
                     "status": "SYNCED",
                     "processed_at": now.isoformat(),
-                    "idempotency_key": idempotency_key
+                    "idempotency_key": idempotency_key,
+                    "data": updated_data
                 }
             )
             synced_count += 1
 
+        except HTTPException as http_ex:
+            await db.rollback()
+            err_msg = http_ex.detail
+            errors.append({"draft_id": draft_id, "module": module_name, "error": err_msg})
+            await document_store.update_document(
+                "module_drafts",
+                {"id": draft_id},
+                {
+                    "status": "ERROR",
+                    "error_detail": err_msg,
+                    "attempted_at": now.isoformat()
+                }
+            )
         except Exception as ex:
             await db.rollback()
             err_msg = str(ex)

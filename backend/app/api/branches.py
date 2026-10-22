@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user, require_permission
+from app.auth.dependencies import get_current_user, require_permission, is_admin_or_exec
 from app.models.auth import User
 from app.models.org import Organization, Branch, Department, Warehouse
 from app.models.sales import SalesOrder
@@ -274,7 +274,7 @@ async def get_my_branch_access(
     all_branch_names = [b.name for b in all_branches]
 
     user_role_names = [ur.role.name for ur in (current_user.roles or []) if getattr(ur, "role", None)]
-    is_exec_or_admin = bool(current_user.is_superuser or "Admin" in user_role_names or "Executive" in user_role_names)
+    is_exec_or_admin = is_admin_or_exec(current_user)
 
     curr_branch_obj = next((b for b in all_branches if b.id == current_user.branch_id), None)
     current_branch_name = curr_branch_obj.name if curr_branch_obj else "Main Store"
@@ -339,7 +339,7 @@ async def switch_branch_context(
     Strictly verifies employee's branch access rights stored in MongoDB Community Edition.
     """
     user_role_names = [ur.role.name for ur in (current_user.roles or []) if getattr(ur, "role", None)]
-    is_exec_or_admin = bool(current_user.is_superuser or "Admin" in user_role_names or "Executive" in user_role_names)
+    is_exec_or_admin = is_admin_or_exec(current_user)
 
     if payload.branch_id is None:
         if not is_exec_or_admin:
