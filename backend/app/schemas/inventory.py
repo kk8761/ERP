@@ -28,6 +28,7 @@ class ProductCreate(BaseModel):
     current_stock: int = Field(0, ge=0)
     image_url: Optional[str] = None
     vision_features: Optional[str] = None
+    organization_id: Optional[int] = None
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None

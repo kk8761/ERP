@@ -441,34 +441,52 @@ class DisasterRecoveryService:
         total_scanned = len(backups)
         physical_moves = 0
 
+        archive_errors = []
+
         for b in backups:
             created_dt = ensure_aware(b.created_at)
             age_days = (now - created_dt).total_seconds() / 86400.0
 
             if age_days > 90 and b.storage_tier != "COLD_GLACIER":
-                b.storage_tier = "COLD_GLACIER"
-                b.is_archived = True
-                b.archived_at = now
-                transitioned_to_glacier += 1
-                if b.file_path and os.path.exists(b.file_path):
-                    try:
-                        # BUG-45: Support dedicated off-host / independent storage vault if configured
-                        offhost_dir = os.getenv("OFFHOST_COLD_ARCHIVE_PATH") or os.getenv("COLD_ARCHIVE_ROOT")
-                        if offhost_dir and os.path.exists(offhost_dir):
-                            cold_dir = os.path.join(offhost_dir, "cold_glacier")
-                        else:
-                            base_dir = os.path.dirname(b.file_path)
-                            cold_dir = os.path.join(base_dir, "cold_glacier")
-                        os.makedirs(cold_dir, exist_ok=True)
-                        dest = os.path.join(cold_dir, os.path.basename(b.file_path))
-                        shutil.move(b.file_path, dest)
-                        b.file_path = dest
-                        physical_moves += 1
-                    except Exception as ex:
-                        logger.warning("Could not physically relocate %s to cold vault: %s", b.file_path, ex)
+                is_prod = (os.environ.get("ENVIRONMENT", "").lower() == "production") or (getattr(settings, "ENVIRONMENT", "").lower() == "production")
+                offhost_dir = os.environ.get("OFFHOST_COLD_ARCHIVE_PATH") or getattr(settings, "OFFHOST_COLD_ARCHIVE_PATH", None) or os.getenv("COLD_ARCHIVE_ROOT")
+
+                # In production, require real off-host storage destination verified before archive attempt
+                if is_prod and not DisasterRecoveryService.verify_offsite_storage_destination(offhost_dir):
+                    archive_errors.append(f"Backup {b.id} cold archive deferred: OFFHOST_COLD_ARCHIVE_PATH destination unverified or inaccessible.")
+                    continue
+
+                if not b.file_path or not os.path.exists(b.file_path):
+                    archive_errors.append(f"Backup {b.id} source file path '{b.file_path}' does not exist on disk.")
+                    continue
+
+                try:
+                    if offhost_dir and os.path.exists(offhost_dir):
+                        cold_dir = os.path.join(offhost_dir, "cold_glacier")
+                    else:
+                        base_dir = os.path.dirname(b.file_path)
+                        cold_dir = os.path.join(base_dir, "cold_glacier")
+                    os.makedirs(cold_dir, exist_ok=True)
+                    dest = os.path.join(cold_dir, os.path.basename(b.file_path))
+
+                    shutil.move(b.file_path, dest)
+
+                    # Post-relocation verification: ensure destination file exists and is non-empty
+                    if not os.path.exists(dest) or os.path.getsize(dest) == 0:
+                        raise IOError(f"Relocated backup file at '{dest}' is missing or empty.")
+
+                    # Only transition status once physical relocation and integrity are verified
+                    b.file_path = dest
+                    b.storage_tier = "COLD_GLACIER"
+                    b.is_archived = True
+                    b.archived_at = now
+                    transitioned_to_glacier += 1
+                    physical_moves += 1
+                except Exception as ex:
+                    logger.error("Could not physically relocate and verify %s to cold vault: %s", b.file_path, ex)
+                    archive_errors.append(f"Backup {b.id} physical relocation failed: {str(ex)}")
+
             elif age_days > 30 and b.storage_tier == "HOT_ACTIVE":
-                b.storage_tier = "WARM_VAULT"
-                transitioned_to_vault += 1
                 if b.file_path and os.path.exists(b.file_path):
                     try:
                         base_dir = os.path.dirname(b.file_path)
@@ -476,20 +494,31 @@ class DisasterRecoveryService:
                         os.makedirs(warm_dir, exist_ok=True)
                         dest = os.path.join(warm_dir, os.path.basename(b.file_path))
                         shutil.move(b.file_path, dest)
+                        if not os.path.exists(dest) or os.path.getsize(dest) == 0:
+                            raise IOError(f"Warm vault relocated file at '{dest}' is missing or empty.")
                         b.file_path = dest
+                        b.storage_tier = "WARM_VAULT"
+                        transitioned_to_vault += 1
                         physical_moves += 1
                     except Exception as ex:
                         logger.warning("Could not physically relocate %s to warm vault: %s", b.file_path, ex)
+                        archive_errors.append(f"Backup {b.id} warm vault move failed: {str(ex)}")
+                else:
+                    b.storage_tier = "WARM_VAULT"
+                    transitioned_to_vault += 1
 
         await db.commit()
 
+        status_result = "SUCCESS" if not archive_errors else ("PARTIAL_ERROR" if (transitioned_to_glacier > 0 or transitioned_to_vault > 0) else "ERROR")
+
         return {
-            "status": "SUCCESS",
+            "status": status_result,
             "applied_at": now.isoformat(),
             "total_backups_evaluated": total_scanned,
             "transitioned_to_warm_vault": transitioned_to_vault,
             "archived_to_cold_glacier": transitioned_to_glacier,
             "physical_files_relocated": physical_moves,
+            "archive_errors": archive_errors,
             "minimum_retention_enforced_days": 90,
             "message": f"Lifecycle policy applied: {transitioned_to_vault} moved to Warm Vault, {transitioned_to_glacier} archived to Cold Glacier ({physical_moves} physical files relocated). Zero premature deletions."
         }

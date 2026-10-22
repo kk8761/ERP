@@ -609,7 +609,8 @@ async def _try_execute_action(
             quantity_change=qty_change,
             movement_type="MANUAL_ADJUSTMENT",
             user_id=user_id,
-            notes=f"AI Assistant stock adjustment triggered by {user_email}"
+            notes=f"AI Assistant stock adjustment triggered by {user_email}",
+            organization_id=organization_id
         )
         await db.commit()
 

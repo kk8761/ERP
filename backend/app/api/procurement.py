@@ -342,7 +342,8 @@ async def receive_goods(
             movement_type="PURCHASE_IN",
             user_id=current_user.id,
             reference_id=po.po_number,
-            notes=f"Goods receipt for {po.po_number}"
+            notes=f"Goods receipt for {po.po_number}",
+            organization_id=getattr(current_user, "organization_id", None)
         )
 
     po.status = "RECEIVED"

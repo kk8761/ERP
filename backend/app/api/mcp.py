@@ -53,7 +53,19 @@ async def mcp_jsonrpc_endpoint(
             }
         }
 
-    org_id = getattr(current_user, "organization_id", 1) or 1 if current_user else 1
+    org_id = getattr(current_user, "organization_id", None) if current_user else None
+    if org_id is None and user_id == 9999:
+        org_id = getattr(settings, "MCP_SERVICE_ORG_ID", None)
+
+    if method in ["tools/call", "resources/read", "prompts/get"] and org_id is None:
+        return {
+            "jsonrpc": body.get("jsonrpc", "2.0"),
+            "id": req_id,
+            "error": {
+                "code": -32002,
+                "message": "Tenant organization context could not be established for MCP caller."
+            }
+        }
     branch_id = getattr(current_user, "branch_id", None) if current_user else None
 
     return await handle_mcp_request(

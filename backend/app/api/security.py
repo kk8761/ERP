@@ -55,10 +55,19 @@ async def log_screenshot_incident(
     """
     client_ip = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "127.0.0.1")
     user_agent = request.headers.get("user-agent", "Unknown Device")[:250]
-    captured_time = payload.captured_at or datetime.now(timezone.utc)
-    
-    org_id = getattr(current_user, "organization_id", 1) or 1
+    org_id = getattr(current_user, "organization_id", None)
+    if org_id is None and current_user.branch_id:
+        from app.models.org import Branch
+        b_res = await db.execute(select(Branch.organization_id).where(Branch.id == current_user.branch_id))
+        org_id = b_res.scalar_one_or_none()
+
+    if org_id is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required to log security incidents. User has no assigned organization."
+        )
     user_display_name = getattr(current_user, "full_name", None) or getattr(current_user, "email", "Employee")
+    captured_time = payload.captured_at or datetime.now(timezone.utc)
 
     incident = ScreenshotIncident(
         user_id=current_user.id,

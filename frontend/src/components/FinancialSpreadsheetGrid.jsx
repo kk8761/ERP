@@ -1034,7 +1034,7 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     return () => unregister();
   }, [rows, totalDebits, totalCredits, isBalanced]);
 
-  // Post to General Ledger
+  // Post to General Ledger (BUG-62: Atomic balanced post to /api/finance/journal-entries)
   const handlePostGeneralLedger = async () => {
     if (!isBalanced) {
       setStatusMessage({ type: 'error', text: `Cannot post: Debits (₹${totalDebits.toFixed(2)}) and Credits (₹${totalCredits.toFixed(2)}) must balance!` });
@@ -1045,40 +1045,88 @@ export default function FinancialSpreadsheetGrid({ accounts = [], onEntryPosted 
     setStatusMessage(null);
 
     try {
-      const validLines = rows.filter(r => {
-        const d = typeof r.debit === 'string' && r.debit.startsWith('=') ? evaluateExcelFormula(r.debit, rows, columns) : r.debit;
-        const c = typeof r.credit === 'string' && r.credit.startsWith('=') ? evaluateExcelFormula(r.credit, rows, columns) : r.credit;
-        return (parseFloat(d) > 0 || parseFloat(c) > 0);
-      });
+      const journalLines = [];
+      const unresolvedAccounts = [];
 
-      for (const line of validLines) {
-        if (!line.gl_account) continue;
-        const matchedAcc = accounts.find(a => a.code.toLowerCase() === String(line.gl_account).trim().toLowerCase());
-        const accId = matchedAcc ? matchedAcc.id : 1;
+      for (let idx = 0; idx < rows.length; idx++) {
+        const r = rows[idx];
+        const dVal = typeof r.debit === 'string' && r.debit.startsWith('=')
+          ? evaluateExcelFormula(r.debit, rows, columns)
+          : r.debit;
+        const cVal = typeof r.credit === 'string' && r.credit.startsWith('=')
+          ? evaluateExcelFormula(r.credit, rows, columns)
+          : r.credit;
 
-        const dVal = typeof line.debit === 'string' && line.debit.startsWith('=')
-          ? evaluateExcelFormula(line.debit, rows, columns)
-          : line.debit;
-        const cVal = typeof line.credit === 'string' && line.credit.startsWith('=')
-          ? evaluateExcelFormula(line.credit, rows, columns)
-          : line.credit;
+        const debitNum = Math.round((parseFloat(dVal) || 0) * 100) / 100;
+        const creditNum = Math.round((parseFloat(cVal) || 0) * 100) / 100;
 
-        await apiRequest('/api/finance/journal', {
-          method: 'POST',
-          body: JSON.stringify({
-            account_id: accId,
-            description: `[ACDOCA ${line.doc_no || 'MANUAL'}] ${line.text_memo || 'Universal Journal Fast Post'} (${line.cost_center || 'HQ'})`,
-            debit: parseFloat(dVal) || 0,
-            credit: parseFloat(cVal) || 0,
-            date: new Date().toISOString()
-          })
-        });
+        if (debitNum <= 0 && creditNum <= 0) continue;
+
+        if (!r.gl_account || !String(r.gl_account).trim()) {
+          unresolvedAccounts.push(`Row ${idx + 1} (Missing GL code)`);
+          continue;
+        }
+
+        const glCodeClean = String(r.gl_account).trim().toLowerCase();
+        const matchedAcc = accounts.find(a => a.code.toLowerCase() === glCodeClean || String(a.id) === glCodeClean);
+        if (!matchedAcc || !matchedAcc.is_active) {
+          unresolvedAccounts.push(`'${r.gl_account}' (Row ${idx + 1})`);
+          continue;
+        }
+
+        const memo = r.text_memo ? `[ACDOCA ${r.doc_no || 'MANUAL'}] ${r.text_memo}` : `[ACDOCA ${r.doc_no || 'MANUAL'}] Universal Journal Fast Post`;
+
+        if (debitNum > 0) {
+          journalLines.push({
+            account_id: matchedAcc.id,
+            debit: debitNum,
+            credit: 0,
+            description: memo
+          });
+        }
+        if (creditNum > 0) {
+          journalLines.push({
+            account_id: matchedAcc.id,
+            debit: 0,
+            credit: creditNum,
+            description: memo
+          });
+        }
       }
 
-      setStatusMessage({ type: 'success', text: `Successfully posted ${validLines.length} line items to General Ledger!` });
+      if (unresolvedAccounts.length > 0) {
+        throw new Error(`Cannot post: The following GL account codes were not found or are inactive in Chart of Accounts: ${unresolvedAccounts.join(', ')}`);
+      }
+
+      if (journalLines.length < 2) {
+        throw new Error('Double-entry posting requires at least two balanced line items (at least one debit and one credit).');
+      }
+
+      const totalDebitsCalc = journalLines.reduce((sum, l) => sum + l.debit, 0);
+      const totalCreditsCalc = journalLines.reduce((sum, l) => sum + l.credit, 0);
+      if (Math.abs(totalDebitsCalc - totalCreditsCalc) > 0.01) {
+        throw new Error(`Double-entry imbalance: Total Debits (₹${totalDebitsCalc.toFixed(2)}) must equal Total Credits (₹${totalCreditsCalc.toFixed(2)}).`);
+      }
+
+      const docNo = rows[0]?.doc_no || `ACDOCA-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+
+      const res = await apiRequest('/api/finance/journal-entries', {
+        method: 'POST',
+        body: JSON.stringify({
+          entry_date: new Date().toISOString().slice(0, 10),
+          description: `ACDOCA Universal Journal Posting (${journalLines.length} lines)`,
+          reference: docNo,
+          lines: journalLines
+        })
+      });
+
+      setStatusMessage({
+        type: 'success',
+        text: `Successfully posted ${journalLines.length} balanced line items to General Ledger! Entry Reference: ${res.entry_number || docNo}`
+      });
       if (onEntryPosted) onEntryPosted();
     } catch (err) {
-      setStatusMessage({ type: 'error', text: `Failed posting to ledger: ${err.message || 'Server error'}` });
+      setStatusMessage({ type: 'error', text: `Failed posting to General Ledger: ${err.message || 'Server error'}` });
     } finally {
       setPosting(false);
     }

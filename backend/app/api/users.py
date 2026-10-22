@@ -76,12 +76,14 @@ async def create_user(
         )
 
     hashed_pw = hash_password(data.password)
+    effective_org = getattr(data, "organization_id", None) or getattr(current_user, "organization_id", None) or 1
     user = User(
         email=data.email,
         full_name=data.full_name,
         password_hash=hashed_pw,
         branch_id=data.branch_id,
         department_id=data.department_id,
+        organization_id=effective_org,
         is_active=True
     )
     db.add(user)

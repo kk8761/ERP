@@ -49,6 +49,14 @@ async def sync_all_modules(
     user_id = current_user.id
     has_pending_drafts = False
 
+    # SEC-58 & BUG-61: Validate organization context BEFORE accepting or persisting any drafts
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for synchronization. User has no assigned organization."
+        )
+
     # Store incoming client drafts with durable persistence and memory bounding
     # Branch scoping: non-admins require an assigned branch
     is_admin = is_admin_or_exec(current_user)
@@ -75,15 +83,23 @@ async def sync_all_modules(
                 oldest_key = next(iter(_MODULE_DRAFT_CACHE))
                 _MODULE_DRAFT_CACHE.pop(oldest_key, None)
 
-            # BUG-51 & SEC-52: Strip client-supplied server-owned fields including idempotency_key from clean_data
-            client_idemp_key = module_data.get("idempotency_key") or module_data.get("operation_id")
-            clean_data = {k: v for k, v in module_data.items() if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time", "idempotency_key"]}
+            # SEC-57: Strip both idempotency_key and operation_id from untrusted client data
+            clean_data = {
+                k: v for k, v in module_data.items()
+                if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time", "idempotency_key", "operation_id"]
+            }
+            payload_hash = hashlib.sha256(json.dumps(clean_data, sort_keys=True, default=str).encode()).hexdigest()
+            # Server-generated authoritative operation ID
+            server_operation_id = f"OP-{user_id}-{module_name}-{payload_hash[:16]}"
 
             # BUG-47: Do not reset a successfully processed (SYNCED) draft to PENDING if payload hasn't changed
             existing_draft = await document_store.find_document("module_drafts", {"user_id": user_id, "module": module_name})
             draft_status = "PENDING"
             if existing_draft and existing_draft.get("status") == "SYNCED":
-                existing_clean = {k: v for k, v in existing_draft.get("data", {}).items() if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time", "idempotency_key"]}
+                existing_clean = {
+                    k: v for k, v in existing_draft.get("data", {}).items()
+                    if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time", "idempotency_key", "operation_id"]
+                }
                 if existing_clean == clean_data:
                     draft_status = "SYNCED"
 
@@ -98,14 +114,15 @@ async def sync_all_modules(
                 upsert_dict: Dict[str, Any] = {
                     "id": f"{user_id}:{module_name}",
                     "user_id": user_id,
+                    "organization_id": effective_org,
                     "branch_id": current_user.branch_id,
                     "module": module_name,
                     "data": clean_data,
+                    "operation_id": server_operation_id,
+                    "payload_hash": payload_hash,
                     "status": draft_status,
                     "updated_at": now_utc.isoformat()
                 }
-                if client_idemp_key:
-                    upsert_dict["operation_id"] = str(client_idemp_key)
 
                 await document_store.upsert_document(
                     "module_drafts",
@@ -121,12 +138,6 @@ async def sync_all_modules(
 
     try:
         # 1. Inventory stats (BUG-52 & SEC-53: Scoped strictly to user's organization)
-        effective_org = getattr(current_user, "organization_id", None)
-        if effective_org is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Organization context required for synchronization. User has no assigned organization."
-            )
         prod_q = select(func.count(Product.id)).where(Product.organization_id == effective_org)
         prod_count_res = await db.execute(prod_q)
         total_products = prod_count_res.scalar_one() or 0
@@ -166,9 +177,12 @@ async def sync_all_modules(
         email_q = select(func.count(ReceivedEmail.id)).where(ReceivedEmail.is_read == False)
         if not is_admin and current_user.email:
             email_q = email_q.where(ReceivedEmail.recipient_email == current_user.email)
-        unread_email_res = await db.execute(email_q)
-        unread_emails = unread_email_res.scalar_one() or 0
-    except Exception:
+        email_count_res = await db.execute(email_q)
+        unread_emails = email_count_res.scalar_one() or 0
+    except HTTPException:
+        raise
+    except Exception as stat_err:
+        logging.getLogger(__name__).exception("Failed to calculate sync metrics: %s", stat_err)
         total_products = 0
         total_sales_orders = 0
         total_journals = 0
@@ -257,13 +271,9 @@ async def process_pending_drafts(
         module_name = draft.get("module")
         data = draft.get("data", {})
 
-        # SEC-52: Generate server-owned stable idempotency key from draft_id and stable payload hash or operation_id
+        # SEC-57: Authoritative server-generated idempotency key derived from draft_id and stable payload hash
         payload_hash = hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
-        op_id = draft.get("operation_id") or data.get("operation_id")
-        if op_id and str(op_id).startswith("IDEMP-"):
-            idempotency_key = str(op_id)
-        else:
-            idempotency_key = f"IDEMP-{draft_id}-{payload_hash[:16]}"
+        idempotency_key = f"IDEMP-{draft_id}-{payload_hash[:16]}"
 
         # BUG-47, BUG-51 & SEC-52: Authoritative SQL idempotency ledger check and payload verification
         from app.models.sales import SyncIdempotencyRecord
@@ -411,6 +421,85 @@ async def process_pending_drafts(
                 )
                 db.add(exp)
                 ref_id = str(exp.expense_number)
+
+            elif module_name in ["finance", "finance_acdoca_spreadsheet"]:
+                has_perm = is_admin or ("finance.post" in user_perms) or ("finance.manage" in user_perms)
+                if not has_perm:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied: Processing finance draft requires 'finance.post' permission."
+                    )
+
+                vouchers = data.get("draft_journal_vouchers") or data.get("lines") or []
+                from app.models.finance import Account, JournalEntry, JournalEntryLine
+                lines_to_post = []
+                total_d = Decimal("0.00")
+                total_c = Decimal("0.00")
+
+                for v in vouchers:
+                    gl_code = str(v.get("gl_account") or "").strip()
+                    if not gl_code:
+                        continue
+                    try:
+                        d_val = Decimal(str(v.get("debit") or 0))
+                        c_val = Decimal(str(v.get("credit") or 0))
+                    except Exception:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Invalid numeric debit or credit in finance draft for account '{gl_code}'."
+                        )
+                    if d_val == 0 and c_val == 0:
+                        continue
+                    if d_val > 0 and c_val > 0:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Line for account '{gl_code}' cannot have both debit and credit."
+                        )
+                    acc_stmt = select(Account).where(func.lower(Account.code) == gl_code.lower())
+                    acc = (await db.execute(acc_stmt)).scalar_one_or_none()
+                    if not acc or not acc.is_active:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"GL account '{gl_code}' does not exist or is inactive."
+                        )
+                    total_d += d_val
+                    total_c += c_val
+                    lines_to_post.append(
+                        JournalEntryLine(
+                            account_id=acc.id,
+                            debit=d_val,
+                            credit=c_val,
+                            description=v.get("text_memo") or "ACDOCA Draft Sync"
+                        )
+                    )
+
+                if lines_to_post:
+                    if len(lines_to_post) < 2:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Double-entry journal requires at least two line items."
+                        )
+                    if total_d != total_c:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Double-entry imbalance! Total Debit ({total_d}) != Total Credit ({total_c})"
+                        )
+                    entry_num = f"JE-SYNC-{uuid.uuid4().hex[:6].upper()}"
+                    je = JournalEntry(
+                        entry_number=entry_num,
+                        entry_date=now.date(),
+                        reference="SYNC-ACDOCA",
+                        description=data.get("description") or "Synced from ACDOCA spreadsheet draft",
+                        total_debit=total_d,
+                        total_credit=total_c,
+                        is_posted=True,
+                        created_by_user_id=user_id,
+                        lines=lines_to_post
+                    )
+                    db.add(je)
+                    ref_id = entry_num
+                else:
+                    ref_id = f"FIN-CHECKPOINT-{now.strftime('%Y%m%d%H%M%S')}"
 
             else:
                 # BUG-41: Reject unsupported modules

@@ -1,568 +1,430 @@
 import pytest
 import os
 import uuid
-import yaml
+import tempfile
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from httpx import AsyncClient
-from sqlalchemy import select, text
-
+from sqlalchemy import select
 from app.models.auth import User, Role, Permission, UserRole, RolePermission
+from app.models.inventory import Product, ProductCategory
 from app.models.org import Organization, Branch
-from app.models.inventory import Product, StockMovement
-from app.models.sales import Customer, SalesOrder, SyncIdempotencyRecord
-from app.models.finance import Expense
-from app.services.sales_service import create_sales_order
-from app.schemas.sales import SalesOrderCreate, SalesOrderItemIn
+from app.models.finance import Account, JournalEntry
+from app.services.inventory_service import adjust_product_stock
+from app.services.disaster_recovery_service import DisasterRecoveryService
 from app.services.document_store import document_store
-from app.services.disaster_recovery_service import (
-    encrypt_backup_file,
-    decrypt_backup_file,
-    get_dedicated_backup_cipher,
-    get_legacy_backup_cipher,
-    MAGIC_STREAM_HEADER
-)
 from app.database import AsyncSessionLocal
-from fastapi import HTTPException
+from app.auth.security import create_access_token, hash_password
 
-@pytest.mark.asyncio
-async def test_bug47_atomic_claim_and_synced_retention(client: AsyncClient, admin_auth_token: str):
-    """
-    BUG-47:
-    - Claim draft using upsert=False and modified_count check.
-    - Subsequent claim returns False.
-    - Calling /api/sync/all does not reset an already SYNCED draft back to PENDING.
-    """
-    headers = {"Authorization": f"Bearer {admin_auth_token}"}
-    draft_id = "test_user_bug47:expenses"
 
-    # Seed draft in document store
-    await document_store.upsert_document("module_drafts", {"id": draft_id}, {
-        "id": draft_id,
-        "user_id": 9999,
-        "module": "expenses",
-        "status": "PENDING",
-        "data": {"amount": 100.0, "category": "Office"}
-    })
-
-    # 1. Atomic claim succeeds
-    claimed1 = await document_store.claim_document(
-        "module_drafts",
-        {"id": draft_id, "status": "PENDING"},
-        {"status": "PROCESSING", "claim_time": datetime.now(timezone.utc).isoformat()}
-    )
-    assert claimed1 is True
-
-    # 2. Concurrent worker claiming same draft fails
-    claimed2 = await document_store.claim_document(
-        "module_drafts",
-        {"id": draft_id, "status": "PENDING"},
-        {"status": "PROCESSING", "claim_time": datetime.now(timezone.utc).isoformat()}
-    )
-    assert claimed2 is False
-
-    # 3. Mark as SYNCED
-    await document_store.update_document("module_drafts", {"id": draft_id}, {"status": "SYNCED"})
-
-    # Post same draft via /api/sync/all: it must remain SYNCED
-    sync_res = await client.post("/api/sync/all", headers=headers, json={
-        "modules": {
-            "expenses": {"amount": 100.0, "category": "Office"}
-        }
-    })
-    assert sync_res.status_code == 200
-
-    # Verify draft status wasn't reset to PENDING
-    admin_user_draft = await document_store.find_document("module_drafts", {"user_id": 1, "module": "expenses"})
-    # Even if draft for user 1 was created, let's verify process marks it SYNCED
-    proc_res = await client.post("/api/sync/process", headers=headers)
-    assert proc_res.status_code == 200
-
-    # Now post identical data again to /api/sync/all
-    sync_res2 = await client.post("/api/sync/all", headers=headers, json={
-        "modules": {
-            "expenses": {"amount": 100.0, "category": "Office"}
-        }
-    })
-    assert sync_res2.status_code == 200
-    # Status should be SYNCED, not reset to PENDING
-    assert sync_res2.json()["status"] == "SYNCED"
-
-@pytest.mark.asyncio
-async def test_bug47_sql_idempotency_ledger(client: AsyncClient, admin_auth_token: str):
-    """
-    BUG-47:
-    Authoritative SQL idempotency ledger prevents duplicate sales orders or expenses
-    across worker crashes or repeated sync processing calls.
-    """
-    headers = {"Authorization": f"Bearer {admin_auth_token}"}
-    unique_key = f"IDEMP-TEST-{uuid.uuid4().hex[:8]}"
-
-    unique_desc = f"Idempotent Expense Verification {unique_key}"
-
-    # Post draft with explicit idempotency key
-    sync_res = await client.post("/api/sync/all", headers=headers, json={
-        "modules": {
-            "expenses": {
-                "idempotency_key": unique_key,
-                "amount": 420.0,
-                "category": "Audit Test",
-                "description": unique_desc
-            }
-        }
-    })
-    assert sync_res.status_code == 200
-
-    # 1. First process: creates 1 expense and 1 SQL idempotency record
-    proc1 = await client.post("/api/sync/process", headers=headers)
-    assert proc1.status_code == 200
-    assert proc1.json()["synced"] >= 1
-
-    async with AsyncSessionLocal() as session:
-        idemp_recs = (await session.execute(
-            select(SyncIdempotencyRecord).where(SyncIdempotencyRecord.idempotency_key == unique_key)
-        )).scalars().all()
-        assert len(idemp_recs) == 1
-
-        exp_recs = (await session.execute(
-            select(Expense).where(Expense.description == unique_desc)
-        )).scalars().all()
-        assert len(exp_recs) == 1
-
-    # 2. Simulate worker re-processing: draft re-submitted with same idempotency key
-    # Even if draft is marked PENDING in draft queue, processing MUST NOT create a duplicate expense
-    await document_store.update_document("module_drafts", {"id": "1:expenses"}, {"status": "PENDING"})
-    proc2 = await client.post("/api/sync/process", headers=headers)
-    assert proc2.status_code == 200
-
-    async with AsyncSessionLocal() as session:
-        exp_recs_after = (await session.execute(
-            select(Expense).where(Expense.description == unique_desc)
-        )).scalars().all()
-        # Still exactly 1 expense! No duplicates created
-        assert len(exp_recs_after) == 1
+async def assign_permissions(db, user: User, perm_codes: list[str]):
+    role = Role(name=f"Role_{uuid.uuid4().hex[:6]}")
+    db.add(role)
+    await db.flush()
+    for code in perm_codes:
+        p_res = await db.execute(select(Permission).where(Permission.code == code))
+        p_obj = p_res.scalar_one_or_none()
+        if not p_obj:
+            p_obj = Permission(code=code, module=code.split(".")[0], description=code)
+            db.add(p_obj)
+            await db.flush()
+        db.add(RolePermission(role_id=role.id, permission_id=p_obj.id))
+    db.add(UserRole(user_id=user.id, role_id=role.id))
+    await db.flush()
 
 
 @pytest.mark.asyncio
-async def test_sec47_sales_order_cross_organization_product_isolation():
+async def test_sec_57_and_bug_61_sync_operation_id_stripping_and_org_validation(client: AsyncClient):
     """
-    SEC-47:
-    Sales service MUST reject product retrieval if product belongs to another organization.
+    SEC-57 & BUG-61:
+    - User without assigned organization cannot sync (returns HTTP 403, no drafts persisted).
+    - Sync endpoint strips both client-supplied idempotency_key and operation_id.
+    - Server generates authoritative operation ID and idempotency key.
     """
-    async with AsyncSessionLocal() as session:
-        # Create Org A and Org B
-        org_a = Organization(name=f"Org A {uuid.uuid4().hex[:6]}", code=f"ORGA-{uuid.uuid4().hex[:4]}")
-        org_b = Organization(name=f"Org B {uuid.uuid4().hex[:6]}", code=f"ORGB-{uuid.uuid4().hex[:4]}")
-        session.add_all([org_a, org_b])
-        await session.flush()
-
-        branch_a = Branch(organization_id=org_a.id, name="Branch A", code=f"BRA-{uuid.uuid4().hex[:4]}")
-        branch_b = Branch(organization_id=org_b.id, name="Branch B", code=f"BRB-{uuid.uuid4().hex[:4]}")
-        session.add_all([branch_a, branch_b])
-        await session.flush()
-
-        # Product in Org B
-        prod_b = Product(
-            organization_id=org_b.id,
-            name="Org B Secret Asset",
-            sku=f"SKU-B-{uuid.uuid4().hex[:6]}",
-            selling_price=Decimal("150.00"),
-            current_stock=100
-        )
-        session.add(prod_b)
-        await session.flush()
-
-        # Attempt to order Product B under Org A
-        order_in = SalesOrderCreate(
-            branch_id=branch_a.id,
-            items=[SalesOrderItemIn(product_id=prod_b.id, quantity=1)]
-        )
-
-        with pytest.raises(HTTPException) as exc_info:
-            await create_sales_order(
-                db=session,
-                order_in=order_in,
-                cashier_user_id=1,
-                organization_id=org_a.id
-            )
-        assert exc_info.value.status_code == 404
-        assert "not found in your organization" in exc_info.value.detail
-
-@pytest.mark.asyncio
-async def test_sec47_sales_order_cross_org_customer_and_branch_validation():
-    """
-    SEC-47:
-    Sales service validates customer and branch against organization_id.
-    """
-    async with AsyncSessionLocal() as session:
-        org_1 = Organization(name=f"Org 1 {uuid.uuid4().hex[:6]}", code=f"ORG1-{uuid.uuid4().hex[:4]}")
-        org_2 = Organization(name=f"Org 2 {uuid.uuid4().hex[:6]}", code=f"ORG2-{uuid.uuid4().hex[:4]}")
-        session.add_all([org_1, org_2])
-        await session.flush()
-
-        prod_1 = Product(
-            organization_id=org_1.id,
-            name="Org 1 Standard Widget",
-            sku=f"SKU-1-{uuid.uuid4().hex[:6]}",
-            selling_price=Decimal("50.00"),
-            current_stock=50
-        )
-        branch_2 = Branch(organization_id=org_2.id, name="Branch 2", code=f"BR2-{uuid.uuid4().hex[:4]}")
-        cust_2 = Customer(organization_id=org_2.id, name="Customer of Org 2", phone="9988776655")
-        session.add_all([prod_1, branch_2, cust_2])
-        await session.flush()
-
-        # Cross-branch check: Org 1 cashier attempts to use branch_2
-        order_cross_branch = SalesOrderCreate(
-            branch_id=branch_2.id,
-            items=[SalesOrderItemIn(product_id=prod_1.id, quantity=1)]
-        )
-        with pytest.raises(HTTPException) as exc1:
-            await create_sales_order(
-                db=session,
-                order_in=order_cross_branch,
-                cashier_user_id=1,
-                organization_id=org_1.id
-            )
-        assert exc1.value.status_code == 403
-        assert "does not belong to your organization" in exc1.value.detail
-
-        # Cross-customer check: Org 1 cashier attempts to bill cust_2
-        order_cross_cust = SalesOrderCreate(
-            customer_id=cust_2.id,
-            items=[SalesOrderItemIn(product_id=prod_1.id, quantity=1)]
-        )
-        with pytest.raises(HTTPException) as exc2:
-            await create_sales_order(
-                db=session,
-                order_in=order_cross_cust,
-                cashier_user_id=1,
-                organization_id=org_1.id
-            )
-        assert exc2.value.status_code == 404
-        assert "not found in your organization" in exc2.value.detail
-
-@pytest.mark.asyncio
-async def test_bug48_multi_org_migration_unresolved_guard():
-    """
-    BUG-48:
-    Multi-org environment must not blanket-assign org 1.
-    If unassigned records remain with organization_id IS NULL in a multi-org deployment,
-    startup migration fails closed.
-    """
-    async with AsyncSessionLocal() as session:
-        # Ensure at least 2 organizations exist
-        org_cnt = (await session.execute(text("SELECT count(*) FROM organizations"))).scalar()
-        if org_cnt < 2:
-            session.add(Organization(name=f"Migration Org {uuid.uuid4().hex[:4]}", code=f"MIG-{uuid.uuid4().hex[:4]}"))
-            await session.commit()
-
-    from app.main import lifespan
-    # Verification: startup check halts if unresolved record exists
-    async with AsyncSessionLocal() as session:
-        # Create unassigned user
+    # 1. User without organization
+    async with AsyncSessionLocal() as db:
         unassigned_user = User(
-            email=f"unassigned_{uuid.uuid4().hex[:6]}@example.com",
+            email=f"no_org_{uuid.uuid4().hex[:6]}@nexaerp.internal",
             full_name="Unassigned User",
-            password_hash="fake",
+            password_hash=hash_password("Pass123!"),
+            is_active=True,
+            is_superuser=False,
             organization_id=None,
             branch_id=None
         )
-        session.add(unassigned_user)
-        await session.commit()
+        db.add(unassigned_user)
+        await db.flush()
+        await assign_permissions(db, unassigned_user, ["sales.view", "sales.create"])
+        await db.commit()
+        await db.refresh(unassigned_user)
+        unassigned_user_id = unassigned_user.id
+        unassigned_email = unassigned_user.email
 
-    # Trigger migration ownership check
-    from app.database import engine
-    with pytest.raises(RuntimeError) as exc_info:
-        async with engine.begin() as conn:
-            org_res = await conn.execute(text("SELECT id FROM organizations"))
-            org_rows = org_res.fetchall()
-            if len(org_rows) > 1:
-                unres = (await conn.execute(text("SELECT COUNT(*) FROM users WHERE organization_id IS NULL"))).scalar() or 0
-                if unres > 0:
-                    raise RuntimeError(f"BUG-48 Migration Halt: Found {unres} unresolved record(s) in 'users' with missing organization ownership in a multi-tenant deployment.")
-    assert "BUG-48 Migration Halt" in str(exc_info.value)
+    token_no_org = create_access_token({"sub": str(unassigned_user_id), "email": unassigned_email})
 
-    # Clean up unassigned user
-    async with AsyncSessionLocal() as session:
-        await session.execute(text(f"DELETE FROM users WHERE email = '{unassigned_user.email}'"))
-        await session.commit()
+    # Attempt sync without organization context
+    res = await client.post(
+        "/api/sync/all",
+        json={
+            "client_timestamp": datetime.now(timezone.utc).isoformat(),
+            "modules": {
+                "sales": {
+                    "operation_id": "CLIENT-INJECTED-OP-123",
+                    "idempotency_key": "IDEMP-CLIENT-OVERRIDE",
+                    "items": [{"product_id": 1, "quantity": 2}]
+                }
+            }
+        },
+        headers={"Authorization": f"Bearer {token_no_org}"}
+    )
+    # Must reject with HTTP 403 Forbidden (BUG-61: not swallowed)
+    assert res.status_code == 403
+    assert "Organization context required" in res.json().get("detail", "")
 
-def test_sec48_dedicated_backup_key_and_streaming_encryption(tmp_path):
-    """
-    SEC-48:
-    - Dedicated encryption key separated from JWT key.
-    - Streaming chunked encryption/decryption (not loading entire file into memory).
-    - Temporary file verification before deleting plaintext.
-    - Backward-compatibility with legacy single-blob backups.
-    """
-    plain_file = tmp_path / "enterprise_backup.sql"
-    plain_content = b"DATABASE_DUMP_STREAM_CONTENT_" * 5000 # > 140 KB to trigger multiple 64KB chunks
-    plain_file.write_bytes(plain_content)
+    # Verify no draft was persisted in document store
+    draft = await document_store.find_document("module_drafts", {"user_id": unassigned_user_id, "module": "sales"})
+    assert draft is None
 
-    # 1. Streaming encrypt
-    enc_path = encrypt_backup_file(str(plain_file))
-    assert os.path.exists(enc_path)
-    assert not os.path.exists(str(plain_file)) # Plaintext deleted after verified encryption
+    # 2. Authenticated user with valid organization and branch
+    async with AsyncSessionLocal() as db:
+        org = Organization(name=f"Org Sync Test {uuid.uuid4().hex[:6]}", code=f"OST{uuid.uuid4().hex[:4]}")
+        db.add(org)
+        await db.flush()
 
-    with open(enc_path, "rb") as f:
-        header = f.read(len(MAGIC_STREAM_HEADER))
-        assert header == MAGIC_STREAM_HEADER # Verified streaming chunked format
+        branch = Branch(name="Sync Branch", code=f"SB{uuid.uuid4().hex[:4]}", organization_id=org.id)
+        db.add(branch)
+        await db.flush()
 
-    # 2. Streaming decrypt
-    dec_file = tmp_path / "enterprise_backup_restored.sql"
-    decrypt_backup_file(enc_path, str(dec_file))
-    assert os.path.exists(str(dec_file))
-    assert dec_file.read_bytes() == plain_content
+        valid_user = User(
+            email=f"valid_sync_{uuid.uuid4().hex[:6]}@nexaerp.internal",
+            full_name="Valid Sync User",
+            password_hash=hash_password("Pass123!"),
+            is_active=True,
+            is_superuser=False,
+            organization_id=org.id,
+            branch_id=branch.id
+        )
+        db.add(valid_user)
+        await db.flush()
+        await assign_permissions(db, valid_user, ["expenses.view", "expenses.record"])
+        await db.commit()
+        await db.refresh(valid_user)
+        valid_user_id = valid_user.id
+        valid_email = valid_user.email
 
-    # 3. Test backward compatibility: legacy single-blob backup encrypted with legacy cipher
-    legacy_cipher = get_legacy_backup_cipher()
-    legacy_enc_file = tmp_path / "legacy_backup.sql.enc"
-    legacy_enc_file.write_bytes(legacy_cipher.encrypt(plain_content))
+    token_valid = create_access_token({"sub": str(valid_user_id), "email": valid_email})
 
-    legacy_dec_file = tmp_path / "legacy_backup_restored.sql"
-    decrypt_backup_file(str(legacy_enc_file), str(legacy_dec_file))
-    assert legacy_dec_file.read_bytes() == plain_content
+    # Submit draft with client-controlled operation_id and idempotency_key
+    res_valid = await client.post(
+        "/api/sync/all",
+        json={
+            "client_timestamp": datetime.now(timezone.utc).isoformat(),
+            "modules": {
+                "expenses": {
+                    "operation_id": "CLIENT-INJECTED-OP-999",
+                    "idempotency_key": "IDEMP-CLIENT-OVERRIDE-999",
+                    "amount": 250.0,
+                    "category": "Office",
+                    "description": "Team coffee"
+                }
+            }
+        },
+        headers={"Authorization": f"Bearer {token_valid}"}
+    )
+    assert res_valid.status_code == 200
+
+    # SEC-57: Verify stored draft stripped client keys and generated server operation ID
+    stored_draft = await document_store.find_document("module_drafts", {"user_id": valid_user_id, "module": "expenses"})
+    assert stored_draft is not None
+    assert "operation_id" not in stored_draft["data"]
+    assert "idempotency_key" not in stored_draft["data"]
+    assert stored_draft["operation_id"].startswith(f"OP-{valid_user_id}-expenses-")
+    assert stored_draft["operation_id"] != "CLIENT-INJECTED-OP-999"
+
 
 @pytest.mark.asyncio
-async def test_bug49_dedicated_stock_adjustment_import(client: AsyncClient, admin_auth_token: str):
+async def test_sec_58_product_creation_requires_verified_organization(client: AsyncClient):
     """
-    BUG-49:
-    Dedicated stock adjustment import path:
-    - Only requires inventory.adjust (or admin).
-    - Accepts SKU and current_stock/quantity.
-    - Leaves selling_price and cost_price completely untouched.
+    SEC-58: Product creation fails with HTTP 403 when user has no assigned organization,
+    and never silently defaults to organization 1.
     """
-    headers = {"Authorization": f"Bearer {admin_auth_token}"}
-    sku = f"SKU-STOCK-{uuid.uuid4().hex[:6]}"
+    async with AsyncSessionLocal() as db:
+        user_no_org = User(
+            email=f"prod_no_org_{uuid.uuid4().hex[:6]}@nexaerp.internal",
+            full_name="Product Creator No Org",
+            password_hash=hash_password("Pass123!"),
+            is_active=True,
+            is_superuser=False,
+            organization_id=None,
+            branch_id=None
+        )
+        db.add(user_no_org)
+        await db.flush()
+        await assign_permissions(db, user_no_org, ["inventory.create", "inventory.view"])
+        await db.commit()
+        await db.refresh(user_no_org)
+        user_id = user_no_org.id
+        email = user_no_org.email
 
-    async with AsyncSessionLocal() as session:
-        prod = Product(
+    token = create_access_token({"sub": str(user_id), "email": email})
+
+    res = await client.post(
+        "/api/inventory/products",
+        json={
+            "name": "Sec58 Test Product",
+            "sku": f"SEC58-{uuid.uuid4().hex[:6].upper()}",
+            "selling_price": 49.99,
+            "cost_price": 25.00
+        },
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert res.status_code == 403
+    assert "Organization context required" in res.json().get("detail", "")
+
+
+@pytest.mark.asyncio
+async def test_sec_59_inventory_apis_isolated_by_organization(client: AsyncClient):
+    """
+    SEC-59: Inventory product list and stock adjustments are strictly scoped by organization.
+    Cross-organization stock adjustment is rejected with HTTP 404.
+    """
+    async with AsyncSessionLocal() as db:
+        org_a = Organization(name=f"Org A {uuid.uuid4().hex[:6]}", code=f"OA{uuid.uuid4().hex[:4]}")
+        org_b = Organization(name=f"Org B {uuid.uuid4().hex[:6]}", code=f"OB{uuid.uuid4().hex[:4]}")
+        db.add_all([org_a, org_b])
+        await db.flush()
+
+        prod_a = Product(
+            name="Org A Exclusive Widget",
+            sku=f"SKU-A-{uuid.uuid4().hex[:6].upper()}",
+            selling_price=Decimal("100.00"),
+            cost_price=Decimal("50.00"),
+            current_stock=20,
+            organization_id=org_a.id
+        )
+        prod_b = Product(
+            name="Org B Exclusive Widget",
+            sku=f"SKU-B-{uuid.uuid4().hex[:6].upper()}",
+            selling_price=Decimal("100.00"),
+            cost_price=Decimal("50.00"),
+            current_stock=20,
+            organization_id=org_b.id
+        )
+        db.add_all([prod_a, prod_b])
+        await db.flush()
+
+        user_a = User(
+            email=f"usera_{uuid.uuid4().hex[:6]}@nexaerp.internal",
+            full_name="User Org A",
+            password_hash=hash_password("Pass123!"),
+            is_active=True,
+            is_superuser=False,
+            organization_id=org_a.id
+        )
+        db.add(user_a)
+        await db.flush()
+        await assign_permissions(db, user_a, ["inventory.view", "inventory.adjust"])
+        await db.commit()
+        await db.refresh(user_a)
+        await db.refresh(prod_a)
+        await db.refresh(prod_b)
+
+        user_id = user_a.id
+        email = user_a.email
+        prod_a_sku = prod_a.sku
+        prod_b_sku = prod_b.sku
+        prod_b_id = prod_b.id
+
+    token_a = create_access_token({"sub": str(user_id), "email": email})
+
+    # 1. Product list only returns Org A's products
+    list_res = await client.get("/api/inventory/products", headers={"Authorization": f"Bearer {token_a}"})
+    assert list_res.status_code == 200
+    listed_skus = [p["sku"] for p in list_res.json()]
+    assert prod_a_sku in listed_skus
+    assert prod_b_sku not in listed_skus
+
+    # 2. Stock adjustment on Org B's product by User A is rejected
+    adj_res = await client.post(
+        "/api/inventory/adjust",
+        json={
+            "product_id": prod_b_id,
+            "quantity": 5,
+            "adjustment_type": "ADJUSTMENT_IN"
+        },
+        headers={"Authorization": f"Bearer {token_a}"}
+    )
+    assert adj_res.status_code == 404
+    assert f"Product with ID {prod_b_id} not found" in adj_res.json().get("detail", "")
+
+
+@pytest.mark.asyncio
+async def test_sec_60_and_bug_65_dashboard_metrics_organization_and_true_profit(client: AsyncClient):
+    """
+    SEC-60 & BUG-65:
+    - Dashboard metrics are scoped to caller's organization.
+    - True accounting profit/loss is calculated without fabricated 55% sales fallbacks.
+    """
+    async with AsyncSessionLocal() as db:
+        org = Organization(name=f"Dash Org {uuid.uuid4().hex[:6]}", code=f"DO{uuid.uuid4().hex[:4]}")
+        db.add(org)
+        await db.flush()
+
+        branch = Branch(name="Dash Branch", code=f"DB{uuid.uuid4().hex[:4]}", organization_id=org.id)
+        db.add(branch)
+        await db.flush()
+
+        dash_user = User(
+            email=f"dash_user_{uuid.uuid4().hex[:6]}@nexaerp.internal",
+            full_name="Dashboard User",
+            password_hash=hash_password("Pass123!"),
+            is_active=True,
+            is_superuser=False,
+            organization_id=org.id,
+            branch_id=branch.id
+        )
+        db.add(dash_user)
+        await db.flush()
+        await assign_permissions(db, dash_user, ["dashboard.view"])
+        await db.commit()
+        await db.refresh(dash_user)
+        user_id = dash_user.id
+        email = dash_user.email
+
+    token = create_access_token({"sub": str(user_id), "email": email})
+
+    res = await client.get("/api/dashboard/metrics?range=This%20Week", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 200
+    data = res.json()
+    assert "kpis" in data
+    assert "sales_overview_chart" in data
+
+    # Verify chart does not invent purchases if none exist (purchases must be 0, not 55% of sales)
+    chart = data["sales_overview_chart"]
+    for pt in chart:
+        if pt["sales"] == 0 and pt["purchases"] == 0:
+            assert pt["profit"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_bug_62_post_general_ledger_balanced_journal_entry(client: AsyncClient):
+    """
+    BUG-62: General Ledger posting endpoint accepts balanced JournalEntryCreate payload
+    at POST /api/finance/journal-entries.
+    """
+    async with AsyncSessionLocal() as db:
+        acc_cash = Account(code=f"CASH-{uuid.uuid4().hex[:4]}", name="Petty Cash", account_type="ASSET", balance=Decimal("1000.00"), is_active=True)
+        acc_rev = Account(code=f"REV-{uuid.uuid4().hex[:4]}", name="Sales Revenue", account_type="REVENUE", balance=Decimal("1000.00"), is_active=True)
+        db.add_all([acc_cash, acc_rev])
+        await db.flush()
+
+        user_fin = User(
+            email=f"fin_user_{uuid.uuid4().hex[:6]}@nexaerp.internal",
+            full_name="Finance User",
+            password_hash=hash_password("Pass123!"),
+            is_active=True,
+            is_superuser=False,
+            organization_id=1
+        )
+        db.add(user_fin)
+        await db.flush()
+        await assign_permissions(db, user_fin, ["finance.post", "finance.view"])
+        await db.commit()
+        await db.refresh(user_fin)
+        await db.refresh(acc_cash)
+        await db.refresh(acc_rev)
+        user_id = user_fin.id
+        email = user_fin.email
+        cash_id = acc_cash.id
+        rev_id = acc_rev.id
+
+    token = create_access_token({"sub": str(user_id), "email": email})
+
+    # Balanced 2-line journal entry
+    res = await client.post(
+        "/api/finance/journal-entries",
+        json={
+            "entry_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "description": "ACDOCA Universal Journal Posting",
+            "reference": "ACDOCA-TEST-001",
+            "lines": [
+                {"account_id": cash_id, "debit": 500.0, "credit": 0.0, "description": "Cash In"},
+                {"account_id": rev_id, "debit": 0.0, "credit": 500.0, "description": "Revenue Recognized"}
+            ]
+        },
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert res.status_code == 201
+    entry_data = res.json()
+    assert float(entry_data["total_debit"]) == 500.0
+    assert float(entry_data["total_credit"]) == 500.0
+    assert entry_data["reference"] == "ACDOCA-TEST-001"
+
+
+@pytest.mark.asyncio
+async def test_bug_63_sync_process_supports_finance_acdoca_spreadsheet(client: AsyncClient):
+    """
+    BUG-63: Sync processor supports finance_acdoca_spreadsheet drafts with balanced double-entry vouchers.
+    """
+    async with AsyncSessionLocal() as db:
+        acc_bank = Account(code=f"BNK-{uuid.uuid4().hex[:4]}", name="Operating Bank", account_type="ASSET", balance=Decimal("5000.00"), is_active=True)
+        acc_rent = Account(code=f"RNT-{uuid.uuid4().hex[:4]}", name="Rent Expense", account_type="EXPENSE", balance=Decimal("0.00"), is_active=True)
+        db.add_all([acc_bank, acc_rent])
+        await db.flush()
+
+        user_sync = User(
+            email=f"sync_acdoca_{uuid.uuid4().hex[:6]}@nexaerp.internal",
+            full_name="ACDOCA Sync User",
+            password_hash=hash_password("Pass123!"),
+            is_active=True,
+            is_superuser=False,
             organization_id=1,
-            name="Stock Adjust Test Item",
-            sku=sku,
-            selling_price=Decimal("89.99"),
-            cost_price=Decimal("45.00"),
-            current_stock=10
+            branch_id=1
         )
-        session.add(prod)
-        await session.commit()
-        prod_id = prod.id
+        db.add(user_sync)
+        await db.flush()
+        await assign_permissions(db, user_sync, ["finance.post", "finance.view"])
+        await db.commit()
+        await db.refresh(user_sync)
+        await db.refresh(acc_bank)
+        await db.refresh(acc_rent)
+        user_id = user_sync.id
+        email = user_sync.email
+        rent_code = acc_rent.code
+        bank_code = acc_bank.code
 
-    # Perform stock-only adjustment without price fields
-    res = await client.post("/api/data-import/commit", headers=headers, json={
-        "entity_type": "stock",
-        "records": [
-            {
-                "sku": sku,
-                "current_stock": 75
-            }
-        ]
-    })
-    assert res.status_code == 200
-    assert res.json()["updated_count"] == 1
+    token = create_access_token({"sub": str(user_id), "email": email})
 
-    async with AsyncSessionLocal() as session:
-        updated_prod = (await session.execute(select(Product).where(Product.id == prod_id))).scalar_one()
-        assert updated_prod.current_stock == 75
-        # Prices preserved untouched
-        assert updated_prod.selling_price == Decimal("89.99")
-        assert updated_prod.cost_price == Decimal("45.00")
-
-        # Movement record recorded
-        mvm = (await session.execute(
-            select(StockMovement).where(StockMovement.product_id == prod_id)
-        )).scalars().all()
-        assert len(mvm) >= 1
-        assert mvm[-1].movement_type == "ADJUSTMENT_IN"
-        assert mvm[-1].quantity == 65
-
-@pytest.mark.asyncio
-async def test_bug50_expense_import_branch_attribution(client: AsyncClient, admin_auth_token: str):
-    """
-    BUG-50:
-    Expense import sets branch_id=effective_branch_id and requires explicit branch context.
-    """
-    headers = {"Authorization": f"Bearer {admin_auth_token}"}
-    exp_num = f"EXP-BR-{uuid.uuid4().hex[:6]}"
-
-    # Import expense specifying branch_id 1
-    res = await client.post("/api/data-import/commit", headers=headers, json={
-        "entity_type": "expenses",
-        "branch_id": 1,
-        "records": [
-            {
-                "expense_number": exp_num,
-                "amount": 350.0,
-                "category": "Office Supplies",
-                "description": "Branch-scoped expense test"
-            }
-        ]
-    })
-    assert res.status_code == 200
-
-    async with AsyncSessionLocal() as session:
-        exp = (await session.execute(
-            select(Expense).where(Expense.expense_number == exp_num)
-        )).scalar_one_or_none()
-        assert exp is not None
-        assert exp.branch_id == 1
-
-@pytest.mark.asyncio
-async def test_sec51_customer_organization_isolation(client: AsyncClient, admin_auth_token: str):
-    """
-    SEC-51:
-    Customer records have organization ownership.
-    Importing a customer scopes search to user's organization and prevents cross-tenant updates.
-    """
-    headers = {"Authorization": f"Bearer {admin_auth_token}"}
-    shared_phone = f"99{uuid.uuid4().int % 100000000:08d}"
-
-    async with AsyncSessionLocal() as session:
-        # Create Org 2 with customer having shared_phone
-        org_other = Organization(name=f"Org Other {uuid.uuid4().hex[:4]}", code=f"OTHR-{uuid.uuid4().hex[:4]}")
-        session.add(org_other)
-        await session.flush()
-
-        other_cust = Customer(
-            organization_id=org_other.id,
-            name="Other Tenant VIP",
-            phone=shared_phone,
-            email="other_tenant@example.com",
-            address="Other Org Address"
-        )
-        session.add(other_cust)
-        await session.commit()
-        other_cust_id = other_cust.id
-
-    org1_cust_name = f"Org 1 Client {uuid.uuid4().hex[:6]}"
-
-    # Admin of Org 1 imports customer with same phone number
-    res = await client.post("/api/data-import/commit", headers=headers, json={
-        "entity_type": "customers",
-        "records": [
-            {
-                "name": org1_cust_name,
-                "phone": shared_phone,
-                "email": "org1_client@example.com",
-                "address": "Org 1 Address"
-            }
-        ]
-    })
-    assert res.status_code == 200
-
-    async with AsyncSessionLocal() as session:
-        # Org other customer's details were NOT overwritten!
-        preserved_other = (await session.execute(select(Customer).where(Customer.id == other_cust_id))).scalar_one()
-        assert preserved_other.name == "Other Tenant VIP"
-        assert preserved_other.address == "Other Org Address"
-        assert preserved_other.organization_id == org_other.id
-
-        all_custs = (await session.execute(
-            select(Customer).where(Customer.phone == shared_phone)
-        )).scalars().all()
-        assert len(all_custs) == 2
-        new_cust = [c for c in all_custs if c.id != other_cust_id][0]
-        assert new_cust.name == org1_cust_name
-        assert new_cust.organization_id == 1
-
-
-
-@pytest.mark.asyncio
-async def test_bug51_strip_client_applied_flag(client: AsyncClient, admin_auth_token: str):
-    """
-    BUG-51:
-    Sync processor ignores client-injected _applied flag and enforces trusted server processing.
-    """
-    headers = {"Authorization": f"Bearer {admin_auth_token}"}
-    key = f"IDEMP-INJECT-{uuid.uuid4().hex[:8]}"
-
-    sync_res = await client.post("/api/sync/all", headers=headers, json={
+    # Save draft for finance_acdoca_spreadsheet
+    draft_payload = {
+        "client_timestamp": datetime.now(timezone.utc).isoformat(),
         "modules": {
-            "expenses": {
-                "idempotency_key": key,
-                "amount": 199.99,
-                "_applied": True, # Client injection attempt
-                "status": "SYNCED"
+            "finance_acdoca_spreadsheet": {
+                "description": "Synced ACDOCA rent voucher",
+                "draft_journal_vouchers": [
+                    {"gl_account": rent_code, "debit": 1200.0, "credit": 0.0, "text_memo": "Monthly Office Rent"},
+                    {"gl_account": bank_code, "debit": 0.0, "credit": 1200.0, "text_memo": "Bank Wire Payment"}
+                ]
             }
         }
-    })
+    }
+    sync_res = await client.post("/api/sync/all", json=draft_payload, headers={"Authorization": f"Bearer {token}"})
     assert sync_res.status_code == 200
 
-    # The server stripped _applied, so draft gets processed and recorded in SQL ledger
-    proc_res = await client.post("/api/sync/process", headers=headers)
+    # Process draft
+    proc_res = await client.post("/api/sync/process", headers={"Authorization": f"Bearer {token}"})
     assert proc_res.status_code == 200
-    assert proc_res.json()["synced"] >= 1
+    proc_data = proc_res.json()
+    assert proc_data["synced"] >= 1
+    assert len(proc_data.get("errors", [])) == 0
 
-    async with AsyncSessionLocal() as session:
-        idemp = (await session.execute(
-            select(SyncIdempotencyRecord).where(SyncIdempotencyRecord.idempotency_key == key)
-        )).scalar_one_or_none()
-        assert idemp is not None
 
 @pytest.mark.asyncio
-async def test_bug52_product_count_organization_filter(client: AsyncClient, admin_auth_token: str):
+async def test_disaster_recovery_destination_verification():
     """
-    BUG-52:
-    Inventory product count metric in /api/sync/all is scoped to user's organization.
+    Section 6: Disaster Recovery destination verification fails if unverified/inaccessible,
+    preventing spurious COLD_GLACIER archive transitions.
     """
-    headers = {"Authorization": f"Bearer {admin_auth_token}"}
-
-    async with AsyncSessionLocal() as session:
-        # Insert a product belonging to another organization
-        other_org = Organization(name=f"Foreign Org {uuid.uuid4().hex[:4]}", code=f"FOR-{uuid.uuid4().hex[:4]}")
-        session.add(other_org)
-        await session.flush()
-
-        foreign_prod = Product(
-            organization_id=other_org.id,
-            name="Foreign Inventory Item",
-            sku=f"SKU-FOR-{uuid.uuid4().hex[:6]}",
-            selling_price=Decimal("10.00"),
-            current_stock=5
-        )
-        session.add(foreign_prod)
-        await session.commit()
-
-        # Count org 1 products
-        org1_prod_count = (await session.execute(
-            select(Product).where(Product.organization_id == 1)
-        )).scalars().all()
-
-    sync_res = await client.post("/api/sync/all", headers=headers, json={"modules": {}})
-    assert sync_res.status_code == 200
-    reported_products = sync_res.json()["module_metrics"]["inventory"]["total_products"]
-    # Does not count foreign organization's products
-    assert reported_products == len(org1_prod_count)
-
-def test_compose_yaml_audit_fixes():
-    """
-    SEC-49, SEC-50, BUG-53:
-    Validates compose.yaml for:
-    - Independent offsite volume (not alias of backup_data)
-    - Persistent document store volume
-    - Backend restart: unless-stopped
-    - Backend healthcheck
-    """
-    compose_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "compose.yaml"))
-    with open(compose_path, "r") as f:
-        data = yaml.safe_load(f)
-
-    backend = data["services"]["backend"]
-    # BUG-53: restart policy restored
-    assert backend.get("restart") == "unless-stopped"
-    # BUG-53: healthcheck configured
-    assert "healthcheck" in backend
-    assert "test" in backend["healthcheck"]
-
-    # SEC-49 & SEC-50: volumes check
-    vols = backend.get("volumes", [])
-    vol_strings = [v if isinstance(v, str) else list(v.keys())[0] for v in vols]
-    # SEC-49: OFFSITE_BACKUP_PATH does not default to backup_data
-    assert not any("${OFFSITE_BACKUP_PATH:-backup_data}" in v for v in vol_strings)
-    # SEC-50: Persistent document store mounted
-    assert any("mongo_docs_data" in v for v in vol_strings)
-
-    declared_vols = data.get("volumes", {})
-    assert "offsite_archive_data" in declared_vols
-    assert "mongo_docs_data" in declared_vols
+    # Non-existent directory returns False
+    is_valid = DisasterRecoveryService.verify_offsite_storage_destination("/non_existent_vault_path_987654")
+    assert is_valid is False

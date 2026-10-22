@@ -37,7 +37,16 @@ async def list_products(
     current_user: User = Depends(require_permission("inventory.view")),
     db: AsyncSession = Depends(get_db)
 ):
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required. User has no assigned organization."
+        )
+
     stmt = select(Product).options(selectinload(Product.category)).order_by(Product.name.asc())
+    if effective_org is not None:
+        stmt = stmt.where(Product.organization_id == effective_org)
     if category_id:
         stmt = stmt.where(Product.category_id == category_id)
     if search:
@@ -83,16 +92,31 @@ async def create_product(
     current_user: User = Depends(require_permission("inventory.create")),
     db: AsyncSession = Depends(get_db)
 ):
-    # Check uniqueness of SKU
-    existing = await db.execute(select(Product).where(Product.sku == data.sku))
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None:
+        if current_user.is_superuser and data.organization_id is not None:
+            effective_org = data.organization_id
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization context required to create products. User has no assigned organization."
+            )
+    elif current_user.is_superuser and data.organization_id is not None:
+        effective_org = data.organization_id
+
+    # Check uniqueness of SKU within the authenticated organization
+    existing = await db.execute(
+        select(Product).where(Product.sku == data.sku, Product.organization_id == effective_org)
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Product with SKU '{data.sku}' already exists"
+            detail=f"Product with SKU '{data.sku}' already exists in this organization"
         )
 
-    effective_org = getattr(current_user, "organization_id", None) or 1
-    product = Product(**data.model_dump(), organization_id=effective_org)
+    prod_dict = data.model_dump()
+    prod_dict.pop("organization_id", None)
+    product = Product(**prod_dict, organization_id=effective_org)
     db.add(product)
     await db.flush()
 
@@ -141,6 +165,13 @@ async def adjust_stock(
     current_user: User = Depends(require_permission("inventory.adjust")),
     db: AsyncSession = Depends(get_db)
 ):
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for stock adjustment. User has no assigned organization."
+        )
+
     qty = adj.quantity if adj.adjustment_type == "ADJUSTMENT_IN" else -adj.quantity
     movement = await adjust_product_stock(
         db=db,
@@ -148,7 +179,8 @@ async def adjust_stock(
         quantity_change=qty,
         movement_type=adj.adjustment_type,
         user_id=current_user.id,
-        notes=adj.notes or "Manual inventory audit adjustment"
+        notes=adj.notes or "Manual inventory audit adjustment",
+        organization_id=effective_org
     )
     await record_audit_log(
         db, action="INVENTORY_ADJUSTMENT", entity_name="Product",
@@ -173,6 +205,13 @@ async def adjust_specific_product_stock(
     current_user: User = Depends(require_permission("inventory.adjust")),
     db: AsyncSession = Depends(get_db)
 ):
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for stock adjustment. User has no assigned organization."
+        )
+
     if adj.quantity_delta is not None:
         qty = adj.quantity_delta
         m_type = adj.movement_type or ("ADJUSTMENT_IN" if qty > 0 else "ADJUSTMENT_OUT")
@@ -187,7 +226,8 @@ async def adjust_specific_product_stock(
         quantity_change=qty,
         movement_type=m_type,
         user_id=current_user.id,
-        notes=adj.notes or "Manual inventory audit adjustment"
+        notes=adj.notes or "Manual inventory audit adjustment",
+        organization_id=effective_org
     )
     await record_audit_log(
         db, action="INVENTORY_ADJUSTMENT", entity_name="Product",
@@ -234,6 +274,26 @@ async def get_stock_exhaustion_predictions(
     Dynamically recalculates based on every single day's sales transactions,
     factoring in today's sales volume, 7-day velocity, and 30-day moving average.
     """
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for stock exhaustion predictions."
+        )
+
+    # Validate caller access to branch_id if provided
+    is_admin = current_user.is_superuser or any(
+        r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
+        for r in getattr(current_user, "roles", [])
+    )
+    user_branch = getattr(current_user, "active_branch_id", current_user.branch_id)
+    if branch_id is not None and not is_admin:
+        if user_branch != branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied: Caller is not authorized for branch ID {branch_id}."
+            )
+
     segment_profiles = {
         "all": {
             "name": "All Consumers (Blended Average)",
@@ -271,6 +331,7 @@ async def get_stock_exhaustion_predictions(
     t_30d = now - timedelta(days=30)
 
     # 1. Fetch real-time sales velocity from SalesOrderItem & SalesOrder
+    from app.models.org import Branch
     sales_stmt = (
         select(
             SalesOrderItem.product_id,
@@ -283,6 +344,9 @@ async def get_stock_exhaustion_predictions(
     )
     if branch_id:
         sales_stmt = sales_stmt.where(SalesOrder.branch_id == branch_id)
+    elif effective_org is not None:
+        sales_stmt = sales_stmt.join(Branch, SalesOrder.branch_id == Branch.id).where(Branch.organization_id == effective_org)
+
     sales_stmt = sales_stmt.group_by(SalesOrderItem.product_id)
     sales_res = await db.execute(sales_stmt)
     sales_map = {row.product_id: row for row in sales_res.all()}
@@ -296,13 +360,18 @@ async def get_stock_exhaustion_predictions(
             func.coalesce(func.sum(case((StockMovement.created_at >= t_30d, StockMovement.quantity), else_=0)), 0).label("sm_30d")
         )
         .where(StockMovement.movement_type == "SALE_OUT")
-        .group_by(StockMovement.product_id)
     )
+    if effective_org is not None:
+        sm_stmt = sm_stmt.join(Product, StockMovement.product_id == Product.id).where(Product.organization_id == effective_org)
+
+    sm_stmt = sm_stmt.group_by(StockMovement.product_id)
     sm_res = await db.execute(sm_stmt)
     sm_map = {row.product_id: row for row in sm_res.all()}
 
-    # 3. Load active products
+    # 3. Load active products scoped to organization
     stmt = select(Product).options(selectinload(Product.category)).order_by(Product.current_stock.asc())
+    if effective_org is not None:
+        stmt = stmt.where(Product.organization_id == effective_org)
     result = await db.execute(stmt)
     products = result.scalars().all()
 

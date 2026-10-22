@@ -460,7 +460,8 @@ async def deduct_scanned_product_stock(
         quantity_change=-req.quantity,
         movement_type="SALE_OUT",
         user_id=current_user.id,
-        notes=req.notes or f"Computer Vision exit deduction: {req.quantity} {product.unit_of_measure} checked out via camera vision"
+        notes=req.notes or f"Computer Vision exit deduction: {req.quantity} {product.unit_of_measure} checked out via camera vision",
+        organization_id=getattr(current_user, "organization_id", None)
     )
 
     await record_audit_log(

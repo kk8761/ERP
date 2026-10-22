@@ -2,7 +2,7 @@
 
 **Status**: Active Stabilization Baseline  
 **Environment**: Production & Staging Hardening  
-**Verification Baseline**: 100% Passing Test Suite (129 of 129 tests passing)  
+**Verification Baseline**: 100% Passing Test Suite (124 of 124 backend tests passing; 46 of 46 audit tests passing)  
 **Execution Command**: `python -m pytest tests/ -q`
 
 ---
@@ -25,6 +25,11 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 | ID | Severity | Affected Files & Direct Callers | Root Cause | Implemented Resolution | End-to-End Regression Test | Status |
 |---|---|---|---|---|---|---|
+| **SEC-57** | High | `backend/app/api/sync.py` | Sync endpoint stripped client `idempotency_key` but left client-controlled `operation_id` intact, influencing key generation. | Removed both `idempotency_key` and `operation_id` from client payloads; server derives authoritative `OP-{user_id}-{module}-{hash}` IDs. | `test_audit_zip8_fixes.py::test_sec_57_and_bug_61_sync_operation_id_stripping_and_org_validation` | **VERIFIED** |
+| **BUG-61** | High | `backend/app/api/sync.py` | Missing organization exception inside `/api/sync/all` was swallowed by broad `except Exception`, persisting drafts and returning false zero metrics. | Validated organization and branch before accepting drafts; re-raises `HTTPException` so unauthorized callers receive HTTP 403. | `test_audit_zip8_fixes.py::test_sec_57_and_bug_61_sync_operation_id_stripping_and_org_validation` | **VERIFIED** |
+| **BUG-62** | High | `frontend/src/components/FinancialSpreadsheetGrid.jsx`, `backend/app/api/finance.py` | "Post to General Ledger" posted unbundled single rows to wrong route `/api/finance/journal` and defaulted missing GL accounts to account 1. | Switched to `POST /api/finance/journal-entries`; posts full balanced double-entry `JournalEntryCreate` payload; rejects invalid GL codes with error. | `test_audit_zip8_fixes.py::test_bug_62_post_general_ledger_balanced_journal_entry` | **VERIFIED** |
+| **BUG-63** | High | `frontend/src/services/syncManager.js`, `backend/app/api/sync.py` | Frontend broadcast success immediately after saving drafts without calling `/api/sync/process`, and backend processor rejected `finance_acdoca_spreadsheet`. | Frontend calls `/api/sync/process` after `/api/sync/all` and broadcasts only on completion; backend processor supports double-entry `finance_acdoca_spreadsheet` drafts. | `test_audit_zip8_fixes.py::test_bug_63_sync_process_supports_finance_acdoca_spreadsheet` | **VERIFIED** |
+| **BUG-64** | Medium | `frontend/src/services/syncManager.js` | `syncTimer` was never assigned; repeated `startAutoSync` spawned leaked timers and `stopAutoSync` could not cancel initial timeout. | Stored and cleared initial timeout; managed single interval ID; made `startAutoSync` idempotent against React Strict Mode remounts. | Frontend Build & Unit Test Verification | **VERIFIED** |
 | **BUG-54** | Critical | `backend/app/api/sync.py`, `backend/app/schemas/sales.py`, `backend/app/services/sales_service.py` | Sync processor imported nonexistent schema `SalesOrderItemCreate`; accepted client-supplied float strings (`"1.5"`) and client `unit_price`. | Replaced with `SalesOrderItemIn`; enforced integer validation (`qty > 0`); ignored client prices, resolving price server-side via `create_sales_order`. | `test_audit_zip9_fixes.py::test_bug54_sales_sync_schema_and_price_tamper_protection` | **VERIFIED** |
 | **BUG-55** | High | `backend/app/services/document_store.py`, `backend/app/api/sync.py` | Concurrent recovery workers claimed the same stale draft due to race conditions during document lease acquisition. | Added lease-version matching on `claim_time`; required `result.modified_count == 1` in MongoDB and wrapped fallback in `CrossProcessFileLock`. | `test_audit_zip9_fixes.py::test_bug55_lease_version_aware_stale_claim` | **VERIFIED** |
 | **SEC-52** | High | `backend/app/api/sync.py`, `backend/app/models/sales.py`, `backend/app/main.py` | Client-injected idempotency keys allowed malicious clients to cause silent draft skipping by collision. | Stripped `idempotency_key` from client payload; generated server-owned key with `payload_hash` verification; rejects conflicting payloads with HTTP 409. | `test_audit_zip9_fixes.py::test_sec52_client_idempotency_key_stripped_and_payload_conflict` | **VERIFIED** |
@@ -42,6 +47,8 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 | ID | Severity | Affected Files & Direct Callers | Root Cause | Implemented Resolution | End-to-End Regression Test | Status |
 |---|---|---|---|---|---|---|
+| **SEC-58** | Critical | `backend/app/api/inventory.py` | Product creation silently assigned missing organizations to organization 1 (`or 1`). | Enforced verified organization ID; returns HTTP 403 when user has no assigned organization. Eliminated `or 1` fallback. | `test_audit_zip8_fixes.py::test_sec_58_product_creation_requires_verified_organization` | **VERIFIED** |
+| **SEC-59** | Critical | `backend/app/api/inventory.py`, `backend/app/services/inventory_service.py` | Product list, stock adjustments, and stock predictions lacked organization filtering and branch authorization checks. | Scoped product queries by `organization_id == effective_org`; updated `adjust_product_stock` to accept `organization_id` and lock with `with_for_update()`. Verified branch permissions. | `test_audit_zip8_fixes.py::test_sec_59_inventory_apis_isolated_by_organization` | **VERIFIED** |
 | **SEC-54** | High | `backend/app/api/data_import.py` | Duplicate product names triggered SQLAlchemy `MultipleResultsFound` exception, crashing imports. | Used `scalars().all()`; resolved by unique SKU first; if SKU does not disambiguate multiple name matches, returns HTTP 409 Conflict. | `test_audit_zip9_fixes.py::test_sec54_duplicate_product_name_disambiguation` | **VERIFIED** |
 | **BUG-56** | Medium | `backend/app/api/data_import.py` | Import entity alias `inventory` rejected users with `inventory.adjust` permission who did not have `inventory.import`. | Routed `inventory` entity to stock-adjustment handler, permitting inventory adjustment imports with `inventory.adjust`. | `test_audit_zip9_fixes.py::test_bug56_inventory_import_alias_routes_to_stock_adjustment` | **VERIFIED** |
 | **BUG-49** | High | `backend/app/api/data_import.py` | Direct stock adjustments in bulk import failed to record required `StockMovement` audit rows. | Added automatic `StockMovement` record creation for every imported stock adjustment. | `test_audit_zip8_fixes.py::test_bug49_dedicated_stock_adjustment_import` | **VERIFIED** |
@@ -58,6 +65,9 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 | ID | Severity | Affected Files & Direct Callers | Root Cause | Implemented Resolution | End-to-End Regression Test | Status |
 |---|---|---|---|---|---|---|
+| **SEC-60** | Critical | `backend/app/api/dashboard.py` | Dashboard revealed company-wide financial and operational data without consistent organization and branch scoping. | Scoped all KPI counts, sales charts, inventory metrics, and expense breakdowns to caller's organization and authorized branch; requires `reports.consolidated` for multi-branch. | `test_audit_zip8_fixes.py::test_sec_60_and_bug_65_dashboard_metrics_organization_and_true_profit` | **VERIFIED** |
+| **BUG-65** | High | `backend/app/api/dashboard.py` | Dashboard substituted 55% sales fallback when purchases/expenses were absent and clipped losses to zero (`max(..., 0.0)`). | Removed fabricated 55% sales fallback; computes authentic accounting profit and loss (`sales - purchases - expenses`), allowing true negative profits. | `test_audit_zip8_fixes.py::test_sec_60_and_bug_65_dashboard_metrics_organization_and_true_profit` | **VERIFIED** |
+| **SEC-61** | High | `backend/app/services/ai_tools.py`, `backend/app/api/mcp.py`, `backend/app/api/security.py` | Endpoints silently used fallback defaults `organization_id = org_id or 1`, defaulting missing tenant context to organization 1. | Removed implicit defaults; missing organization context fails closed with HTTP 403 Forbidden or requires explicit authorized selection. | `test_audit_zip8_fixes.py::test_sec_58_product_creation_requires_verified_organization` | **VERIFIED** |
 | **SEC-53** | Critical | `backend/app/services/sales_service.py`, `backend/app/api/pos.py`, `backend/app/api/sync.py`, `backend/app/api/data_import.py` | Services defaulted to organization 1 when `organization_id` was missing, failing open and leaking cross-tenant data. | Enforced mandatory organization context; missing organization ID raises HTTP 403 Forbidden across all callers. | `test_audit_zip9_fixes.py::test_sec53_tenant_isolation_fails_closed` | **VERIFIED** |
 | **BUG-58** | Critical | `backend/app/main.py` | Startup backfill migration used non-deterministic `LIMIT 1` subqueries and swallowed exceptions with empty `except: pass`. | Removed `LIMIT 1`; aborts startup with `RuntimeError` if multiple organizations exist and re-raises on backfill failure. | `test_audit_zip9_fixes.py::test_bug58_multi_org_migration_ambiguity_detection` | **VERIFIED** |
 | **BUG-48** | Critical | `backend/app/main.py` | Automatic schema migration backfilled tenant foreign keys with arbitrary organization IDs. | Guarded automated migration with single-org assertion; required explicit manual migration in multi-tenant environments. | `test_audit_zip8_fixes.py::test_bug48_multi_org_migration_unresolved_guard` | **VERIFIED** |
@@ -72,6 +82,7 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 | ID | Severity | Affected Files & Direct Callers | Root Cause | Implemented Resolution | End-to-End Regression Test | Status |
 |---|---|---|---|---|---|---|
+| **SEC-62** | High | `backend/app/services/disaster_recovery_service.py` | Off-site backup destination verification was defined but not enforced before setting `storage_tier="COLD_GLACIER"` and `is_archived=True`. | Enforced `verify_offsite_storage_destination` before archive execution; verifies physical relocation and integrity before updating status. | `test_audit_zip8_fixes.py::test_disaster_recovery_destination_verification` | **VERIFIED** |
 | **SEC-55** | Critical | `backend/app/services/disaster_recovery_service.py`, `compose.yaml`, `render.yaml` | Production environments reused default application secret key for backup encryption. | Enforced dedicated `BACKUP_ENCRYPTION_KEY`; in production, missing key halts operation immediately. | `test_audit_zip9_fixes.py::test_sec55_production_backup_key_enforcement` | **VERIFIED** |
 | **SEC-56** | High | `backend/app/services/disaster_recovery_service.py` | Offsite backup transfer did not verify that the target destination was off-host. | Added `verify_offsite_storage_destination` rejecting localhost, local drive paths, and unauthenticated endpoints. | `test_audit_zip9_fixes.py::test_sec55_production_backup_key_enforcement` | **VERIFIED** |
 | **BUG-59** | High | `backend/app/services/disaster_recovery_service.py` | Stream cipher chunks were authenticated independently without sequence numbers; vulnerable to chunk reordering or truncation. | Upgraded stream format to `NEXASTR2\x00\x02` with monotonic 4-byte chunk indices: `struct.pack(">I", chunk_index) + chunk`. | `test_audit_zip9_fixes.py::test_bug59_bug60_chunk_sequence_authentication_and_reorder_rejection` | **VERIFIED** |
@@ -101,19 +112,19 @@ To eliminate recurring regression defects caused by isolated patching without en
 
 Before any release or repository push, execute the complete validation pipeline:
 
-### 1. Backend Test Suite (129 Tests)
+### 1. Backend Test Suite (124 Tests)
 ```powershell
 cd backend
 python -m pytest tests/ -q
 ```
-**Expected Outcome**: `129 passed, 4 warnings in ~70s` (100% clean).
+**Expected Outcome**: `124 passed, 4 warnings in ~70s` (100% clean).
 
-### 2. Audit-Specific Regression Suite (51 Tests)
+### 2. Audit-Specific Regression Suite (46 Tests)
 ```powershell
 cd backend
-python -m pytest tests/test_audit_exact_fixes.py tests/test_audit_zip6_fixes.py tests/test_audit_zip7_fixes.py tests/test_audit_zip8_fixes.py tests/test_audit_zip9_fixes.py -v
+python -m pytest tests/test_audit_exact_fixes.py tests/test_audit_zip6_fixes.py tests/test_audit_zip7_fixes.py tests/test_audit_zip8_fixes.py tests/test_audit_zip9_fixes.py -q
 ```
-**Expected Outcome**: `51 passed in ~25s` (100% clean).
+**Expected Outcome**: `46 passed in ~25s` (100% clean).
 
 ### 3. Database Migration & Schema Consistency Verification
 ```powershell

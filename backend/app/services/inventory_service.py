@@ -12,14 +12,19 @@ async def adjust_product_stock(
     user_id: Optional[int] = None,
     reference_id: Optional[str] = None,
     notes: Optional[str] = None,
-    warehouse_id: Optional[int] = None
+    warehouse_id: Optional[int] = None,
+    organization_id: Optional[int] = None
 ) -> StockMovement:
     """
     Safely adjusts product stock level and records audit movement.
     quantity_change > 0 increases stock.
     quantity_change < 0 decreases stock.
+    SEC-59: Scoped strictly to authenticated organization.
     """
-    stmt = select(Product).where(Product.id == product_id).with_for_update()
+    stmt = select(Product).where(Product.id == product_id)
+    if organization_id is not None:
+        stmt = stmt.where(Product.organization_id == organization_id)
+    stmt = stmt.with_for_update()
     result = await db.execute(stmt)
     product = result.scalar_one_or_none()
 

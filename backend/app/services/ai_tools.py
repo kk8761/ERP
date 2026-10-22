@@ -989,13 +989,18 @@ async def execute_typed_tool(
         user_role_names = [ur.role.name for ur in (u.roles or []) if getattr(ur, "role", None)]
         is_admin_user = u.is_superuser or any(r in ["System Administrator", "Executive", "Managing Director"] for r in user_role_names)
 
-        # Do not silently default unknown organization to 1 for tenant-scoped callers (SEC-43)
-        if org_id is None and not is_admin_user:
-            return {
-                "status": "ERROR",
-                "message": "Tenant organization context could not be established for caller. Scoped tool execution denied."
-            }
-        organization_id = org_id or 1
+        # SEC-61: Fail closed when organization context is absent, without fallback to 1
+        if org_id is None:
+            target_org = arguments.get("organization_id")
+            if is_admin_user and target_org:
+                organization_id = int(target_org)
+            else:
+                return {
+                    "status": "ERROR",
+                    "message": "Tenant organization context could not be established for caller. Scoped tool execution denied."
+                }
+        else:
+            organization_id = org_id
 
         if not is_admin_user:
             # Overwrite caller-supplied branch_id with the user's authoritative branch

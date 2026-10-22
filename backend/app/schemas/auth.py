@@ -53,6 +53,7 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=8)
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
+    organization_id: Optional[int] = None
     role_ids: List[int] = []
 
 class UserUpdate(BaseModel):

@@ -214,7 +214,8 @@ async def refund_order(
             movement_type="RETURN_IN",
             user_id=current_user.id,
             reference_id=order.invoice_number,
-            notes=f"Return refund for {order.invoice_number}"
+            notes=f"Return refund for {order.invoice_number}",
+            organization_id=getattr(current_user, "organization_id", None)
         )
 
     order.order_status = "RETURNED"

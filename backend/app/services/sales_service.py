@@ -99,7 +99,8 @@ async def create_sales_order(
             movement_type="SALE_OUT",
             user_id=cashier_user_id,
             reference_id=invoice_number,
-            notes=f"POS Sale: {invoice_number}"
+            notes=f"POS Sale: {invoice_number}",
+            organization_id=organization_id
         )
 
     # BUG-57 Fix: Enforce strict financial discount bounds
