@@ -742,76 +742,82 @@ export default function DashboardPage({ onNavigate }) {
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '24px', minHeight: '200px' }}>
             {/* SVG Donut */}
-            <div style={{ position: 'relative', width: '150px', height: '150px' }}>
-              <svg width="150" height="150" viewBox="0 0 100 100">
-                {kpis.total_expenses === 0 ? (
-                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="var(--border-color)" strokeWidth="12" />
-                ) : (
-                  <>
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#0064d2" strokeWidth="16" strokeDasharray="95 156" strokeDashoffset="0" />
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#10b981" strokeWidth="16" strokeDasharray="55 196" strokeDashoffset="-95" />
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f59e0b" strokeWidth="16" strokeDasharray="38 213" strokeDashoffset="-150" />
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#ec4899" strokeWidth="16" strokeDasharray="20 231" strokeDashoffset="-188" />
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#8b5cf6" strokeWidth="16" strokeDasharray="43 208" strokeDashoffset="-208" />
-                  </>
-                )}
-              </svg>
-              <div style={{
-                position: 'absolute', inset: 0,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                textAlign: 'center'
-              }}>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)' }}>
-                  ₹ {kpis.total_expenses.toLocaleString('en-IN')}
-                </span>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Total Expenses</span>
-              </div>
-            </div>
+            {(() => {
+              const expList = data?.expense_breakdown && data.expense_breakdown.length > 0
+                ? data.expense_breakdown
+                : [];
+              const colors = ['#0064d2', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#64748b'];
+              const circumference = 251.327; // 2 * pi * 40
 
-            {/* Legend */}
-            {kpis.total_expenses === 0 ? (
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '140px', lineHeight: 1.5 }}>
-                No store expenses booked yet for this period.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0064d2' }}></span>
-                    <span>Inventory</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>38%</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
-                    <span>Staff & Payroll</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>22%</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }}></span>
-                    <span>Rent & Utilities</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>15%</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ec4899' }}></span>
-                    <span>Marketing</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>8%</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#8b5cf6' }}></span>
-                    <span>Other</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>17%</span>
-                </div>
-              </div>
-            )}
+              let cumulative = 0;
+              const slices = expList.map((item, idx) => {
+                const pct = Math.max(0, Number(item.percentage) || 0);
+                const dashLen = (pct / 100) * circumference;
+                const offset = -cumulative;
+                cumulative += dashLen;
+                return {
+                  ...item,
+                  color: colors[idx % colors.length],
+                  dashArray: `${dashLen.toFixed(1)} ${(circumference - dashLen).toFixed(1)}`,
+                  dashOffset: offset.toFixed(1)
+                };
+              });
+
+              return (
+                <>
+                  <div style={{ position: 'relative', width: '150px', height: '150px' }}>
+                    <svg width="150" height="150" viewBox="0 0 100 100">
+                      {kpis.total_expenses === 0 || slices.length === 0 ? (
+                        <circle cx="50" cy="50" r="40" fill="transparent" stroke="var(--border-color)" strokeWidth="12" />
+                      ) : (
+                        slices.map((slice, idx) => (
+                          <circle
+                            key={idx}
+                            cx="50"
+                            cy="50"
+                            r="40"
+                            fill="transparent"
+                            stroke={slice.color}
+                            strokeWidth="16"
+                            strokeDasharray={slice.dashArray}
+                            strokeDashoffset={slice.dashOffset}
+                          />
+                        ))
+                      )}
+                    </svg>
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      textAlign: 'center'
+                    }}>
+                      <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>
+                        ₹ {kpis.total_expenses.toLocaleString('en-IN')}
+                      </span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Total Expenses</span>
+                    </div>
+                  </div>
+
+                  {/* Legend */}
+                  {kpis.total_expenses === 0 || slices.length === 0 ? (
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '140px', lineHeight: 1.5 }}>
+                      No store expenses booked yet for this period.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px', maxWidth: '180px' }}>
+                      {slices.map((slice, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: slice.color }}></span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '105px' }}>{slice.category}</span>
+                          </span>
+                          <span style={{ fontWeight: 600 }}>{slice.percentage}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
       </div>

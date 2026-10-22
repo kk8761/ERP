@@ -24,6 +24,7 @@ htmlcov/
 backups/
 *.backup*
 backend/data/
+backend/quarantine_cache.json
 
 # Node / Frontend
 frontend/node_modules/

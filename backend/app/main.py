@@ -117,12 +117,13 @@ async def lifespan(app: FastAPI):
                 "WHERE users.organization_id IS NULL AND users.branch_id IS NOT NULL"
             ))
 
-            # 2. Check for ambiguous customers associated with multiple organizations
+            # 2. Check for ambiguous customers associated with multiple organizations among unassigned records
             amb_cust_res = await conn.execute(text(
                 "SELECT sales_orders.customer_id, COUNT(DISTINCT branches.organization_id) "
                 "FROM sales_orders "
+                "JOIN customers ON sales_orders.customer_id = customers.id "
                 "JOIN branches ON sales_orders.branch_id = branches.id "
-                "WHERE branches.organization_id IS NOT NULL "
+                "WHERE customers.organization_id IS NULL AND branches.organization_id IS NOT NULL "
                 "GROUP BY sales_orders.customer_id "
                 "HAVING COUNT(DISTINCT branches.organization_id) > 1"
             ))
@@ -146,12 +147,13 @@ async def lifespan(app: FastAPI):
                 ") = 1"
             ))
 
-            # 3. Check for ambiguous suppliers associated with multiple organizations
+            # 3. Check for ambiguous suppliers associated with multiple organizations among unassigned records
             amb_sup_res = await conn.execute(text(
                 "SELECT purchase_orders.supplier_id, COUNT(DISTINCT branches.organization_id) "
                 "FROM purchase_orders "
+                "JOIN suppliers ON purchase_orders.supplier_id = suppliers.id "
                 "JOIN branches ON purchase_orders.branch_id = branches.id "
-                "WHERE branches.organization_id IS NOT NULL "
+                "WHERE suppliers.organization_id IS NULL AND branches.organization_id IS NOT NULL "
                 "GROUP BY purchase_orders.supplier_id "
                 "HAVING COUNT(DISTINCT branches.organization_id) > 1"
             ))
@@ -175,13 +177,14 @@ async def lifespan(app: FastAPI):
                 ") = 1"
             ))
 
-            # 4. Check for ambiguous products associated with multiple organizations
+            # 4. Check for ambiguous products associated with multiple organizations among unassigned records
             amb_prod_res = await conn.execute(text(
                 "SELECT stock_movements.product_id, COUNT(DISTINCT branches.organization_id) "
                 "FROM stock_movements "
+                "JOIN products ON stock_movements.product_id = products.id "
                 "JOIN warehouses ON stock_movements.warehouse_id = warehouses.id "
                 "JOIN branches ON warehouses.branch_id = branches.id "
-                "WHERE branches.organization_id IS NOT NULL "
+                "WHERE products.organization_id IS NULL AND branches.organization_id IS NOT NULL "
                 "GROUP BY stock_movements.product_id "
                 "HAVING COUNT(DISTINCT branches.organization_id) > 1"
             ))

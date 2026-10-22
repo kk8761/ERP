@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 @router.get("/metrics")
 async def get_dashboard_metrics(
-    range: Optional[str] = Query("Last 30 Days"),
+    date_range: Optional[str] = Query("Last 30 Days", alias="range"),
     current_user: User = Depends(require_permission("dashboard.view")),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
@@ -122,7 +122,7 @@ async def get_dashboard_metrics(
 
     # 8. Sales Overview chart points
     chart_data = []
-    filter_range = (range or "Last 30 Days").strip().lower()
+    filter_range = (date_range or "Last 30 Days").strip().lower()
 
     if "week" in filter_range:
         # Last 7 days, daily
