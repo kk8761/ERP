@@ -344,8 +344,8 @@ async def switch_branch_context(
     if payload.branch_id is None:
         if not is_exec_or_admin:
             raise HTTPException(status_code=403, detail="Only Executives and Administrators can view Consolidated Multi-Branch mode.")
-        # Error 8 Fix: Do not mutate current_user.branch_id in DB. Record active context in session store.
-        await document_store.insert_document("user_session_branch_context", {
+        # Error 8 & BUG-29 Fix: Do not mutate current_user.branch_id in DB. Upsert active context in session store.
+        await document_store.upsert_document("user_session_branch_context", {"user_id": current_user.id}, {
             "id": f"ctx_{current_user.id}",
             "user_id": current_user.id,
             "active_branch_id": None,
@@ -394,9 +394,9 @@ async def switch_branch_context(
                         detail=f"Access Denied: You are not authorized to access '{branch.name}'. Your authorized branches: {', '.join(str(b) for b in allowed)}."
                     )
 
-    # Error 8 Fix: Keep assigned branch immutable on User record.
-    # Store active branch in session context store without mutating current_user.branch_id in DB.
-    await document_store.insert_document("user_session_branch_context", {
+    # Error 8 & BUG-29 Fix: Keep assigned branch immutable on User record.
+    # Atomically upsert active branch in session context store without mutating current_user.branch_id in DB.
+    await document_store.upsert_document("user_session_branch_context", {"user_id": current_user.id}, {
         "id": f"ctx_{current_user.id}",
         "user_id": current_user.id,
         "active_branch_id": branch.id,

@@ -171,7 +171,7 @@ TOOL_REGISTRY_METADATA = [
 
 async def tool_search_inventory(
     db: AsyncSession,
-    organization_id: int = 1,
+    organization_id: Optional[int] = None,
     branch_id: Optional[int] = None,
     query: Optional[str] = None,
     low_stock_only: bool = False,
@@ -179,6 +179,8 @@ async def tool_search_inventory(
     **kwargs
 ) -> Dict[str, Any]:
     stmt = select(Product).where(Product.is_active == True)
+    if organization_id is not None:
+        stmt = stmt.where(or_(Product.organization_id == organization_id, Product.organization_id.is_(None)))
     if query:
         q = f"%{query.strip()}%"
         stmt = stmt.where(or_(Product.name.ilike(q), Product.sku.ilike(q), Product.barcode.ilike(q)))
@@ -215,12 +217,15 @@ async def tool_search_inventory(
 
 async def tool_calculate_reorder_recommendations(
     db: AsyncSession,
-    organization_id: int = 1,
+    organization_id: Optional[int] = None,
     branch_id: Optional[int] = None,
     urgency_threshold: str = "ALL",
     **kwargs
 ) -> Dict[str, Any]:
-    stmt = select(Product).where(and_(Product.is_active == True, Product.current_stock <= Product.reorder_level)).order_by(Product.current_stock.asc())
+    stmt = select(Product).where(and_(Product.is_active == True, Product.current_stock <= Product.reorder_level))
+    if organization_id is not None:
+        stmt = stmt.where(or_(Product.organization_id == organization_id, Product.organization_id.is_(None)))
+    stmt = stmt.order_by(Product.current_stock.asc())
     res = await db.execute(stmt)
     low_prods = res.scalars().all()
 
@@ -935,7 +940,7 @@ MCP_SERVICE_ACCOUNT_ALLOWED_TOOLS = {
     "get_order_evaluation"
 }
 
-ADMIN_ONLY_TOOLS = {"create_scheduled_workflow", "update_vendor_ratings_batch"}
+ADMIN_ONLY_TOOLS = {"create_scheduled_workflow"}
 
 async def execute_typed_tool(
     tool_name: str,
@@ -948,7 +953,7 @@ async def execute_typed_tool(
 ) -> Dict[str, Any]:
     """
     Validates and executes an authorized typed tool strictly within tenant boundary.
-    Enforces per-tool role authorization and least-privilege service account constraints (SEC-30).
+    Enforces per-tool role authorization and least-privilege service account constraints (SEC-30 & SEC-43).
     """
     if tool_name not in TOOL_DISPATCH_MAP:
         return {"status": "ERROR", "message": f"Unauthorized or unknown tool '{tool_name}'"}
@@ -973,12 +978,24 @@ async def execute_typed_tool(
         if not u or not u.is_active:
             return {"status": "ERROR", "message": "Invalid or inactive caller identity."}
 
-        # Authoritatively resolve tenant organization and branch from DB record (Error 4)
-        organization_id = getattr(u, "organization_id", 1) or 1
+        # Authoritatively resolve tenant organization and branch from DB record (SEC-43)
+        org_id = getattr(u, "organization_id", None)
         user_branch_id = getattr(u, "branch_id", None)
+        if org_id is None and user_branch_id is not None:
+            from app.models.org import Branch
+            b_res = await db.execute(select(Branch.organization_id).where(Branch.id == user_branch_id))
+            org_id = b_res.scalar_one_or_none()
 
         user_role_names = [ur.role.name for ur in (u.roles or []) if getattr(ur, "role", None)]
         is_admin_user = u.is_superuser or any(r in ["System Administrator", "Executive", "Managing Director"] for r in user_role_names)
+
+        # Do not silently default unknown organization to 1 for tenant-scoped callers (SEC-43)
+        if org_id is None and not is_admin_user:
+            return {
+                "status": "ERROR",
+                "message": "Tenant organization context could not be established for caller. Scoped tool execution denied."
+            }
+        organization_id = org_id or 1
 
         if not is_admin_user:
             # Overwrite caller-supplied branch_id with the user's authoritative branch

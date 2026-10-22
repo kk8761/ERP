@@ -19,6 +19,7 @@ class Product(Base, TimestampMixin):
     __tablename__ = "products"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     category_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("product_categories.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     sku: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)

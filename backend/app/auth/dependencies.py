@@ -97,7 +97,41 @@ async def get_current_user(
     user_perms = await get_user_effective_permissions(user, db)
     setattr(user, "effective_permissions", user_perms)
     setattr(user, "current_token_jti", jti)
+
+    # BUG-29: Load active branch context for user from session store without mutating permanently assigned branch_id
+    active_branch_id = user.branch_id
+    try:
+        from app.services.document_store import document_store
+        ctx = await document_store.find_document("user_session_branch_context", {"user_id": user.id})
+        if ctx and "active_branch_id" in ctx:
+            switched_id = ctx["active_branch_id"]
+            is_admin = user.is_superuser or any(
+                r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
+                for r in getattr(user, "roles", [])
+            )
+            if switched_id is None:
+                if is_admin:
+                    active_branch_id = None
+            elif is_admin or switched_id == user.branch_id:
+                active_branch_id = switched_id
+            else:
+                # Validate authorization in employee_access_authorizations
+                auth_doc = await document_store.find_document("employee_access_authorizations", {"email": user.email})
+                if auth_doc:
+                    allowed = auth_doc.get("accessible_branches", [])
+                    if "ALL" in allowed or switched_id in allowed or str(switched_id) in [str(x) for x in allowed]:
+                        active_branch_id = switched_id
+    except Exception as e:
+        logger.warning("Could not resolve active branch context: %s", e)
+
+    setattr(user, "active_branch_id", active_branch_id)
     return user
+
+async def get_active_branch_context(
+    user: User = Depends(get_current_user)
+) -> Optional[int]:
+    """Shared dependency returning the authenticated user's active branch ID (None for consolidated multi-branch mode)."""
+    return getattr(user, "active_branch_id", user.branch_id)
 
 def require_permission(required_permission: str):
     """Dependency factory checking that current user has the required permission."""

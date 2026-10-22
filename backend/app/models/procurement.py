@@ -10,6 +10,7 @@ class Supplier(Base, TimestampMixin):
     __tablename__ = "suppliers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     # Vendor Master Fields
     vendor_code: Mapped[Optional[str]] = mapped_column(String(50), unique=True, index=True, nullable=True) # e.g. VEND-10042
     name: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
@@ -22,12 +23,11 @@ class Supplier(Base, TimestampMixin):
     country: Mapped[Optional[str]] = mapped_column(String(10), default="IN")
     gst_tax_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     
-    # Financial & Purchasing Data
-    payment_terms: Mapped[Optional[str]] = mapped_column(String(50), default="Net 30 Days") # Net 30, Net 15, 2/10 Net 30
+    payment_terms: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default=None) # Net 30, Net 15, 2/10 Net 30
     incoterms: Mapped[Optional[str]] = mapped_column(String(50), default="FOB - Free on Board")
     currency: Mapped[Optional[str]] = mapped_column(String(10), default="INR")
     reconciliation_account: Mapped[Optional[str]] = mapped_column(String(50), default="2000 - Accounts Payable")
-    rating_score: Mapped[Optional[float]] = mapped_column(Float, default=92.5) # Vendor Evaluation Score (0-100)
+    rating_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=None) # Vendor Evaluation Score (0-100), None = UNRATED
     status: Mapped[str] = mapped_column(String(30), default="ACTIVE") # ACTIVE, BLOCKED, UNDER_EVALUATION
 
     purchase_orders: Mapped[List["PurchaseOrder"]] = relationship("PurchaseOrder", back_populates="supplier")

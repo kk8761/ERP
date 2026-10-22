@@ -3,24 +3,25 @@ import re
 import csv
 import json
 import base64
+import uuid
 import logging
 from typing import Optional, List, Dict, Any
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, and_
 
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.auth import User
 from app.models.sales import Customer
 from app.models.procurement import Supplier
-from app.models.inventory import Product, ProductCategory
+from app.models.inventory import Product, ProductCategory, StockMovement
 from app.models.hr import Employee
 from app.models.finance import Account, Expense
-from app.models.org import Warehouse, Department
+from app.models.org import Warehouse, Department, Branch
 from app.services.audit_service import record_audit_log
 
 # Optional PDF & Excel Libraries
@@ -39,9 +40,10 @@ except ImportError:
 router = APIRouter(prefix="/api/data-import", tags=["Universal Document & Data Onboarding Hub"])
 
 class BatchCommitRequest(BaseModel):
-    entity_type: str  # "customers", "vendors", "products"
+    entity_type: str  # "customers", "vendors", "products", etc.
     records: List[Dict[str, Any]]
     branch_id: Optional[int] = None
+    batch_id: Optional[str] = None
 
 
 def _clean_str(val: Any) -> str:
@@ -50,12 +52,56 @@ def _clean_str(val: Any) -> str:
     return str(val).strip()
 
 
-def _clean_num(val: Any, default: float = 0.0) -> float:
-    if val is None:
-        return default
-    cleaned = re.sub(r'[^\d.-]', '', str(val))
+def parse_decimal(value: Any, field_name: str, allow_zero: bool = True, allow_negative: bool = False) -> Decimal:
+    """Strict numeric parser for money and decimal fields. Rejects non-numeric/infinite/invalid values (BUG-25)."""
+    if value is None or str(value).strip() == "":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} is required"
+        )
     try:
-        return float(cleaned) if cleaned else default
+        result = Decimal(str(value).replace(",", "").strip())
+    except InvalidOperation:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be numeric"
+        )
+    if not result.is_finite():
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be finite"
+        )
+    if not allow_negative and result < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be positive"
+        )
+    if not allow_zero and result == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be positive"
+        )
+    return result
+
+
+def parse_int(value: Any, field_name: str, allow_zero: bool = True, allow_negative: bool = False) -> int:
+    """Strict integer parser rejecting malformed or fractional values."""
+    dec = parse_decimal(value, field_name, allow_zero=allow_zero, allow_negative=allow_negative)
+    if dec % 1 != 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be an integer"
+        )
+    return int(dec)
+
+
+def _clean_num(val: Any, default: float = 0.0) -> float:
+    if val is None or str(val).strip() == "":
+        return default
+    s = str(val).strip().replace(",", "")
+    try:
+        f = float(s)
+        return f if (f == f and f != float('inf') and f != float('-inf')) else default
     except ValueError:
         return default
 
@@ -115,11 +161,17 @@ def _parse_tabular_dict_rows(rows: List[Dict[str, Any]], entity_type: str) -> Li
             phone = r_lower.get("phone") or r_lower.get("mobile") or r_lower.get("contact_number") or ""
             email = r_lower.get("email") or r_lower.get("email_address") or ""
             contact = r_lower.get("contact_person") or r_lower.get("contact") or r_lower.get("manager") or ""
-            city = r_lower.get("city") or "Hyderabad"
+            city = r_lower.get("city") or ""
             address = r_lower.get("address") or r_lower.get("location") or ""
             gst = r_lower.get("gst_tax_number") or r_lower.get("gstin") or r_lower.get("tax_id") or ""
-            terms = r_lower.get("payment_terms") or r_lower.get("terms") or "Net 30 Days"
-            score = _clean_num(r_lower.get("rating_score") or r_lower.get("rating") or r_lower.get("score"), default=92.5)
+            terms = r_lower.get("payment_terms") or r_lower.get("terms") or ""
+            raw_score = r_lower.get("rating_score") or r_lower.get("rating") or r_lower.get("score")
+            score = None
+            if raw_score is not None and str(raw_score).strip() != "" and str(raw_score).strip().upper() != "UNRATED":
+                try:
+                    score = float(raw_score)
+                except (ValueError, TypeError):
+                    score = None
 
             status_badge = "READY"
             warnings = []
@@ -128,6 +180,8 @@ def _parse_tabular_dict_rows(rows: List[Dict[str, Any]], entity_type: str) -> Li
                 warnings.append("Missing email or phone")
             if not gst:
                 warnings.append("No GSTIN specified (standard domestic terms)")
+            if score is None:
+                warnings.append("Unrated supplier (pending evaluation)")
 
             normalized.append({
                 "_row_id": idx + 1,
@@ -560,28 +614,29 @@ async def commit_batch_import(
     if not records:
         raise HTTPException(status_code=400, detail="No records to import.")
 
-    # SEC-26 / Audit Error 1: Enforce comprehensive entity-specific permissions
+    # SEC-40: Align import permission requirements with actual permissions catalog
     REQUIRED_IMPORT_PERMS = {
-        "vendors": "procurement.manage",
-        "suppliers": "procurement.manage",
-        "products": "inventory.manage",
-        "catalog": "inventory.manage",
-        "inventory": "inventory.manage",
-        "warehouses": "inventory.manage",
-        "storage": "inventory.manage",
-        "employees": "hr.manage",
-        "hr": "hr.manage",
-        "staff": "hr.manage",
-        "chart_of_accounts": "finance.manage",
-        "accounts": "finance.manage",
-        "general_ledger": "finance.manage",
-        "expenses": "finance.manage",
-        "vouchers": "finance.manage",
-        "customers": "sales.manage",
-        "clients": "sales.manage",
+        "customers": ["customers.manage", "sales.manage"],
+        "clients": ["customers.manage", "sales.manage"],
+        "products": ["inventory.create", "inventory.update", "inventory.manage"],
+        "catalog": ["inventory.create", "inventory.update", "inventory.manage"],
+        "inventory": ["inventory.adjust", "inventory.manage"],
+        "stock": ["inventory.adjust", "inventory.manage"],
+        "expenses": ["expenses.record", "finance.manage"],
+        "vouchers": ["expenses.record", "finance.manage"],
+        "employees": ["hr.manage"],
+        "hr": ["hr.manage"],
+        "staff": ["hr.manage"],
+        "vendors": ["suppliers.manage", "procurement.manage"],
+        "suppliers": ["suppliers.manage", "procurement.manage"],
+        "warehouses": ["warehouses.manage", "inventory.manage"],
+        "storage": ["warehouses.manage", "inventory.manage"],
+        "chart_of_accounts": ["accounts.manage", "finance.manage"],
+        "accounts": ["accounts.manage", "finance.manage"],
+        "general_ledger": ["accounts.manage", "finance.manage"],
     }
-    required_perm = REQUIRED_IMPORT_PERMS.get(entity_type)
-    if required_perm is None:
+    allowed_perms = REQUIRED_IMPORT_PERMS.get(entity_type)
+    if allowed_perms is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported import entity type '{entity_type}'. Allowed types: {', '.join(sorted(set(REQUIRED_IMPORT_PERMS.keys())))}"
@@ -592,34 +647,54 @@ async def commit_batch_import(
         r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
         for r in getattr(current_user, "roles", [])
     )
-    if not is_admin and required_perm not in user_perms:
+    if not is_admin and not any(p in user_perms for p in allowed_perms):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access denied: Importing '{entity_type}' records requires '{required_perm}' permission."
+            detail=f"Access denied: Importing '{entity_type}' records requires '{allowed_perms[0]}' permission."
         )
 
     # SEC-26: Batch size cap
     if len(records) > 500:
         raise HTTPException(status_code=400, detail="Batch size exceeds maximum limit of 500 records per import.")
 
-    # SEC-26 / Audit Error 1 & 2: Derive and enforce effective branch
-    effective_branch_id = payload.branch_id
+    # SEC-26 / BUG-27: Branch derivation and validation
+    branch_scoped_entities = {"employees", "hr", "staff", "warehouses", "storage"}
+    user_active_branch = getattr(current_user, "active_branch_id", current_user.branch_id) or current_user.branch_id
+
     if not is_admin:
-        if current_user.branch_id is None:
+        if user_active_branch is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No branch assigned to this account. Cannot perform branch-scoped imports."
             )
-        if payload.branch_id is not None and payload.branch_id != current_user.branch_id:
+        if payload.branch_id is not None and payload.branch_id != user_active_branch:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Forbidden: Cannot import into another branch ({payload.branch_id}). Your account is assigned to branch {current_user.branch_id}."
+                detail=f"Forbidden: Cannot import into another branch ({payload.branch_id}). Your account is assigned to branch {user_active_branch}."
             )
-        effective_branch_id = current_user.branch_id
+        effective_branch_id = user_active_branch
     else:
-        if effective_branch_id is None:
-            effective_branch_id = 1
+        # BUG-27 Fix: Do NOT silently default branch-specific entities to branch 1!
+        if entity_type in branch_scoped_entities:
+            if payload.branch_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Branch selection is required when importing branch-specific entity '{entity_type}'. Please specify an explicit branch_id."
+                )
+            effective_branch_id = payload.branch_id
+        else:
+            effective_branch_id = payload.branch_id or user_active_branch
 
+    # Validate that branch exists in DB
+    if effective_branch_id is not None:
+        b_res = await db.execute(select(Branch).where(Branch.id == effective_branch_id))
+        if not b_res.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Branch ID {effective_branch_id} does not exist."
+            )
+
+    batch_id = payload.batch_id or f"IMP-{uuid.uuid4().hex[:8].upper()}"
     created_count = 0
     updated_count = 0
     errors = []
@@ -632,40 +707,55 @@ async def commit_batch_import(
                     continue
 
                 # Check if exists by name or vendor_code
-                existing_res = await db.execute(
-                    select(Supplier).where(or_(Supplier.name == name, Supplier.vendor_code == r.get("vendor_code")))
-                )
-                existing = existing_res.scalar_one_or_none()
+                v_code = _clean_str(r.get("vendor_code"))
+                v_filter = [Supplier.name == name]
+                if v_code:
+                    v_filter.append(Supplier.vendor_code == v_code)
+                existing_res = await db.execute(select(Supplier).where(or_(*v_filter)))
+                existing = existing_res.scalars().first()
+
+                raw_rating = r.get("rating_score") if r.get("rating_score") is not None else r.get("rating")
+                rating_score = None
+                if raw_rating is not None and str(raw_rating).strip() != "" and str(raw_rating).strip().upper() != "UNRATED":
+                    try:
+                        rating_score = float(raw_rating)
+                    except (ValueError, TypeError):
+                        raise HTTPException(status_code=400, detail=f"Invalid rating_score for vendor '{name}'. Must be numeric or unrated.")
 
                 if existing:
                     # Update fields
                     existing.phone = _clean_str(r.get("phone")) or existing.phone
                     existing.email = _clean_str(r.get("email")) or existing.email
                     existing.contact_person = _clean_str(r.get("contact_person")) or existing.contact_person
-                    existing.city = _clean_str(r.get("city")) or existing.city
-                    existing.payment_terms = _clean_str(r.get("payment_terms")) or existing.payment_terms
+                    if r.get("city"):
+                        existing.city = _clean_str(r.get("city"))
+                    if r.get("payment_terms"):
+                        existing.payment_terms = _clean_str(r.get("payment_terms"))
                     if r.get("gst_tax_number"):
                         existing.gst_tax_number = _clean_str(r.get("gst_tax_number"))
+                    if rating_score is not None:
+                        existing.rating_score = rating_score
                     updated_count += 1
                 else:
+                    # BUG-28 Fix: Do not invent Hyderabad, Net 30 Days, or 92.5 score
                     sup = Supplier(
                         name=name,
-                        vendor_code=_clean_str(r.get("vendor_code")) or f"VEND-{1000 + created_count + 1}",
+                        vendor_code=v_code or f"VEND-{uuid.uuid4().hex[:6].upper()}",
                         vendor_account_group="Standard Vendor",
-                        contact_person=_clean_str(r.get("contact_person")),
-                        phone=_clean_str(r.get("phone")),
-                        email=_clean_str(r.get("email")),
-                        city=_clean_str(r.get("city")) or "Hyderabad",
-                        address=_clean_str(r.get("address")),
-                        gst_tax_number=_clean_str(r.get("gst_tax_number")),
-                        payment_terms=_clean_str(r.get("payment_terms")) or "Net 30 Days",
-                        rating_score=float(r.get("rating_score") or 92.5),
+                        contact_person=_clean_str(r.get("contact_person")) or None,
+                        phone=_clean_str(r.get("phone")) or None,
+                        email=_clean_str(r.get("email")) or None,
+                        city=_clean_str(r.get("city")) or None,
+                        address=_clean_str(r.get("address")) or None,
+                        gst_tax_number=_clean_str(r.get("gst_tax_number")) or None,
+                        payment_terms=_clean_str(r.get("payment_terms")) or None,
+                        rating_score=rating_score,
                         status="ACTIVE"
                     )
                     db.add(sup)
                     created_count += 1
 
-        elif entity_type in ["products", "catalog", "inventory"]:
+        elif entity_type in ["products", "catalog", "inventory", "stock"]:
             # Ensure category exists
             cat_res = await db.execute(select(ProductCategory).limit(1))
             default_cat = cat_res.scalar_one_or_none()
@@ -680,42 +770,45 @@ async def commit_batch_import(
                 existing_res = await db.execute(select(Product).where(or_(Product.sku == sku, Product.name == name)))
                 existing = existing_res.scalar_one_or_none()
 
-                # Error 3: Require explicit fields instead of inventing default prices and stock
                 raw_sell = r.get("selling_price")
                 raw_cost = r.get("cost_price")
-                raw_stock = r.get("current_stock")
+                raw_stock = r.get("current_stock") if r.get("current_stock") is not None else r.get("stock")
                 raw_reorder = r.get("reorder_level")
 
-                if raw_sell is None or raw_cost is None or raw_stock is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Validation error: 'selling_price', 'cost_price', and 'current_stock' are required for product '{name}'."
-                    )
-
-                sell_price = Decimal(str(_clean_num(raw_sell)))
-                cost_price = Decimal(str(_clean_num(raw_cost)))
-                stock = int(_clean_num(raw_stock))
-                reorder = int(_clean_num(raw_reorder, 0))
-
-                # SEC-26: Reject negative price or stock values
-                if sell_price < 0 or cost_price < 0 or stock < 0 or reorder < 0:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Validation error: Negative price or stock values are rejected for product '{name}'."
-                    )
+                # BUG-25 Fix: Strict numeric parsing rejecting non-numeric/zero selling price
+                sell_price = parse_decimal(raw_sell, f"Product '{name}' selling_price", allow_zero=False, allow_negative=False)
+                cost_price = parse_decimal(raw_cost, f"Product '{name}' cost_price", allow_zero=True, allow_negative=False)
+                stock = parse_int(raw_stock, f"Product '{name}' current_stock", allow_zero=True, allow_negative=False)
+                reorder = parse_int(raw_reorder, f"Product '{name}' reorder_level", allow_zero=True, allow_negative=False) if raw_reorder is not None else 0
 
                 if existing:
+                    old_stock = existing.current_stock
                     existing.selling_price = sell_price
                     existing.cost_price = cost_price
-                    # Error 2 Fix: Treat import as absolute stock snapshot to prevent double-counting on re-import
                     existing.current_stock = stock
                     existing.reorder_level = reorder
+
+                    # BUG-26 Fix: Record stock adjustment movement
+                    stock_diff = stock - old_stock
+                    if stock_diff != 0:
+                        m_type = "ADJUSTMENT_IN" if stock_diff > 0 else "ADJUSTMENT_OUT"
+                        movement = StockMovement(
+                            product_id=existing.id,
+                            movement_type=m_type,
+                            quantity=abs(stock_diff),
+                            previous_stock=old_stock,
+                            new_stock=stock,
+                            reference_id=f"IMPORT-{batch_id}",
+                            notes=f"Stock adjustment via product import batch {batch_id}",
+                            created_by_user_id=current_user.id
+                        )
+                        db.add(movement)
                     updated_count += 1
                 else:
                     prod = Product(
                         name=name,
                         sku=sku,
-                        barcode=_clean_str(r.get("barcode")),
+                        barcode=_clean_str(r.get("barcode")) or None,
                         category_id=default_cat_id,
                         unit_of_measure=_clean_str(r.get("unit_of_measure")) or "unit",
                         selling_price=sell_price,
@@ -725,6 +818,21 @@ async def commit_batch_import(
                         is_active=True
                     )
                     db.add(prod)
+                    await db.flush()
+
+                    # BUG-26 Fix: Record opening stock movement
+                    if stock > 0:
+                        movement = StockMovement(
+                            product_id=prod.id,
+                            movement_type="OPENING_STOCK",
+                            quantity=stock,
+                            previous_stock=0,
+                            new_stock=stock,
+                            reference_id=f"IMPORT-{batch_id}",
+                            notes=f"Initial opening stock imported via batch {batch_id}",
+                            created_by_user_id=current_user.id
+                        )
+                        db.add(movement)
                     created_count += 1
 
         elif entity_type in ["employees", "hr", "staff"]:
@@ -741,22 +849,11 @@ async def commit_batch_import(
                     l_name = _clean_str(r.get("last_name")) or "Staff"
                 desig = _clean_str(r.get("designation") or r.get("role")) or "Associate"
 
-                # Error 3: Validate basic salary is explicitly provided and non-negative
-                raw_salary = r.get("basic_salary")
-                if raw_salary is None:
-                    raw_salary = r.get("salary")
-                if raw_salary is None:
-                    raw_salary = r.get("base_salary")
-                if raw_salary is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Validation error: Basic salary is required for employee '{f_name} {l_name}'."
-                    )
-                salary = Decimal(str(_clean_num(raw_salary)))
-                if salary < 0:
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Basic salary cannot be negative.")
+                raw_salary = r.get("basic_salary") if r.get("basic_salary") is not None else (r.get("salary") or r.get("base_salary"))
+                # BUG-25 Fix: Strict decimal parsing for salary
+                salary = parse_decimal(raw_salary, f"Basic salary for employee '{f_name} {l_name}'", allow_zero=True, allow_negative=False)
 
-                # Error 1 Fix: Scope employee lookup by branch to prevent cross-branch mutations
+                # Scope employee lookup by branch to prevent cross-branch mutations
                 existing = None
                 if email:
                     e_res = await db.execute(
@@ -801,7 +898,7 @@ async def commit_batch_import(
                 existing_res = await db.execute(select(Account).where(Account.code == code))
                 existing = existing_res.scalar_one_or_none()
                 if existing:
-                    # Error 4 Fix: Manage account metadata only; ordinary imports must not overwrite a live ledger balance directly
+                    # Manage account metadata only; ordinary imports must not overwrite a live ledger balance directly
                     existing.name = name
                     existing.account_type = acc_type
                     updated_count += 1
@@ -816,7 +913,6 @@ async def commit_batch_import(
                     created_count += 1
 
         elif entity_type == "general_ledger":
-            # Error 4 Fix: Prohibit direct raw balance overwriting on live general ledger
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="General ledger opening balances must be posted through balanced, validated journal entries in a controlled accounting period. Direct account balance overwrites are prohibited."
@@ -827,15 +923,9 @@ async def commit_batch_import(
                 exp_num = _clean_str(r.get("expense_number") or r.get("voucher_number")) or f"EXP-{2000 + created_count + 1}"
                 cat = _clean_str(r.get("category") or r.get("expense_category")) or "Other"
 
-                # Error 3: Validate expense amount is explicitly provided and positive
-                raw_amount = r.get("amount")
-                if raw_amount is None:
-                    raw_amount = r.get("total_amount")
-                if raw_amount is None:
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expense amount is required.")
-                amt = Decimal(str(_clean_num(raw_amount)))
-                if amt <= 0:
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expense amount must be positive.")
+                raw_amount = r.get("amount") if r.get("amount") is not None else r.get("total_amount")
+                # BUG-25 Fix: Strict positive decimal parsing
+                amt = parse_decimal(raw_amount, "Expense amount", allow_zero=False, allow_negative=False)
 
                 desc = _clean_str(r.get("description") or r.get("name") or r.get("title")) or f"Imported Expense {exp_num}"
                 pay_method = (_clean_str(r.get("payment_method")) or "BANK_TRANSFER").upper()
@@ -857,7 +947,7 @@ async def commit_batch_import(
                 name = _clean_str(r.get("name") or r.get("warehouse_name")) or f"Warehouse {code}"
                 loc = _clean_str(r.get("location") or r.get("city")) or "Main Complex"
 
-                # Error 1 Fix: Scope warehouse lookup by effective branch
+                # Scope warehouse lookup by effective branch
                 existing_res = await db.execute(
                     select(Warehouse).where(and_(Warehouse.code == code, Warehouse.branch_id == effective_branch_id))
                 )

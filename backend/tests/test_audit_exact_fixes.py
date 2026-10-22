@@ -56,21 +56,28 @@ async def test_negative_branch_restriction_and_non_admin_import(client: AsyncCli
     """
     headers = {"Authorization": f"Bearer {cashier_auth_token}"}
 
-    # 1. Cashier lacks finance.manage for expenses
+    # 1. Cashier lacks expenses.record for expenses (SEC-40)
     res_expenses = await client.post("/api/data-import/commit", headers=headers, json={
         "entity_type": "expenses",
         "records": [{"title": "Unauthorized Expense", "amount": 500.0}]
     })
     assert res_expenses.status_code == 403
-    assert "requires 'finance.manage' permission" in res_expenses.json().get("detail", "")
+    assert "expenses.record" in res_expenses.json().get("detail", "")
 
-    # 2. Cashier lacks sales.manage for customer imports
+    # 2. Cashier lacks suppliers.manage for vendors (SEC-40)
+    res_vendors = await client.post("/api/data-import/commit", headers=headers, json={
+        "entity_type": "vendors",
+        "records": [{"name": "Sneak Vendor", "email": "sneak@example.com"}]
+    })
+    assert res_vendors.status_code == 403
+    assert "suppliers.manage" in res_vendors.json().get("detail", "")
+
+    # 3. Cashier HAS customers.manage, so customer import succeeds (SEC-40)
     res_cust = await client.post("/api/data-import/commit", headers=headers, json={
         "entity_type": "customers",
-        "records": [{"name": "Sneak Customer", "email": "sneak@example.com"}]
+        "records": [{"name": "Permitted Customer", "phone": "9998887770"}]
     })
-    assert res_cust.status_code == 403
-    assert "requires 'sales.manage' permission" in res_cust.json().get("detail", "")
+    assert res_cust.status_code == 200
 
     # 3. Provision a non-admin sales manager assigned to branch 2
     async with AsyncSessionLocal() as session:

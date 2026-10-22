@@ -15,6 +15,11 @@ from app.config import settings
 async def setup_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        for tbl in ["users", "products", "suppliers"]:
+            try:
+                await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN organization_id INTEGER"))
+            except Exception:
+                pass
         for col, col_type in [
             ("sender_email", "VARCHAR(150)"), 
             ("sender_name", "VARCHAR(150)"),

@@ -129,50 +129,11 @@ class DisasterRecoveryService:
     @staticmethod
     async def get_dr_drills_history(db: AsyncSession) -> List[DRDrillExecution]:
         """
-        Retrieves history of monthly disaster recovery drill executions.
-        Seeds historical monthly drills if none exist.
+        Retrieves authentic history of disaster recovery drill executions from database (BUG-31).
+        Does not inject synthetic seeds into production monitoring paths.
         """
         result = await db.execute(select(DRDrillExecution).order_by(desc(DRDrillExecution.completed_at)))
-        drills = list(result.scalars().all())
-
-        if not drills:
-            # Seed 3 historical monthly drills to demonstrate consistent monthly testing compliance
-            now = datetime.now(timezone.utc)
-            history_seeds = [
-                ("Monthly Cold-Site Activation Drill - August 2026", now - timedelta(days=62), 1180.0, "SecOps Team Lead"),
-                ("Monthly Hot Standby Failover Drill - September 2026", now - timedelta(days=31), 1050.0, "Database Recovery Lead"),
-                ("Monthly Disaster Recovery & PITR Drill - October 2026", now - timedelta(days=1), 985.0, "Automated DR Scheduler")
-            ]
-            for name, comp_time, dur, by in history_seeds:
-                seed_drill = DRDrillExecution(
-                    id=f"DR-DRILL-{uuid.uuid4().hex[:12].upper()}",
-                    drill_name=name,
-                    scheduled_frequency="MONTHLY",
-                    started_at=comp_time - timedelta(seconds=dur),
-                    completed_at=comp_time,
-                    duration_seconds=dur,
-                    rto_target_seconds=14400.0,
-                    rto_achieved_seconds=dur,
-                    rto_compliance_met=True,
-                    rpo_target_seconds=900.0,
-                    rpo_achieved_seconds=110.0,
-                    status="PASSED",
-                    step_results=json.dumps([
-                        {"step": "Failover Trigger & Cluster Isolation", "duration_seconds": dur * 0.2, "status": "PASSED"},
-                        {"step": "Snapshot Integrity & SHA-256 Checksum", "duration_seconds": dur * 0.15, "status": "PASSED"},
-                        {"step": "Transaction Log WAL Delta Replay", "duration_seconds": dur * 0.35, "status": "PASSED"},
-                        {"step": "ACID Ledger & Balance Reconciliation", "duration_seconds": dur * 0.15, "status": "PASSED"},
-                        {"step": "Global DNS Switchover & API Health Probe", "duration_seconds": dur * 0.15, "status": "PASSED"}
-                    ]),
-                    conducted_by=by,
-                    report_summary=f"Automated drill achieved full cluster restoration in {dur / 60:.1f} minutes, beating 4-hour RTO mandate."
-                )
-                db.add(seed_drill)
-            await db.commit()
-            result = await db.execute(select(DRDrillExecution).order_by(desc(DRDrillExecution.completed_at)))
-            drills = list(result.scalars().all())
-
-        return drills
+        return list(result.scalars().all())
 
     # -------------------------------------------------------------------------
     # 43.3 BACKUP RETENTION & LIFECYCLE POLICIES (Requirement 29.6)
@@ -222,9 +183,9 @@ class DisasterRecoveryService:
     async def apply_retention_lifecycle(db: AsyncSession) -> Dict[str, Any]:
         """
         Executes backup lifecycle policies:
-        - Backups > 30 days are transitioned from HOT_ACTIVE to WARM_VAULT.
-        - Backups > 90 days are transitioned to COLD_GLACIER and marked as archived.
-        - Preserves all backups for 90+ days without premature deletion.
+        - Backups > 30 days are transitioned from HOT_ACTIVE to WARM_VAULT (with physical file movement).
+        - Backups > 90 days are transitioned to COLD_GLACIER and marked as archived (with physical file movement).
+        - Preserves all backups for 90+ days without premature deletion (BUG-33).
         """
         now = datetime.now(timezone.utc)
         result = await db.execute(select(BackupRecord))
@@ -233,6 +194,7 @@ class DisasterRecoveryService:
         transitioned_to_vault = 0
         transitioned_to_glacier = 0
         total_scanned = len(backups)
+        physical_moves = 0
 
         for b in backups:
             created_dt = ensure_aware(b.created_at)
@@ -243,9 +205,31 @@ class DisasterRecoveryService:
                 b.is_archived = True
                 b.archived_at = now
                 transitioned_to_glacier += 1
+                if b.file_path and os.path.exists(b.file_path):
+                    try:
+                        base_dir = os.path.dirname(b.file_path)
+                        cold_dir = os.path.join(base_dir, "cold_glacier")
+                        os.makedirs(cold_dir, exist_ok=True)
+                        dest = os.path.join(cold_dir, os.path.basename(b.file_path))
+                        shutil.move(b.file_path, dest)
+                        b.file_path = dest
+                        physical_moves += 1
+                    except Exception as ex:
+                        logger.warning("Could not physically relocate %s to cold vault: %s", b.file_path, ex)
             elif age_days > 30 and b.storage_tier == "HOT_ACTIVE":
                 b.storage_tier = "WARM_VAULT"
                 transitioned_to_vault += 1
+                if b.file_path and os.path.exists(b.file_path):
+                    try:
+                        base_dir = os.path.dirname(b.file_path)
+                        warm_dir = os.path.join(base_dir, "warm_vault")
+                        os.makedirs(warm_dir, exist_ok=True)
+                        dest = os.path.join(warm_dir, os.path.basename(b.file_path))
+                        shutil.move(b.file_path, dest)
+                        b.file_path = dest
+                        physical_moves += 1
+                    except Exception as ex:
+                        logger.warning("Could not physically relocate %s to warm vault: %s", b.file_path, ex)
 
         await db.commit()
 
@@ -255,57 +239,19 @@ class DisasterRecoveryService:
             "total_backups_evaluated": total_scanned,
             "transitioned_to_warm_vault": transitioned_to_vault,
             "archived_to_cold_glacier": transitioned_to_glacier,
+            "physical_files_relocated": physical_moves,
             "minimum_retention_enforced_days": 90,
-            "message": f"Lifecycle policy applied: {transitioned_to_vault} moved to Warm Vault, {transitioned_to_glacier} archived to Cold Glacier. Zero premature deletions."
+            "message": f"Lifecycle policy applied: {transitioned_to_vault} moved to Warm Vault, {transitioned_to_glacier} archived to Cold Glacier ({physical_moves} physical files relocated). Zero premature deletions."
         }
 
     @staticmethod
     async def list_backups(db: AsyncSession) -> List[BackupRecord]:
         """
         Lists all recorded backups with their tier and retention dates.
-        Seeds realistic historical backups if table is empty.
+        Returns authentic backup records from database without synthetic seeding (BUG-31).
         """
         result = await db.execute(select(BackupRecord).order_by(desc(BackupRecord.created_at)))
-        backups = list(result.scalars().all())
-
-        if not backups:
-            # Seed initial backups demonstrating 90+ day retention and multi-tier archiving
-            now = datetime.now(timezone.utc)
-            seed_data = [
-                ("nexaerp_full_snapshot_today.backup.gz", "FULL", "COMPLETED", "HOT_ACTIVE", 0.5, 90, False),
-                ("nexaerp_incremental_yesterday.backup.gz", "INCREMENTAL", "COMPLETED", "HOT_ACTIVE", 1.5, 90, False),
-                ("nexaerp_full_weekly_lastweek.backup.gz", "FULL", "COMPLETED", "HOT_ACTIVE", 7.0, 90, False),
-                ("nexaerp_full_archive_month1.backup.gz", "FULL", "COMPLETED", "WARM_VAULT", 35.0, 180, False),
-                ("nexaerp_full_archive_month2.backup.gz", "FULL", "COMPLETED", "WARM_VAULT", 65.0, 180, False),
-                ("nexaerp_quarterly_archive_95d.backup.gz", "SNAPSHOT", "ARCHIVED", "COLD_GLACIER", 95.0, 365, True),
-                ("nexaerp_legacy_archive_120d.backup.gz", "FULL", "ARCHIVED", "COLD_GLACIER", 120.0, 365, True),
-            ]
-
-            for filename, btype, status, tier, age_days, ret_days, is_arch in seed_data:
-                created = now - timedelta(days=age_days)
-                ret_until = created + timedelta(days=ret_days)
-                checksum = hashlib.sha256(f"{filename}-{created.isoformat()}".encode()).hexdigest()
-                rec = BackupRecord(
-                    id=f"BKP-{uuid.uuid4().hex[:12].upper()}",
-                    backup_name=filename,
-                    backup_type=btype,
-                    status=status,
-                    storage_tier=tier,
-                    retention_days=ret_days,
-                    retention_until=ret_until,
-                    file_path=f"/var/backups/nexaerp/{filename}",
-                    file_size_bytes=int(142 * 1024 * 1024 * (0.8 + 0.4 * (age_days % 3))),
-                    checksum_sha256=checksum,
-                    is_archived=is_arch,
-                    archived_at=now - timedelta(days=age_days - 90) if is_arch else None,
-                    metadata_json=json.dumps({"tables": 48, "rows": 125430, "compression": "gzip-9", "encryption": "AES-256-GCM"})
-                )
-                db.add(rec)
-            await db.commit()
-            result = await db.execute(select(BackupRecord).order_by(desc(BackupRecord.created_at)))
-            backups = list(result.scalars().all())
-
-        return backups
+        return list(result.scalars().all())
 
     # -------------------------------------------------------------------------
     # 43.4 POINT-IN-TIME RECOVERY (PITR) (Requirement 29.7)

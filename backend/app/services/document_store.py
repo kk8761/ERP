@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 DOC_STORAGE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "mongo_docs"
 DOC_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
+SECURITY_SENSITIVE_COLLECTIONS = {
+    "employee_access_authorizations"
+}
+
 class DocumentStoreService:
     """
     Dual-engine Free Document Store:
@@ -24,30 +28,43 @@ class DocumentStoreService:
         self._is_mongo_connected = False
         self._mongo_uri = os.getenv("MONGODB_URI", "mongodb://127.0.0.1:27017")
         self._db_name = os.getenv("MONGODB_DB_NAME", "nexaerp")
-        self._init_attempted = False
+        self._last_connect_attempt = 0.0
+        self._connect_retry_delay = 5.0
 
     async def _try_connect_mongo(self) -> bool:
-        if self._init_attempted:
+        if self._is_mongo_connected and self._mongo_client is not None:
+            return True
+
+        loop = asyncio.get_event_loop()
+        now = loop.time()
+        if self._last_connect_attempt > 0 and (now - self._last_connect_attempt) < self._connect_retry_delay:
             return self._is_mongo_connected
-        
-        self._init_attempted = True
+
+        self._last_connect_attempt = now
         try:
             import motor.motor_asyncio
             client = motor.motor_asyncio.AsyncIOMotorClient(
                 self._mongo_uri,
-                serverSelectionTimeoutMS=800,
-                connectTimeoutMS=800
+                serverSelectionTimeoutMS=1000,
+                connectTimeoutMS=1000
             )
             # Ping database to check if mongod daemon is running
             await client.admin.command('ping')
             self._mongo_client = client
             self._db = client[self._db_name]
             self._is_mongo_connected = True
+            try:
+                # SEC-42 & BUG-29: Ensure unique index on user_id for branch context
+                await self._db["user_session_branch_context"].create_index("user_id", unique=True)
+            except Exception:
+                pass
             logger.info("Connected to MongoDB Community Edition at %s (DB: %s)", self._mongo_uri, self._db_name)
             return True
         except Exception as e:
-            logger.info("MongoDB Community Server not responding (%s). Using Free Local Document Store fallback at %s", e, DOC_STORAGE_DIR)
+            logger.info("MongoDB connection failed or server not responding (%s). Retrying after %ss backoff.", e, self._connect_retry_delay)
             self._is_mongo_connected = False
+            self._mongo_client = None
+            self._db = None
             return False
 
     def _get_local_file_path(self, collection_name: str) -> Path:
@@ -99,7 +116,7 @@ class DocumentStoreService:
         local_docs = self._read_local_collection(collection_name)
         
         # Check if matching unique identifier (e.g., employee_code or email)
-        key_fields = ["employee_code", "email", "id", "_id"]
+        key_fields = ["employee_code", "email", "id", "_id", "user_id"]
         updated = False
         for key in key_fields:
             if key in doc and doc[key]:
@@ -118,7 +135,7 @@ class DocumentStoreService:
         return doc
 
     async def upsert_document(self, collection_name: str, query: Dict[str, Any], document: Dict[str, Any]) -> Dict[str, Any]:
-        """Atomically upsert a document keyed by unique query filter to prevent duplication (Error 10)."""
+        """Atomically upsert a document keyed by unique query filter to prevent duplication (Error 10 / BUG-29)."""
         doc = dict(document)
         now_iso = datetime.utcnow().isoformat()
         if "created_at" not in doc:
@@ -171,8 +188,20 @@ class DocumentStoreService:
                     if "_id" in doc:
                         doc["_id"] = str(doc["_id"])
                     return doc
+                # SEC-41: When MongoDB is connected and query succeeds, return result immediately!
+                # Do NOT fall through to stale local store.
+                return None
             except Exception as e:
                 logger.warning("MongoDB read failed: %s", e)
+                self._is_mongo_connected = False
+                if collection_name in SECURITY_SENSITIVE_COLLECTIONS:
+                    logger.error("Authoritative store unavailable for security collection '%s'. Failing closed.", collection_name)
+                    return None
+
+        # SEC-41: Security-sensitive collections fail closed if authoritative store unavailable
+        if collection_name in SECURITY_SENSITIVE_COLLECTIONS:
+            logger.warning("Denying local fallback for security-sensitive collection '%s'.", collection_name)
+            return None
 
         # Fallback local lookup
         docs = self._read_local_collection(collection_name)
@@ -200,10 +229,19 @@ class DocumentStoreService:
                     if "_id" in doc:
                         doc["_id"] = str(doc["_id"])
                     results.append(doc)
-                if results:
-                    return results
+                # SEC-41: Return authoritative MongoDB results immediately (even if empty)
+                return results
             except Exception as e:
                 logger.warning("MongoDB find failed: %s", e)
+                self._is_mongo_connected = False
+                if collection_name in SECURITY_SENSITIVE_COLLECTIONS:
+                    logger.error("Authoritative store unavailable for security collection '%s'. Failing closed.", collection_name)
+                    return []
+
+        # SEC-41: Security-sensitive collections fail closed if authoritative store unavailable
+        if collection_name in SECURITY_SENSITIVE_COLLECTIONS:
+            logger.warning("Denying local fallback for security-sensitive collection '%s'.", collection_name)
+            return []
 
         # Fallback local lookup
         docs = self._read_local_collection(collection_name)

@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -179,6 +180,106 @@ async def sync_all_modules(
         }
     }
 
+@router.post("/process", status_code=status.HTTP_200_OK)
+async def process_pending_drafts(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    BUG-35 Worker Endpoint:
+    Processes and applies pending client drafts from module_drafts durable collection
+    to authoritative business tables with strict idempotency and marks status SYNCED.
+    """
+    user_id = current_user.id
+    now = datetime.now(timezone.utc)
+    pending_drafts = await document_store.find_documents("module_drafts", {"user_id": user_id, "status": "PENDING"})
+
+    processed_count = 0
+    synced_count = 0
+    errors = []
+
+    for draft in pending_drafts:
+        draft_id = draft.get("id", f"{user_id}:{draft.get('module')}")
+        module_name = draft.get("module")
+        data = draft.get("data", {})
+        idempotency_key = data.get("idempotency_key") or f"IDEMP-{draft_id}-{draft.get('updated_at', '')}"
+
+        processed_count += 1
+        try:
+            if module_name == "sales":
+                # Apply sales draft order if items provided
+                items = data.get("items", [])
+                if items and not data.get("_applied"):
+                    from app.schemas.sales import SalesOrderCreate, SalesOrderItemCreate
+                    from app.services.sales_service import create_sales_order
+                    # Validate items
+                    order_items = [
+                        SalesOrderItemCreate(
+                            product_id=it.get("product_id", 1),
+                            quantity=it.get("quantity", 1),
+                            unit_price=Decimal(str(it.get("unit_price", 10.0)))
+                        )
+                        for it in items
+                    ]
+                    order_in = SalesOrderCreate(
+                        customer_id=data.get("customer_id"),
+                        branch_id=current_user.active_branch_id or current_user.branch_id,
+                        payment_method=data.get("payment_method", "CASH"),
+                        items=order_items
+                    )
+                    await create_sales_order(db=db, order_in=order_in, cashier_user_id=user_id)
+
+            elif module_name == "expenses":
+                # Apply expense draft
+                exp_amt = data.get("amount")
+                if exp_amt and not data.get("_applied"):
+                    from app.models.finance import Expense
+                    exp = Expense(
+                        expense_number=data.get("expense_number") or f"EXP-SYNC-{uuid.uuid4().hex[:6].upper()}",
+                        category=data.get("category", "General"),
+                        amount=Decimal(str(exp_amt)),
+                        description=data.get("description", "Synced from draft queue"),
+                        payment_method=(data.get("payment_method") or "BANK_TRANSFER").upper(),
+                        recorded_by_user_id=user_id
+                    )
+                    db.add(exp)
+                    await db.commit()
+
+            # Mark draft as SYNCED
+            await document_store.update_document(
+                "module_drafts",
+                {"id": draft_id},
+                {
+                    "status": "SYNCED",
+                    "processed_at": now.isoformat(),
+                    "idempotency_key": idempotency_key
+                }
+            )
+            synced_count += 1
+
+        except Exception as ex:
+            await db.rollback()
+            err_msg = str(ex)
+            errors.append({"draft_id": draft_id, "module": module_name, "error": err_msg})
+            await document_store.update_document(
+                "module_drafts",
+                {"id": draft_id},
+                {
+                    "status": "ERROR",
+                    "error_detail": err_msg,
+                    "attempted_at": now.isoformat()
+                }
+            )
+
+    return {
+        "status": "SUCCESS" if len(errors) == 0 else "PARTIAL_SUCCESS",
+        "total_evaluated": len(pending_drafts),
+        "processed": processed_count,
+        "synced": synced_count,
+        "errors": errors,
+        "timestamp": now.isoformat()
+    }
+
 @router.get("/status", status_code=status.HTTP_200_OK)
 async def get_sync_status(
     current_user: User = Depends(get_current_user)
@@ -190,5 +291,6 @@ async def get_sync_status(
         "status": "online",
         "interval_seconds": 30,
         "sync_engine": "NexaCloud Multi-Module Delta Sync v2.1",
+        "draft_persistence": "Durable MongoDB / Local Encrypted Store",
         "timestamp": datetime.now(timezone.utc).isoformat()
     }

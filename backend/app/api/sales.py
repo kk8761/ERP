@@ -40,16 +40,19 @@ async def list_sales_orders(
     if search:
         stmt = stmt.where(SalesOrder.invoice_number.ilike(f"%{search}%"))
 
-    # Branch Isolation (SEC-15 & SEC-22): Scope order listings strictly to the user's branch
+    # Branch Isolation (SEC-15 & SEC-22 & BUG-29): Scope order listings strictly to the user's active branch
     is_global_admin = current_user.is_superuser or any(
         r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
         for r in getattr(current_user, "roles", [])
     )
+    effective_branch = getattr(current_user, "active_branch_id", current_user.branch_id)
     if not is_global_admin:
-        if not current_user.branch_id:
+        if not effective_branch:
             # SEC-22: Non-admin users without a branch assignment cannot access unscoped cross-branch orders
             return []
-        stmt = stmt.where(SalesOrder.branch_id == current_user.branch_id)
+        stmt = stmt.where(SalesOrder.branch_id == effective_branch)
+    elif effective_branch is not None:
+        stmt = stmt.where(SalesOrder.branch_id == effective_branch)
 
     result = await db.execute(stmt)
     orders = result.scalars().all()
@@ -93,20 +96,21 @@ async def create_order(
     current_user: User = Depends(require_permission("sales.create")),
     db: AsyncSession = Depends(get_db)
 ):
-    # SEC-22: Prevent client-side branch spoofing. Enforce server-derived branch context.
+    # SEC-22 & BUG-29: Prevent client-side branch spoofing. Enforce server-derived active branch context.
     is_global_admin = current_user.is_superuser or any(
         r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
         for r in getattr(current_user, "roles", [])
     )
+    effective_branch = getattr(current_user, "active_branch_id", current_user.branch_id) or current_user.branch_id
     if not is_global_admin:
-        if not current_user.branch_id:
+        if not effective_branch:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Branch assignment required: Non-administrative users cannot transact without an assigned branch context."
             )
-        order_in.branch_id = current_user.branch_id
-    elif not order_in.branch_id and current_user.branch_id:
-        order_in.branch_id = current_user.branch_id
+        order_in.branch_id = effective_branch
+    elif not order_in.branch_id and effective_branch:
+        order_in.branch_id = effective_branch
 
     order = await create_sales_order(
         db=db,
