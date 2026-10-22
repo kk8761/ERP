@@ -115,7 +115,8 @@ async def create_order(
     order = await create_sales_order(
         db=db,
         order_in=order_in,
-        cashier_user_id=current_user.id
+        cashier_user_id=current_user.id,
+        organization_id=current_user.organization_id
     )
     await record_audit_log(
         db, action="SALE_COMPLETED", entity_name="SalesOrder",
@@ -239,6 +240,8 @@ async def list_customers(
     db: AsyncSession = Depends(get_db)
 ):
     stmt = select(Customer).order_by(Customer.name.asc())
+    if current_user.organization_id is not None:
+        stmt = stmt.where(Customer.organization_id == current_user.organization_id)
     if search:
         stmt = stmt.where(
             (Customer.name.ilike(f"%{search}%")) |
@@ -253,13 +256,17 @@ async def create_customer(
     current_user: User = Depends(require_permission("customers.manage")),
     db: AsyncSession = Depends(get_db)
 ):
-    customer = Customer(**data.model_dump())
+    c_data = data.model_dump()
+    if current_user.organization_id is not None and not c_data.get("organization_id"):
+        c_data["organization_id"] = current_user.organization_id
+    customer = Customer(**c_data)
     db.add(customer)
     await record_audit_log(
         db, action="CUSTOMER_CREATED", entity_name="Customer",
         user_id=current_user.id, user_email=current_user.email,
-        details={"name": customer.name, "phone": customer.phone}
+        details={"name": customer.name, "phone": customer.phone, "organization_id": customer.organization_id}
     )
     await db.commit()
     await db.refresh(customer)
     return customer
+

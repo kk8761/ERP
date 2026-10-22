@@ -161,7 +161,10 @@ class DocumentStoreService:
                 self._write_local_collection(collection_name, local_docs)
                 return doc
             except Exception as e:
-                logger.warning("MongoDB upsert failed, falling back to local free store: %s", e)
+                logger.warning("MongoDB upsert failed: %s", e)
+                # SEC-50: For synchronization queues and security data requiring durable persistence, propagate failure
+                if collection_name in ["module_drafts", *SECURITY_SENSITIVE_COLLECTIONS]:
+                    raise RuntimeError(f"Durable document store write failed for '{collection_name}': {e}")
 
         # Free local document store fallback
         doc["storage_engine"] = "Local Free Document Store (Persistent JSON Engine)"
@@ -258,15 +261,83 @@ class DocumentStoreService:
 
         return [d for d in docs if _matches(d, query)]
 
-    async def update_document(self, collection_name: str, query: Dict[str, Any], updates: Dict[str, Any]) -> bool:
+    async def claim_document(self, collection_name: str, query: Dict[str, Any], updates: Dict[str, Any]) -> bool:
+        """
+        BUG-47: Conditionally claims a document using upsert=False and checks modified_count/matched_count.
+        Guarantees atomic single-worker claims without upsert side-effects.
+        """
         updates["updated_at"] = datetime.utcnow().isoformat()
         is_connected = await self._try_connect_mongo()
         if is_connected and self._db is not None:
             try:
                 coll = self._db[collection_name]
-                await coll.update_one(query, {"$set": updates}, upsert=True)
+                result = await coll.update_one(query, {"$set": updates}, upsert=False)
+                claimed = (result.modified_count == 1) or (result.matched_count == 1)
+                if claimed:
+                    # Mirror update to local store
+                    docs = self._read_local_collection(collection_name)
+                    for idx, d in enumerate(docs):
+                        if all(d.get(k) == v for k, v in query.items()):
+                            docs[idx] = {**d, **updates}
+                            break
+                    self._write_local_collection(collection_name, docs)
+                return claimed
+            except Exception as e:
+                logger.warning("MongoDB claim_document failed: %s", e)
+                if collection_name in ["module_drafts", *SECURITY_SENSITIVE_COLLECTIONS]:
+                    raise RuntimeError(f"Authoritative document store claim failed for '{collection_name}': {e}")
+
+        # Fallback local store check-and-set claim
+        if collection_name in SECURITY_SENSITIVE_COLLECTIONS:
+            return False
+
+        docs = self._read_local_collection(collection_name)
+        claimed = False
+        for idx, d in enumerate(docs):
+            match = True
+            for k, v in query.items():
+                if d.get(k) != v:
+                    match = False
+                    break
+            if match:
+                docs[idx] = {**d, **updates}
+                claimed = True
+                break
+
+        if claimed:
+            self._write_local_collection(collection_name, docs)
+        return claimed
+
+    async def update_document(
+        self,
+        collection_name: str,
+        query: Dict[str, Any],
+        updates: Dict[str, Any],
+        upsert: bool = False
+    ) -> bool:
+        """
+        Updates an existing document matching query.
+        If upsert=False, does not insert a new document and returns True only if a record was modified.
+        """
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        is_connected = await self._try_connect_mongo()
+        if is_connected and self._db is not None:
+            try:
+                coll = self._db[collection_name]
+                res = await coll.update_one(query, {"$set": updates}, upsert=upsert)
+                matched = (res.modified_count == 1) or (res.matched_count == 1) or (upsert and res.upserted_id is not None)
+                if matched:
+                    docs = self._read_local_collection(collection_name)
+                    for idx, d in enumerate(docs):
+                        if all(d.get(k) == v for k, v in query.items()):
+                            docs[idx] = {**d, **updates}
+                            break
+                    self._write_local_collection(collection_name, docs)
+                return matched
             except Exception as e:
                 logger.warning("MongoDB update failed: %s", e)
+                if collection_name in ["module_drafts", *SECURITY_SENSITIVE_COLLECTIONS]:
+                    raise RuntimeError(f"Durable document store update failed for '{collection_name}': {e}")
 
         # Update local
         docs = self._read_local_collection(collection_name)
@@ -282,13 +353,15 @@ class DocumentStoreService:
                 updated = True
                 break
         
-        if not updated:
+        if not updated and upsert:
             # Upsert
             docs.append({**query, **updates})
             updated = True
 
-        self._write_local_collection(collection_name, docs)
+        if updated:
+            self._write_local_collection(collection_name, docs)
         return updated
+
 
     async def get_storage_status(self) -> Dict[str, Any]:
         is_connected = await self._try_connect_mongo()

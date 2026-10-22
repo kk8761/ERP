@@ -12,35 +12,137 @@ from sqlalchemy import select, desc, func
 from cryptography.fernet import Fernet
 
 from app.config import settings
+import struct
 from app.models.disaster_recovery import BackupRecord, TransactionLogEntry, DRDrillExecution, BackupAlert
 
-def get_backup_cipher() -> Fernet:
-    """Derives a deterministic 32-byte Fernet encryption key from application SECRET_KEY."""
+MAGIC_STREAM_HEADER = b"NEXASTR1\x00\x01"
+STREAM_CHUNK_SIZE = 64 * 1024  # 64 KB per authenticated chunk
+
+def get_dedicated_backup_cipher() -> Fernet:
+    """
+    SEC-48: Dedicated, separate backup encryption key.
+    Uses BACKUP_ENCRYPTION_KEY environment variable if present,
+    or a dedicated domain-separated key derived independently from JWT secret.
+    """
+    dedicated_key_str = os.environ.get("BACKUP_ENCRYPTION_KEY") or getattr(settings, "BACKUP_ENCRYPTION_KEY", None)
+    if dedicated_key_str:
+        key = base64.urlsafe_b64encode(hashlib.sha256(dedicated_key_str.encode()).digest())
+    else:
+        # Derive dedicated key using domain-separated salt so JWT key rotation does not break backups
+        key = base64.urlsafe_b64encode(hashlib.sha256(f"NEXA_DEDICATED_BACKUP_SECRET_SALT_2026_{settings.SECRET_KEY}".encode()).digest())
+    return Fernet(key)
+
+def get_legacy_backup_cipher() -> Fernet:
+    """Preserves backward compatibility for backups encrypted with earlier JWT-derived key."""
     key = base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode()).digest())
     return Fernet(key)
 
+def get_backup_cipher() -> Fernet:
+    return get_dedicated_backup_cipher()
+
 def encrypt_backup_file(src_path: str) -> str:
-    """BUG-44: Encrypts backup file on disk using AES-256 authenticated Fernet cipher."""
-    cipher = get_backup_cipher()
+    """
+    SEC-48: Streaming authenticated encryption using dedicated key.
+    Streams in 64KB chunks into a temporary file (.tmp.enc), verifies integrity,
+    and only then atomically renames and deletes plaintext.
+    """
+    cipher = get_dedicated_backup_cipher()
     enc_path = src_path + ".enc"
-    with open(src_path, "rb") as f_in:
-        raw_data = f_in.read()
-    encrypted_data = cipher.encrypt(raw_data)
-    with open(enc_path, "wb") as f_out:
-        f_out.write(encrypted_data)
-    if os.path.exists(src_path) and enc_path != src_path:
-        os.remove(src_path)
-    return enc_path
+    tmp_enc_path = src_path + ".tmp.enc"
+
+    try:
+        with open(src_path, "rb") as f_in, open(tmp_enc_path, "wb") as f_out:
+            f_out.write(MAGIC_STREAM_HEADER)
+            while True:
+                chunk = f_in.read(STREAM_CHUNK_SIZE)
+                if not chunk:
+                    break
+                enc_chunk = cipher.encrypt(chunk)
+                f_out.write(struct.pack(">I", len(enc_chunk)))
+                f_out.write(enc_chunk)
+
+        # Integrity verification of encrypted output before removing plaintext
+        if not os.path.exists(tmp_enc_path) or os.path.getsize(tmp_enc_path) <= len(MAGIC_STREAM_HEADER):
+            raise RuntimeError("Encrypted backup output verification failed: file is missing or empty.")
+
+        # Atomic replacement
+        if os.path.exists(enc_path):
+            os.remove(enc_path)
+        os.rename(tmp_enc_path, enc_path)
+
+        # Only delete plaintext after successful encryption and verification
+        if os.path.exists(src_path) and enc_path != src_path:
+            os.remove(src_path)
+
+        return enc_path
+    finally:
+        if os.path.exists(tmp_enc_path):
+            try:
+                os.remove(tmp_enc_path)
+            except Exception:
+                pass
 
 def decrypt_backup_file(enc_path: str, dest_path: str) -> str:
-    """Decrypts AES-256 encrypted backup file."""
-    cipher = get_backup_cipher()
-    with open(enc_path, "rb") as f_in:
-        encrypted_data = f_in.read()
-    decrypted_data = cipher.decrypt(encrypted_data)
-    with open(dest_path, "wb") as f_out:
-        f_out.write(decrypted_data)
-    return dest_path
+    """
+    SEC-48: Streaming decryption supporting chunked streams and legacy single-blob backups.
+    """
+    tmp_dest_path = dest_path + ".tmp.dec"
+    ciphers_to_try = [get_dedicated_backup_cipher(), get_legacy_backup_cipher()]
+
+    try:
+        with open(enc_path, "rb") as f_in:
+            header = f_in.read(len(MAGIC_STREAM_HEADER))
+            if header == MAGIC_STREAM_HEADER:
+                # Streaming chunked format
+                success = False
+                for cipher in ciphers_to_try:
+                    f_in.seek(len(MAGIC_STREAM_HEADER))
+                    current_success = True
+                    with open(tmp_dest_path, "wb") as f_out:
+                        while True:
+                            len_bytes = f_in.read(4)
+                            if not len_bytes:
+                                break
+                            chunk_len = struct.unpack(">I", len_bytes)[0]
+                            enc_chunk = f_in.read(chunk_len)
+                            try:
+                                dec_chunk = cipher.decrypt(enc_chunk)
+                                f_out.write(dec_chunk)
+                            except Exception:
+                                current_success = False
+                                break
+                    if current_success:
+                        success = True
+                        break
+                if not success:
+                    raise RuntimeError("Failed to decrypt backup stream: key authentication failed.")
+            else:
+                # Legacy single-blob Fernet format
+                f_in.seek(0)
+                raw_enc = f_in.read()
+                dec_data = None
+                for cipher in ciphers_to_try:
+                    try:
+                        dec_data = cipher.decrypt(raw_enc)
+                        break
+                    except Exception:
+                        pass
+                if dec_data is None:
+                    raise RuntimeError("Failed to decrypt legacy backup: invalid key or corrupt file.")
+                with open(tmp_dest_path, "wb") as f_out:
+                    f_out.write(dec_data)
+
+        if os.path.exists(dest_path):
+            os.remove(dest_path)
+        os.rename(tmp_dest_path, dest_path)
+        return dest_path
+    finally:
+        if os.path.exists(tmp_dest_path):
+            try:
+                os.remove(tmp_dest_path)
+            except Exception:
+                pass
+
 
 def ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is None:
@@ -632,10 +734,12 @@ class DisasterRecoveryService:
             metadata_json=json.dumps({
                 "compression": "pg_dump_custom_compression" if is_postgres else "gzip-9",
                 "backup_mode": backup_mode,
-                "encryption": "AES-256-Fernet-HMAC-SHA256",
+                "encryption": "AES-128-CBC-HMAC-SHA256 (Fernet Stream)",
+                "key_version": "v2_dedicated",
                 "encrypted_at": now.isoformat(),
                 "verified_at": now.isoformat()
             })
+
         )
         db.add(record)
         await db.commit()

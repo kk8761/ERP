@@ -20,10 +20,15 @@ async def lookup_barcode(
     current_user: User = Depends(require_permission("sales.create")),
     db: AsyncSession = Depends(get_db)
 ):
+    user_org_id = getattr(current_user, "organization_id", None)
+    filter_clause = (Product.barcode == barcode) | (Product.sku == barcode)
+    if user_org_id is not None:
+        filter_clause = filter_clause & (Product.organization_id == user_org_id)
+
     stmt = (
         select(Product)
         .options(selectinload(Product.category))
-        .where((Product.barcode == barcode) | (Product.sku == barcode))
+        .where(filter_clause)
     )
     res = await db.execute(stmt)
     product = res.scalar_one_or_none()

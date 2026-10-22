@@ -1,5 +1,6 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
 from decimal import Decimal
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -73,10 +74,21 @@ async def sync_all_modules(
                 oldest_key = next(iter(_MODULE_DRAFT_CACHE))
                 _MODULE_DRAFT_CACHE.pop(oldest_key, None)
 
+            # BUG-51: Strip client-supplied server-owned fields
+            clean_data = {k: v for k, v in module_data.items() if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time"]}
+
+            # BUG-47: Do not reset a successfully processed (SYNCED) draft to PENDING if payload hasn't changed
+            existing_draft = await document_store.find_document("module_drafts", {"user_id": user_id, "module": module_name})
+            draft_status = "PENDING"
+            if existing_draft and existing_draft.get("status") == "SYNCED":
+                existing_clean = {k: v for k, v in existing_draft.get("data", {}).items() if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time"]}
+                if existing_clean == clean_data:
+                    draft_status = "SYNCED"
+
             cache_key = f"{user_id}:{module_name}"
             _MODULE_DRAFT_CACHE[cache_key] = {
                 "synced_at": now_utc.isoformat(),
-                "data": module_data
+                "data": clean_data
             }
 
             # Error 10 Fix: Atomic upsert keyed by user and module; propagate persistence failures
@@ -89,8 +101,8 @@ async def sync_all_modules(
                         "user_id": user_id,
                         "branch_id": current_user.branch_id,
                         "module": module_name,
-                        "data": module_data,
-                        "status": "PENDING",
+                        "data": clean_data,
+                        "status": draft_status,
                         "updated_at": now_utc.isoformat()
                     }
                 )
@@ -102,9 +114,13 @@ async def sync_all_modules(
                 )
 
     try:
-        # 1. Inventory stats
-        prod_count_res = await db.execute(select(func.count(Product.id)))
+        # 1. Inventory stats (BUG-52: Scoped to user's organization)
+        effective_org = getattr(current_user, "organization_id", None) or 1
+        prod_q = select(func.count(Product.id)).where(Product.organization_id == effective_org)
+        prod_count_res = await db.execute(prod_q)
         total_products = prod_count_res.scalar_one() or 0
+
+
 
         # 2. Sales stats (branch-scoped)
         sales_q = select(func.count(SalesOrder.id))
@@ -155,10 +171,11 @@ async def sync_all_modules(
 
     if persistence_failed:
         sync_status = "FAILED"
-    elif pending_modules or (payload.modules and len(payload.modules) > 0):
+    elif pending_modules:
         sync_status = "PENDING"
     else:
         sync_status = "SYNCED"
+
 
     return {
         "status": sync_status,
@@ -199,8 +216,18 @@ async def process_pending_drafts(
     is_admin = is_admin_or_exec(current_user)
     user_perms = getattr(current_user, "effective_permissions", set())
     active_branch = getattr(current_user, "active_branch_id", current_user.branch_id) or current_user.branch_id
+    stale_threshold = (now - timedelta(minutes=5)).isoformat()
 
-    pending_drafts = await document_store.find_documents("module_drafts", {"user_id": user_id, "status": "PENDING"})
+    # Retrieve pending drafts and expired PROCESSING drafts (worker crash recovery)
+    all_drafts = await document_store.find_documents("module_drafts", {"user_id": user_id})
+    pending_drafts = [
+        d for d in all_drafts
+        if d.get("status") == "PENDING" or (
+            d.get("status") == "PROCESSING" and (
+                not d.get("claim_time") or d.get("claim_time") < stale_threshold
+            )
+        )
+    ]
 
     processed_count = 0
     synced_count = 0
@@ -212,8 +239,11 @@ async def process_pending_drafts(
         data = draft.get("data", {})
         idempotency_key = data.get("idempotency_key") or f"IDEMP-{draft_id}-{draft.get('updated_at', '')}"
 
-        # BUG-40: Check whether draft or idempotency key was already applied
-        if data.get("_applied"):
+        # BUG-47 & BUG-51: Check authoritative SQL idempotency ledger rather than trusting client flags
+        from app.models.sales import SyncIdempotencyRecord
+        idemp_stmt = select(SyncIdempotencyRecord).where(SyncIdempotencyRecord.idempotency_key == idempotency_key)
+        existing_idemp = (await db.execute(idemp_stmt)).scalar_one_or_none()
+        if existing_idemp:
             await document_store.update_document(
                 "module_drafts",
                 {"id": draft_id},
@@ -222,10 +252,11 @@ async def process_pending_drafts(
             synced_count += 1
             continue
 
-        # BUG-40: Atomically claim draft to prevent concurrent duplicate processing
-        claimed = await document_store.update_document(
+        # BUG-47: Atomically claim draft with upsert=False
+        current_draft_status = draft.get("status", "PENDING")
+        claimed = await document_store.claim_document(
             "module_drafts",
-            {"id": draft_id, "status": "PENDING"},
+            {"id": draft_id, "status": current_draft_status},
             {"status": "PROCESSING", "claim_time": now.isoformat()}
         )
         if not claimed:
@@ -274,8 +305,13 @@ async def process_pending_drafts(
                     payment_method=data.get("payment_method", "CASH"),
                     items=order_items
                 )
-                await create_sales_order(db=db, order_in=order_in, cashier_user_id=user_id)
-                await db.commit()
+                order = await create_sales_order(
+                    db=db,
+                    order_in=order_in,
+                    cashier_user_id=user_id,
+                    organization_id=current_user.organization_id
+                )
+                ref_id = str(order.id)
 
             elif module_name == "expenses":
                 has_perm = is_admin or ("expenses.record" in user_perms) or ("finance.manage" in user_perms)
@@ -312,7 +348,7 @@ async def process_pending_drafts(
                     branch_id=active_branch
                 )
                 db.add(exp)
-                await db.commit()
+                ref_id = str(exp.expense_number)
 
             else:
                 # BUG-41: Reject unsupported modules
@@ -321,19 +357,30 @@ async def process_pending_drafts(
                     detail=f"Unsupported module '{module_name}'. Cannot process draft."
                 )
 
-            # BUG-40 & BUG-41: Only mark SYNCED after database transaction commits
-            updated_data = {**data, "_applied": True, "applied_at": now.isoformat()}
+            # BUG-47: Authoritative SQL Idempotency Ledger Entry in same transaction
+            idemp_rec = SyncIdempotencyRecord(
+                idempotency_key=idempotency_key,
+                module=module_name,
+                user_id=user_id,
+                organization_id=current_user.organization_id,
+                status="APPLIED",
+                reference_id=ref_id
+            )
+            db.add(idemp_rec)
+            await db.commit()
+
+            # BUG-40 & BUG-47: Only mark SYNCED after database transaction commits
             await document_store.update_document(
                 "module_drafts",
                 {"id": draft_id},
                 {
                     "status": "SYNCED",
                     "processed_at": now.isoformat(),
-                    "idempotency_key": idempotency_key,
-                    "data": updated_data
+                    "idempotency_key": idempotency_key
                 }
             )
             synced_count += 1
+
 
         except HTTPException as http_ex:
             await db.rollback()

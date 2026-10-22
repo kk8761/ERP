@@ -478,7 +478,8 @@ async def record_daily_sale_and_update_prediction(
     sales_order = await create_sales_order(
         db=db,
         order_in=order_in,
-        cashier_user_id=current_user.id
+        cashier_user_id=current_user.id,
+        organization_id=current_user.organization_id
     )
 
     # Audit log

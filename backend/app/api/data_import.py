@@ -702,6 +702,8 @@ async def commit_batch_import(
             user_org_id = branch_obj.organization_id
 
     batch_id = payload.batch_id or f"IMP-{uuid.uuid4().hex[:8].upper()}"
+
+
     created_count = 0
     updated_count = 0
     errors = []
@@ -776,7 +778,78 @@ async def commit_batch_import(
                     db.add(sup)
                     created_count += 1
 
-        elif entity_type in ["products", "catalog", "inventory", "stock"]:
+        elif entity_type in ["stock", "stock_adjustment", "inventory_adjustment", "stock_adjust"]:
+            # BUG-49: Dedicated stock-adjustment import path
+            # Requires ONLY inventory.adjust, accepts SKU or product ID and quantities, leaves prices completely unchanged.
+            has_inv_adjust = is_admin or ("inventory.adjust" in user_perms) or ("inventory.manage" in user_perms)
+            if not has_inv_adjust:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: Stock adjustment import requires 'inventory.adjust' permission."
+                )
+
+            for r in records:
+                sku = _clean_str(r.get("sku") or r.get("barcode"))
+                p_id_raw = r.get("product_id") or r.get("id")
+                name = _clean_str(r.get("name") or r.get("product_name"))
+
+                product = None
+                if p_id_raw is not None:
+                    try:
+                        p_id = int(p_id_raw)
+                        p_res = await db.execute(
+                            select(Product).where(Product.id == p_id, or_(Product.organization_id == user_org_id, Product.organization_id.is_(None)))
+                        )
+                        product = p_res.scalar_one_or_none()
+                    except ValueError:
+                        pass
+                if not product and sku:
+                    p_res = await db.execute(
+                        select(Product).where(Product.sku == sku, or_(Product.organization_id == user_org_id, Product.organization_id.is_(None)))
+                    )
+                    product = p_res.scalar_one_or_none()
+                if not product and name:
+                    p_res = await db.execute(
+                        select(Product).where(Product.name == name, or_(Product.organization_id == user_org_id, Product.organization_id.is_(None)))
+                    )
+                    product = p_res.scalar_one_or_none()
+
+                if not product:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Product '{sku or name or p_id_raw}' not found in your organization for stock adjustment."
+                    )
+
+                if product.organization_id is None:
+                    product.organization_id = user_org_id
+                elif product.organization_id != user_org_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Product with SKU '{product.sku}' belongs to another organization."
+                    )
+
+                raw_stock = r.get("current_stock") if r.get("current_stock") is not None else (r.get("stock") if r.get("stock") is not None else r.get("quantity"))
+                new_stock = parse_int(raw_stock, f"Product '{product.name}' stock level", allow_zero=True, allow_negative=False)
+
+                old_stock = product.current_stock
+                stock_diff = new_stock - old_stock
+                if stock_diff != 0:
+                    product.current_stock = new_stock
+                    m_type = "ADJUSTMENT_IN" if stock_diff > 0 else "ADJUSTMENT_OUT"
+                    movement = StockMovement(
+                        product_id=product.id,
+                        movement_type=m_type,
+                        quantity=abs(stock_diff),
+                        previous_stock=old_stock,
+                        new_stock=new_stock,
+                        reference_id=f"IMPORT-ADJ-{batch_id}",
+                        notes=f"Stock adjustment via dedicated import batch {batch_id}",
+                        created_by_user_id=current_user.id
+                    )
+                    db.add(movement)
+                updated_count += 1
+
+        elif entity_type in ["products", "catalog", "inventory"]:
             # Ensure category exists
             cat_res = await db.execute(select(ProductCategory).limit(1))
             default_cat = cat_res.scalar_one_or_none()
@@ -868,6 +941,7 @@ async def commit_batch_import(
                     # SEC-45: Creating new product requires inventory.create
                     if not has_inv_create:
                         raise HTTPException(
+
                             status_code=status.HTTP_403_FORBIDDEN,
                             detail=f"Access denied: Creating new product '{name}' requires 'inventory.create' permission."
                         )
@@ -988,6 +1062,13 @@ async def commit_batch_import(
             )
 
         elif entity_type in ["expenses", "vouchers"]:
+            # BUG-50: Require explicit authorized branch context for expense imports
+            if not effective_branch_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Branch context is required for expense imports. Please specify an authorized active branch."
+                )
+
             for r in records:
                 exp_num = _clean_str(r.get("expense_number") or r.get("voucher_number")) or f"EXP-{2000 + created_count + 1}"
                 cat = _clean_str(r.get("category") or r.get("expense_category")) or "Other"
@@ -1005,7 +1086,8 @@ async def commit_batch_import(
                     amount=amt,
                     description=desc,
                     payment_method=pay_method,
-                    recorded_by_user_id=current_user.id
+                    recorded_by_user_id=current_user.id,
+                    branch_id=effective_branch_id
                 )
                 db.add(exp)
                 created_count += 1
@@ -1044,21 +1126,41 @@ async def commit_batch_import(
                 phone = _clean_str(r.get("phone"))
                 email = _clean_str(r.get("email"))
 
-                # Check if customer already exists by phone or name
+                # SEC-51: Scope customer lookup and duplicate matching to authenticated organization
                 existing = None
                 if phone:
-                    c_res = await db.execute(select(Customer).where(Customer.phone == phone))
+                    c_res = await db.execute(
+                        select(Customer).where(
+                            Customer.phone == phone,
+                            or_(Customer.organization_id == user_org_id, Customer.organization_id.is_(None))
+                        )
+                    )
                     existing = c_res.scalar_one_or_none()
                 if not existing:
-                    c_res = await db.execute(select(Customer).where(Customer.name == name))
+                    c_res = await db.execute(
+                        select(Customer).where(
+                            Customer.name == name,
+                            or_(Customer.organization_id == user_org_id, Customer.organization_id.is_(None))
+                        )
+                    )
                     existing = c_res.scalar_one_or_none()
 
                 if existing:
+                    if existing.organization_id is None:
+
+
+                        existing.organization_id = user_org_id
+                    elif existing.organization_id != user_org_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"Customer '{name}' belongs to another organization."
+                        )
                     existing.email = email or existing.email
                     existing.address = _clean_str(r.get("address")) or existing.address
                     updated_count += 1
                 else:
                     cust = Customer(
+                        organization_id=user_org_id,
                         name=name,
                         phone=phone,
                         email=email,
@@ -1067,6 +1169,7 @@ async def commit_batch_import(
                     )
                     db.add(cust)
                     created_count += 1
+
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

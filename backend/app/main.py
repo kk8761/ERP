@@ -82,13 +82,14 @@ async def lifespan(app: FastAPI):
         ("branches", "country", "VARCHAR(50) DEFAULT 'IN'", "VARCHAR(50) DEFAULT 'IN'"),
         ("branches", "currency", "VARCHAR(10) DEFAULT 'INR'", "VARCHAR(10) DEFAULT 'INR'"),
         ("users", "last_login_at", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP"),
-        # BUG-36: Safe migration for organization_id multi-tenancy columns
+        # BUG-36 & SEC-51: Safe migration for organization_id multi-tenancy columns
         ("users", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
         ("products", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
         ("suppliers", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("customers", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
     ]
     for tbl, col, pg_def, sqlite_def in migrations:
-        is_critical = tbl in ("products", "suppliers", "users") and col == "organization_id"
+        is_critical = tbl in ("products", "suppliers", "users", "customers") and col == "organization_id"
         try:
             async with engine.begin() as conn:
                 if is_postgres:
@@ -106,18 +107,69 @@ async def lifespan(app: FastAPI):
                 raise RuntimeError(f"Critical schema migration failed for {tbl}.{col}: {mig_err}")
             logging.warning(f"[NexaERP DB Migration] Safe migration notice for {tbl}.{col}: {mig_err}")
 
-    # BUG-36: Backfill existing records according to their correct organization (default org 1)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text("UPDATE products SET organization_id = 1 WHERE organization_id IS NULL"))
-            await conn.execute(text("UPDATE suppliers SET organization_id = 1 WHERE organization_id IS NULL"))
-            await conn.execute(text("UPDATE users SET organization_id = 1 WHERE organization_id IS NULL"))
-    except Exception as backfill_err:
-        logging.warning(f"[NexaERP DB Migration] Backfill notice: {backfill_err}")
-
-    # BUG-36: Strict schema verification before allowing application traffic
+    # BUG-48: Explicit ownership resolution mapping branches, users, and business records to organizations
     async with engine.begin() as conn:
-        for check_tbl, check_col in [("products", "organization_id"), ("suppliers", "organization_id"), ("users", "organization_id")]:
+        try:
+            # 1. Resolve users from their assigned branches
+            await conn.execute(text(
+                "UPDATE users SET organization_id = (SELECT branches.organization_id FROM branches WHERE branches.id = users.branch_id) "
+                "WHERE users.organization_id IS NULL AND users.branch_id IS NOT NULL"
+            ))
+
+            # 2. Resolve customers from their sales orders and branches
+            await conn.execute(text(
+                "UPDATE customers SET organization_id = ("
+                "  SELECT branches.organization_id FROM sales_orders "
+                "  JOIN branches ON sales_orders.branch_id = branches.id "
+                "  WHERE sales_orders.customer_id = customers.id LIMIT 1"
+                ") WHERE customers.organization_id IS NULL"
+            ))
+
+            # 3. Resolve suppliers from purchase orders and branches
+            await conn.execute(text(
+                "UPDATE suppliers SET organization_id = ("
+                "  SELECT branches.organization_id FROM purchase_orders "
+                "  JOIN branches ON purchase_orders.branch_id = branches.id "
+                "  WHERE purchase_orders.supplier_id = suppliers.id LIMIT 1"
+                ") WHERE suppliers.organization_id IS NULL"
+            ))
+
+            # 4. Resolve products from warehouse stock movements and branches
+            await conn.execute(text(
+                "UPDATE products SET organization_id = ("
+                "  SELECT branches.organization_id FROM stock_movements "
+                "  JOIN warehouses ON stock_movements.warehouse_id = warehouses.id "
+                "  JOIN branches ON warehouses.branch_id = branches.id "
+                "  WHERE stock_movements.product_id = products.id LIMIT 1"
+                ") WHERE products.organization_id IS NULL"
+            ))
+
+            # 5. For single-tenant or fresh deployments with exactly one organization, resolve remaining unassigned records
+            org_res = await conn.execute(text("SELECT id FROM organizations"))
+            org_rows = org_res.fetchall()
+            if len(org_rows) == 1:
+                single_org_id = org_rows[0][0]
+                await conn.execute(text(f"UPDATE users SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE customers SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE suppliers SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE products SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+
+            # 6. BUG-48 Verification: In a multi-organization environment, fail startup if unresolved ownership remains
+            if len(org_rows) > 1:
+                for check_tbl in ["users", "customers", "suppliers", "products"]:
+                    unres = (await conn.execute(text(f"SELECT COUNT(*) FROM {check_tbl} WHERE organization_id IS NULL"))).scalar() or 0
+                    if unres > 0:
+                        raise RuntimeError(
+                            f"BUG-48 Migration Halt: Found {unres} unresolved record(s) in '{check_tbl}' with missing organization ownership in a multi-tenant deployment. Explicit owner assignment is required."
+                        )
+        except Exception as backfill_err:
+            if "BUG-48 Migration Halt" in str(backfill_err):
+                raise
+            logging.warning(f"[NexaERP DB Migration] Ownership resolution notice: {backfill_err}")
+
+    # BUG-36 & SEC-51: Strict schema verification before allowing application traffic
+    async with engine.begin() as conn:
+        for check_tbl, check_col in [("products", "organization_id"), ("suppliers", "organization_id"), ("users", "organization_id"), ("customers", "organization_id")]:
             if is_postgres:
                 chk = await conn.execute(text(
                     f"SELECT column_name FROM information_schema.columns WHERE table_name = '{check_tbl}' AND column_name = '{check_col}'"
@@ -129,6 +181,7 @@ async def lifespan(app: FastAPI):
                 cols = [r[1] for r in pragma_res.fetchall()]
                 if check_col not in cols:
                     raise RuntimeError(f"Schema verification failed: column {check_tbl}.{check_col} does not exist in SQLite schema.")
+
 
     # 3. Auto-seed initial enterprise admin and catalog if database is fresh (e.g. newly provisioned Postgres on Render)
     try:

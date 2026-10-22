@@ -9,6 +9,7 @@ class Customer(Base, TimestampMixin):
     __tablename__ = "customers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
     phone: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, index=True)
     email: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
@@ -16,6 +17,22 @@ class Customer(Base, TimestampMixin):
     total_spend: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
 
     orders: Mapped[List["SalesOrder"]] = relationship("SalesOrder", back_populates="customer")
+
+class SyncIdempotencyRecord(Base, TimestampMixin):
+    """
+    BUG-47 & BUG-40: Authoritative SQL Idempotency Ledger
+    Guarantees that synchronization worker retries and concurrent executions cannot duplicate
+    business transactions (sales orders, expenses) across worker nodes.
+    """
+    __tablename__ = "sync_idempotency_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(150), unique=True, index=True, nullable=False)
+    module: Mapped[str] = mapped_column(String(50), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    organization_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="APPLIED")
+    reference_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
 class SalesOrder(Base, TimestampMixin):
     __tablename__ = "sales_orders"
