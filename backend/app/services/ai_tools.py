@@ -661,13 +661,19 @@ async def tool_get_hr_leave_and_attendance_summary(
     db: AsyncSession,
     status_filter: str = "PENDING",
     organization_id: int = 1,
+    branch_id: Optional[int] = None,
+    user_id: int = 1,
     **kwargs
 ) -> Dict[str, Any]:
+    from app.models.hr import Employee
     stmt = (
         select(LeaveRequest)
+        .join(Employee, LeaveRequest.employee_id == Employee.id)
         .options(selectinload(LeaveRequest.employee))
         .order_by(desc(LeaveRequest.created_at))
     )
+    if branch_id:
+        stmt = stmt.where(Employee.branch_id == branch_id)
     if status_filter != "ALL":
         stmt = stmt.where(LeaveRequest.status == status_filter)
     stmt = stmt.limit(20)
@@ -675,9 +681,16 @@ async def tool_get_hr_leave_and_attendance_summary(
     res = await db.execute(stmt)
     leaves = res.scalars().all()
 
-    # Today's attendance snapshot
+    # Today's attendance snapshot scoped by branch
     today = date.today()
-    att_stmt = select(func.count(Attendance.id), Attendance.status).where(Attendance.date == today).group_by(Attendance.status)
+    att_stmt = (
+        select(func.count(Attendance.id), Attendance.status)
+        .join(Employee, Attendance.employee_id == Employee.id)
+        .where(Attendance.date == today)
+    )
+    if branch_id:
+        att_stmt = att_stmt.where(Employee.branch_id == branch_id)
+    att_stmt = att_stmt.group_by(Attendance.status)
     att_res = await db.execute(att_stmt)
     att_breakdown = {r[1]: r[0] for r in att_res.all()}
 
@@ -925,30 +938,47 @@ async def execute_typed_tool(
                 "status": "ERROR",
                 "message": f"Forbidden: Dedicated MCP service account cannot invoke restricted tool '{tool_name}'. Administrator credentials required."
             }
-    # 2. Authenticated ERP User permissions
-    elif user_id > 0 and user_id != 1 and user_email != settings.BOOTSTRAP_ADMIN_EMAIL:
+    # 2. Authenticated ERP User permissions - strictly loaded and verified from database (Error 3)
+    else:
         from app.models.auth import User, UserRole, Role
         from sqlalchemy.orm import selectinload
         u_stmt = select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id)
         u_res = await db.execute(u_stmt)
         u = u_res.scalar_one_or_none()
-        if u and not u.is_superuser:
-            user_role_names = [ur.role.name for ur in (u.roles or []) if getattr(ur, "role", None)]
-            is_admin_user = any(r in ["System Administrator", "Executive", "Managing Director"] for r in user_role_names)
-            if not is_admin_user:
-                if tool_name in ADMIN_ONLY_TOOLS:
-                    return {
-                        "status": "ERROR",
-                        "message": f"Forbidden: Administrative authorization required to execute '{tool_name}'."
-                    }
-                # Check effective permissions
-                from app.authorization.rbac_engine import get_user_effective_permissions
-                user_perms = await get_user_effective_permissions(u, db)
-                if req_perm and req_perm not in user_perms:
-                    return {
-                        "status": "ERROR",
-                        "message": f"Forbidden: Insufficient permissions to execute tool '{tool_name}'. Missing '{req_perm}'."
-                    }
+        if not u or not u.is_active:
+            return {"status": "ERROR", "message": "Invalid or inactive caller identity."}
+
+        # Authoritatively resolve tenant organization and branch from DB record (Error 4)
+        organization_id = getattr(u, "organization_id", 1) or 1
+        user_branch_id = getattr(u, "branch_id", None)
+
+        user_role_names = [ur.role.name for ur in (u.roles or []) if getattr(ur, "role", None)]
+        is_admin_user = u.is_superuser or any(r in ["System Administrator", "Executive", "Managing Director"] for r in user_role_names)
+
+        if not is_admin_user:
+            # Overwrite caller-supplied branch_id with the user's authoritative branch
+            branch_id = user_branch_id
+            if tool_name in ADMIN_ONLY_TOOLS:
+                return {
+                    "status": "ERROR",
+                    "message": f"Forbidden: Administrative authorization required to execute '{tool_name}'."
+                }
+            if not req_perm:
+                return {
+                    "status": "ERROR",
+                    "message": f"Forbidden: Tool '{tool_name}' lacks required permission metadata."
+                }
+            # Check effective permissions from DB
+            from app.authorization.rbac_engine import get_user_effective_permissions
+            user_perms = await get_user_effective_permissions(u, db)
+            if req_perm not in user_perms:
+                return {
+                    "status": "ERROR",
+                    "message": f"Forbidden: Insufficient permissions to execute tool '{tool_name}'. Missing '{req_perm}'."
+                }
+        else:
+            if branch_id is None:
+                branch_id = user_branch_id
 
     fn = TOOL_DISPATCH_MAP[tool_name]
     params = dict(parameters)

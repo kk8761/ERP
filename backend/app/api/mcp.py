@@ -53,11 +53,16 @@ async def mcp_jsonrpc_endpoint(
             }
         }
 
+    org_id = getattr(current_user, "organization_id", 1) or 1 if current_user else 1
+    branch_id = getattr(current_user, "branch_id", None) if current_user else None
+
     return await handle_mcp_request(
         request_data=body,
         db=db,
         user_id=user_id or 0,
-        user_email=user_email or "anonymous@nexaerp.internal"
+        user_email=user_email or "anonymous@nexaerp.internal",
+        organization_id=org_id,
+        branch_id=branch_id
     )
 
 @router.get("/manifest")

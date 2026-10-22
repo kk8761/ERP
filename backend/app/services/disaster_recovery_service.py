@@ -447,9 +447,9 @@ class DisasterRecoveryService:
                 "last_replayed_lsn": replayed_logs[-1].lsn if replayed_logs else "LSN-TARGET",
                 "checksum_verified": checksum_verified
             },
-            "achieved_rpo_variance_seconds": 0.00, # Exact second matched
-            "data_consistency_check": "100% PASSED (Foreign Keys, Balance Sheets & Tables Validated)",
-            "message": f"Point-in-time recovery drill successfully validated to {target_timestamp.isoformat()}. Verified {len(replayed_logs)} WAL transactions from base snapshot."
+            "achieved_rpo_variance_seconds": 0.00,
+            "data_consistency_check": "DRILL_SIMULATION_VALIDATED (Logical log sequence audited)",
+            "message": f"Point-in-time recovery drill simulation completed for {target_timestamp.isoformat()}. NOTE: This is an audit simulation of transaction logs; physical database restore requires PostgreSQL WAL archive replay on an isolated target instance."
         }
 
     @staticmethod
@@ -464,13 +464,13 @@ class DisasterRecoveryService:
         return {
             "test_id": f"TEST-PITR-{uuid.uuid4().hex[:8].upper()}",
             "tested_at": now.isoformat(),
-            "procedure": "Automated WAL Roll-Forward & Point-in-Time Restore Verification",
+            "procedure": "Automated WAL Roll-Forward & Point-in-Time Restore Verification (Simulation)",
             "test_status": "PASSED",
             "mode": "DRILL_SIMULATION",
             "is_simulated": True,
             "target_point": target.isoformat(),
             "details": restore_result,
-            "audit_verification": "Verified that database state at target timestamp can be fully restored without foreign key breakage or record divergence."
+            "audit_verification": "Simulation verified that transaction logs up to target timestamp can be parsed and sequenced. Production physical disaster recovery certification requires restoring a pg_dump/WAL base backup on an isolated recovery instance."
         }
 
     # -------------------------------------------------------------------------
@@ -529,15 +529,85 @@ class DisasterRecoveryService:
             await db.refresh(failed_rec)
             return failed_rec
 
-        # Create actual backup artifact on disk
+        # Check database engine and create authentic backup (Error 5)
+        from app.config import settings
+        is_postgres = "postgres" in settings.DATABASE_URL.lower()
+        backup_success = False
         backup_mode = "PHYSICAL_ARCHIVE"
-        db_file = "nexaerp.db"
-        if os.path.exists(db_file):
-            with open(db_file, "rb") as f_in, gzip.open(backup_file_path, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        failure_reason = None
+
+        if is_postgres:
+            import subprocess
+            import urllib.parse
+            clean_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+            parsed = urllib.parse.urlparse(clean_url)
+            pg_dump_bin = shutil.which("pg_dump")
+            if pg_dump_bin:
+                env = os.environ.copy()
+                if parsed.password:
+                    env["PGPASSWORD"] = parsed.password
+                cmd = [
+                    pg_dump_bin,
+                    "-h", parsed.hostname or "localhost",
+                    "-p", str(parsed.port or 5432),
+                    "-U", parsed.username or "postgres",
+                    "-F", "c",
+                    "-f", backup_file_path,
+                    parsed.path.lstrip("/") or "nexaerp"
+                ]
+                try:
+                    proc = subprocess.run(cmd, env=env, capture_output=True, timeout=60)
+                    if proc.returncode == 0 and os.path.exists(backup_file_path) and os.path.getsize(backup_file_path) > 0:
+                        backup_success = True
+                    else:
+                        failure_reason = proc.stderr.decode("utf-8", errors="ignore") or "pg_dump failed"
+                except Exception as ex:
+                    failure_reason = f"pg_dump execution error: {str(ex)}"
+            else:
+                failure_reason = "pg_dump binary not found in environment"
         else:
-            with gzip.open(backup_file_path, "wb") as f_out:
-                f_out.write(f"NEXAERP_SNAPSHOT_{backup_id}_{now.isoformat()}\n".encode("utf-8"))
+            db_file = "nexaerp.db"
+            if os.path.exists(db_file) and os.path.getsize(db_file) > 0:
+                with open(db_file, "rb") as f_in, gzip.open(backup_file_path, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+                backup_success = True
+            elif settings.ENVIRONMENT.lower() in ("testing", "development", "test"):
+                with gzip.open(backup_file_path, "wb") as f_out:
+                    f_out.write(f"NEXAERP_SNAPSHOT_{backup_id}_{now.isoformat()}\n".encode("utf-8"))
+                backup_success = True
+                backup_mode = "TEST_FIXTURE_SNAPSHOT"
+            else:
+                failure_reason = f"SQLite database file '{db_file}' not found"
+
+        if not backup_success:
+            # Error 5: Never mark placeholder as completed in production! Record FAILED.
+            failed_rec = BackupRecord(
+                id=backup_id,
+                backup_name=backup_name,
+                backup_type=backup_type,
+                status="FAILED",
+                storage_tier="HOT_ACTIVE",
+                retention_days=90,
+                retention_until=now + timedelta(days=90),
+                file_path=backup_file_path + ".failed",
+                file_size_bytes=0,
+                checksum_sha256="0000000000000000000000000000000000000000000000000000000000000000",
+                is_archived=False,
+                metadata_json=json.dumps({"error": failure_reason or "Backup creation failed", "database_engine": "postgresql" if is_postgres else "sqlite"})
+            )
+            db.add(failed_rec)
+            alert = BackupAlert(
+                id=f"ALT-{uuid.uuid4().hex[:10].upper()}",
+                severity="CRITICAL",
+                event_type="BACKUP_FAILED",
+                message=f"Backup '{backup_name}' failed: {failure_reason}",
+                details=json.dumps({"backup_id": backup_id, "reason": failure_reason}),
+                resolved=False
+            )
+            db.add(alert)
+            await db.commit()
+            await db.refresh(failed_rec)
+            return failed_rec
 
         file_size = os.path.getsize(backup_file_path) if os.path.exists(backup_file_path) else 1024
         hasher = hashlib.sha256()
@@ -561,7 +631,7 @@ class DisasterRecoveryService:
             metadata_json=json.dumps({
                 "compression": "gzip-9",
                 "backup_mode": backup_mode,
-                "encryption": "AES-256-GCM",
+                "encryption": "GZIP_INTEGRITY_VERIFIED",
                 "verified_at": now.isoformat()
             })
         )

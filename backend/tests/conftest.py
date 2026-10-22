@@ -60,6 +60,14 @@ async def setup_db():
                 await conn.execute(text(f"ALTER TABLE purchase_orders ADD COLUMN {col} {col_type}"))
             except Exception:
                 pass
+        for col, col_type in [
+            ("legal_name", "VARCHAR(200)"),
+            ("settings_json", "TEXT")
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE organizations ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
     yield
 
 @pytest.fixture(autouse=True)

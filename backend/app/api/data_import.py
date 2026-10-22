@@ -560,43 +560,58 @@ async def commit_batch_import(
     if not records:
         raise HTTPException(status_code=400, detail="No records to import.")
 
-    # SEC-26: Enforce entity-specific permissions
+    # SEC-26 / Audit Error 1: Enforce comprehensive entity-specific permissions
     REQUIRED_IMPORT_PERMS = {
         "vendors": "procurement.manage",
         "suppliers": "procurement.manage",
         "products": "inventory.manage",
         "catalog": "inventory.manage",
         "inventory": "inventory.manage",
+        "warehouses": "inventory.manage",
+        "storage": "inventory.manage",
         "employees": "hr.manage",
         "hr": "hr.manage",
         "staff": "hr.manage",
         "chart_of_accounts": "finance.manage",
         "accounts": "finance.manage",
         "general_ledger": "finance.manage",
+        "expenses": "finance.manage",
+        "vouchers": "finance.manage",
         "customers": "sales.manage",
     }
     required_perm = REQUIRED_IMPORT_PERMS.get(entity_type)
+    if required_perm is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported import entity type '{entity_type}'. Allowed types: {', '.join(sorted(set(REQUIRED_IMPORT_PERMS.keys())))}"
+        )
+
     user_perms = getattr(current_user, "effective_permissions", set())
     is_admin = current_user.is_superuser or any(
         r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
         for r in getattr(current_user, "roles", [])
     )
-    if not is_admin and required_perm and (required_perm not in user_perms):
+    if not is_admin and required_perm not in user_perms:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access denied: Importing {entity_type} records requires '{required_perm}' permission."
+            detail=f"Access denied: Importing '{entity_type}' records requires '{required_perm}' permission."
         )
 
     # SEC-26: Batch size cap
     if len(records) > 500:
         raise HTTPException(status_code=400, detail="Batch size exceeds maximum limit of 500 records per import.")
 
-    # SEC-26: Branch ownership validation
-    if payload.branch_id and not is_admin:
-        if current_user.branch_id and payload.branch_id != current_user.branch_id:
+    # SEC-26 / Audit Error 2: Strict branch ownership validation
+    if not is_admin:
+        if current_user.branch_id is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Forbidden: You cannot import records into branch {payload.branch_id}. Your account is scoped to branch {current_user.branch_id}."
+                detail="No branch assigned to this account. Cannot perform branch-scoped imports."
+            )
+        if payload.branch_id is not None and payload.branch_id != current_user.branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: Cannot import into another branch ({payload.branch_id}). Your account is assigned to branch {current_user.branch_id}."
             )
 
     created_count = 0
@@ -805,7 +820,7 @@ async def commit_batch_import(
                     db.add(wh)
                     created_count += 1
 
-        else: # Customers
+        elif entity_type in ["customers", "clients"]:
             for r in records:
                 name = _clean_str(r.get("name"))
                 if not name:
@@ -837,6 +852,11 @@ async def commit_batch_import(
                     )
                     db.add(cust)
                     created_count += 1
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported import entity type '{entity_type}'."
+            )
 
         await db.commit()
 

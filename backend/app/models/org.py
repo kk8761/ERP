@@ -12,6 +12,8 @@ class Organization(Base, TimestampMixin):
     code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     tax_identifier: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="INR")
+    legal_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    settings_json: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     branches: Mapped[List["Branch"]] = relationship("Branch", back_populates="organization", cascade="all, delete-orphan")

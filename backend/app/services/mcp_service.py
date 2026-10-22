@@ -75,7 +75,9 @@ async def handle_mcp_request(
     request_data: Dict[str, Any],
     db: AsyncSession,
     user_id: int = 1,
-    user_email: str = "admin@nexaerp.internal"
+    user_email: str = "admin@nexaerp.internal",
+    organization_id: int = 1,
+    branch_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Handles JSON-RPC 2.0 requests conforming to the open Model Context Protocol (MCP)
@@ -133,7 +135,9 @@ async def handle_mcp_request(
                 parameters=arguments,
                 db=db,
                 user_id=user_id,
-                user_email=user_email
+                user_email=user_email,
+                organization_id=organization_id,
+                branch_id=branch_id
             )
             return {
                 "jsonrpc": jsonrpc,

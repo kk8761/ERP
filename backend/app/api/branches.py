@@ -198,36 +198,54 @@ async def get_consolidation_summary(
     Consolidated Multinational Corporation (MNC) Executive Reporting:
     Rolls up revenues, active branches, global workforce, and multi-currency metrics.
     """
+    org_res = await db.execute(select(Organization).limit(1))
+    org = org_res.scalar_one_or_none()
+
     branches_res = await db.execute(select(Branch))
     branches = branches_res.scalars().all()
     total_branches = len(branches)
 
+    # Error 13 Fix: Read financial metrics solely from authoritative database records
     rev_res = await db.execute(select(func.sum(SalesOrder.total_amount)))
     total_rev = float(rev_res.scalar() or 0.0)
 
-    # Estimated multi-branch metrics
-    consolidated_gross = max(total_rev * 2.8, 4850000.0)
+    # Actual per-branch revenue breakdown calculated from sales records
+    branch_sales_res = await db.execute(
+        select(SalesOrder.branch_id, func.sum(SalesOrder.total_amount))
+        .group_by(SalesOrder.branch_id)
+    )
+    branch_sales_map = {row[0]: float(row[1] or 0.0) for row in branch_sales_res.all()}
+
+    branch_breakdown = []
+    for b in branches:
+        b_rev = branch_sales_map.get(b.id, 0.0)
+        share_pct = round((b_rev / total_rev * 100.0), 2) if total_rev > 0 else 0.0
+        branch_breakdown.append({
+            "branch_id": b.id,
+            "branch": b.name,
+            "code": b.code,
+            "city": b.city or "Not Configured",
+            "revenue": b_rev,
+            "revenue_share_pct": share_pct,
+            "currency": org.currency if org else "INR",
+            "status": "ACTIVE" if b.is_active else "INACTIVE"
+        })
 
     return {
-        "organization_name": "Nexa Global Enterprises (MNC)",
-        "parent_code": "NEXA-GLOBAL-CORP",
+        "organization_name": org.name if org else "Not Configured",
+        "parent_code": org.code if org else "Not Configured",
         "total_active_branches": total_branches,
-        "primary_hq": "Hyderabad Corporate Headquarters (BR-MAIN)",
+        "primary_hq": f"{branches[0].name} ({branches[0].code})" if branches else "Not Configured",
         "supported_currencies": ["INR", "USD", "AED", "EUR", "SGD"],
         "reporting_standard": "IFRS & Ind-AS Consolidated Financial Reporting",
         "intercompany_elimination": "ENABLED",
         "consolidated_financials": {
-            "gross_turnover_inr": consolidated_gross,
-            "operating_margin_pct": 24.8,
-            "inter_branch_transfers_mtd": 18,
-            "total_cross_border_orders": 34
+            "gross_turnover_inr": total_rev,
+            "operating_margin_pct": None,
+            "inter_branch_transfers_mtd": 0,
+            "total_cross_border_orders": 0
         },
-        "branch_breakdown": [
-            {"branch": "Main Store (Hyderabad HQ)", "country": "India", "revenue_share_pct": 42.0, "currency": "INR", "status": "ACTIVE"},
-            {"branch": "Mumbai Financial Hub", "country": "India", "revenue_share_pct": 28.5, "currency": "INR", "status": "ACTIVE"},
-            {"branch": "Dubai MENA Regional Hub", "country": "UAE", "revenue_share_pct": 16.5, "currency": "AED", "status": "ACTIVE"},
-            {"branch": "Singapore APAC Office", "country": "Singapore", "revenue_share_pct": 13.0, "currency": "SGD", "status": "ACTIVE"}
-        ],
+        "branch_breakdown": branch_breakdown,
         "multi_branch_architecture_highlights": [
             "1. Tenant & Branch Isolation: Strict foreign key isolation on all transactions, orders, and ledger entries.",
             "2. Global Single-Sign-On (SSO): Corporate users switch seamlessly between branch contexts or view consolidated rollups.",
@@ -344,14 +362,24 @@ async def switch_branch_context(
             allowed = doc.get("accessible_branches", [])
             policy = doc.get("branch_access_policy", "ASSIGNED_ONLY")
             if policy == "ASSIGNED_ONLY" and "ALL" not in allowed:
-                match = any(
-                    b.lower() in branch.name.lower() or branch.name.lower() in b.lower() or b == branch.code or b == str(branch.id)
-                    for b in allowed
-                )
+                # Error 12 Fix: Reject substring matching. Compare exact branch ID, code, or exact full name.
+                def branch_matches(entry: Any) -> bool:
+                    if not entry:
+                        return False
+                    s = str(entry).strip()
+                    if s == str(branch.id):
+                        return True
+                    if branch.code and s.upper() == branch.code.upper():
+                        return True
+                    if branch.name and s.lower() == branch.name.lower():
+                        return True
+                    return False
+
+                match = any(branch_matches(b) for b in allowed)
                 if not match and not is_primary:
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
-                        detail=f"Access Denied: You are not authorized to access '{branch.name}'. Your authorized branches: {', '.join(allowed)}."
+                        detail=f"Access Denied: You are not authorized to access '{branch.name}'. Your authorized branches: {', '.join(str(b) for b in allowed)}."
                     )
 
     current_user.branch_id = branch.id
