@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import logging
+import time
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,56 @@ logger = logging.getLogger(__name__)
 
 DOC_STORAGE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "mongo_docs"
 DOC_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+class CrossProcessFileLock:
+    """Provides atomic cross-process file locking for local JSON document store claims."""
+    def __init__(self, lock_file: Path, timeout: float = 5.0):
+        self.lock_file = lock_file
+        self.timeout = timeout
+        self.handle = None
+
+    def __enter__(self):
+        start = time.time()
+        while time.time() - start < self.timeout:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    self.handle = open(self.lock_file, "a+b")
+                    msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    return self
+                else:
+                    import fcntl
+                    self.handle = open(self.lock_file, "a+b")
+                    fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return self
+            except (IOError, OSError, BlockingIOError):
+                if self.handle:
+                    try:
+                        self.handle.close()
+                    except Exception:
+                        pass
+                    self.handle = None
+                time.sleep(0.02)
+        raise TimeoutError(f"Could not acquire cross-process lock on {self.lock_file}")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.handle:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    self.handle.seek(0)
+                    msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            finally:
+                try:
+                    self.handle.close()
+                except Exception:
+                    pass
+                self.handle = None
 
 SECURITY_SENSITIVE_COLLECTIONS = {
     "employee_access_authorizations"
@@ -263,8 +314,9 @@ class DocumentStoreService:
 
     async def claim_document(self, collection_name: str, query: Dict[str, Any], updates: Dict[str, Any]) -> bool:
         """
-        BUG-47: Conditionally claims a document using upsert=False and checks modified_count/matched_count.
-        Guarantees atomic single-worker claims without upsert side-effects.
+        BUG-47 & BUG-55: Atomically and conditionally claims a document using upsert=False.
+        Guarantees atomic single-worker claims with modified_count == 1 check
+        and cross-process file locking on local fallback.
         """
         updates["updated_at"] = datetime.utcnow().isoformat()
         is_connected = await self._try_connect_mongo()
@@ -272,7 +324,7 @@ class DocumentStoreService:
             try:
                 coll = self._db[collection_name]
                 result = await coll.update_one(query, {"$set": updates}, upsert=False)
-                claimed = (result.modified_count == 1) or (result.matched_count == 1)
+                claimed = (result.modified_count == 1)
                 if claimed:
                     # Mirror update to local store
                     docs = self._read_local_collection(collection_name)
@@ -287,26 +339,32 @@ class DocumentStoreService:
                 if collection_name in ["module_drafts", *SECURITY_SENSITIVE_COLLECTIONS]:
                     raise RuntimeError(f"Authoritative document store claim failed for '{collection_name}': {e}")
 
-        # Fallback local store check-and-set claim
+        # Fallback local store check-and-set claim with cross-process locking
         if collection_name in SECURITY_SENSITIVE_COLLECTIONS:
             return False
 
-        docs = self._read_local_collection(collection_name)
-        claimed = False
-        for idx, d in enumerate(docs):
-            match = True
-            for k, v in query.items():
-                if d.get(k) != v:
-                    match = False
-                    break
-            if match:
-                docs[idx] = {**d, **updates}
-                claimed = True
-                break
+        lock_path = DOC_STORAGE_DIR / f"{collection_name}.lock"
+        try:
+            with CrossProcessFileLock(lock_path):
+                docs = self._read_local_collection(collection_name)
+                claimed = False
+                for idx, d in enumerate(docs):
+                    match = True
+                    for k, v in query.items():
+                        if d.get(k) != v:
+                            match = False
+                            break
+                    if match:
+                        docs[idx] = {**d, **updates}
+                        claimed = True
+                        break
 
-        if claimed:
-            self._write_local_collection(collection_name, docs)
-        return claimed
+                if claimed:
+                    self._write_local_collection(collection_name, docs)
+                return claimed
+        except TimeoutError:
+            logger.warning("Local store claim lock timeout for %s", collection_name)
+            return False
 
     async def update_document(
         self,

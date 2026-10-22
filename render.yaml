@@ -30,6 +30,8 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
+      - key: BACKUP_ENCRYPTION_KEY
+        generateValue: true
       - key: BOOTSTRAP_ADMIN_PASSWORD
         generateValue: true
       - key: CORS_ORIGINS

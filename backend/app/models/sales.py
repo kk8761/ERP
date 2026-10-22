@@ -33,6 +33,7 @@ class SyncIdempotencyRecord(Base, TimestampMixin):
     organization_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="APPLIED")
     reference_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    payload_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
 class SalesOrder(Base, TimestampMixin):
     __tablename__ = "sales_orders"

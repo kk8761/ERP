@@ -683,8 +683,24 @@ async def commit_batch_import(
         else:
             effective_branch_id = payload.branch_id or user_active_branch
 
-    # SEC-46: Resolve organization from user's authoritative DB context and validate branch
-    user_org_id = getattr(current_user, "organization_id", None) or 1
+    # SEC-46 & SEC-53: Resolve organization from user's authoritative DB context and validate branch
+    user_org_id = getattr(current_user, "organization_id", None)
+    if user_org_id is None:
+        if not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization assignment required for data import."
+            )
+        if effective_branch_id is not None:
+            b_res = await db.execute(select(Branch).where(Branch.id == effective_branch_id))
+            branch_obj = b_res.scalar_one_or_none()
+            if branch_obj and branch_obj.organization_id:
+                user_org_id = branch_obj.organization_id
+        if user_org_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization context required. Administrator must specify an explicit branch with organization assignment."
+            )
     if effective_branch_id is not None:
         b_res = await db.execute(select(Branch).where(Branch.id == effective_branch_id))
         branch_obj = b_res.scalar_one_or_none()
@@ -778,8 +794,8 @@ async def commit_batch_import(
                     db.add(sup)
                     created_count += 1
 
-        elif entity_type in ["stock", "stock_adjustment", "inventory_adjustment", "stock_adjust"]:
-            # BUG-49: Dedicated stock-adjustment import path
+        elif entity_type in ["stock", "stock_adjustment", "inventory_adjustment", "stock_adjust", "inventory"]:
+            # BUG-49 & BUG-56: Dedicated stock-adjustment import path (including 'inventory' alias)
             # Requires ONLY inventory.adjust, accepts SKU or product ID and quantities, leaves prices completely unchanged.
             has_inv_adjust = is_admin or ("inventory.adjust" in user_perms) or ("inventory.manage" in user_perms)
             if not has_inv_adjust:
@@ -812,7 +828,13 @@ async def commit_batch_import(
                     p_res = await db.execute(
                         select(Product).where(Product.name == name, or_(Product.organization_id == user_org_id, Product.organization_id.is_(None)))
                     )
-                    product = p_res.scalar_one_or_none()
+                    name_matches = list(p_res.scalars().all())
+                    if len(name_matches) > 1:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Ambiguous product match for stock adjustment: Multiple products found with name '{name}'. Use unique SKU or product_id to disambiguate."
+                        )
+                    product = name_matches[0] if name_matches else None
 
                 if not product:
                     raise HTTPException(
@@ -849,7 +871,7 @@ async def commit_batch_import(
                     db.add(movement)
                 updated_count += 1
 
-        elif entity_type in ["products", "catalog", "inventory"]:
+        elif entity_type in ["products", "catalog"]:
             # Ensure category exists
             cat_res = await db.execute(select(ProductCategory).limit(1))
             default_cat = cat_res.scalar_one_or_none()
@@ -867,22 +889,29 @@ async def commit_batch_import(
 
                 sku = _clean_str(r.get("sku")) or f"SKU-{re.sub(r'[^A-Z0-9]', '', name.upper())[:8]}"
 
-                # BUG-42 & SEC-46: Look up SKU first, check org ownership and detect cross-product ambiguity
+                # BUG-42, SEC-46 & SEC-54: Look up SKU first, check org ownership and detect duplicate name ambiguity
                 sku_match_res = await db.execute(select(Product).where(Product.sku == sku))
                 sku_match = sku_match_res.scalar_one_or_none()
 
                 name_match_res = await db.execute(
                     select(Product).where(Product.name == name, or_(Product.organization_id == user_org_id, Product.organization_id.is_(None)))
                 )
-                name_match = name_match_res.scalar_one_or_none()
+                name_matches = list(name_match_res.scalars().all())
 
-                if sku_match and name_match and sku_match.id != name_match.id:
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail=f"Ambiguous product match for '{name}' with SKU '{sku}': SKU belongs to product ID {sku_match.id} ('{sku_match.name}') while name belongs to ID {name_match.id}."
-                    )
-
-                existing = sku_match or name_match
+                if sku_match:
+                    if name_matches and sku_match.id not in [m.id for m in name_matches]:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Ambiguous product match for '{name}' with SKU '{sku}': SKU belongs to product ID {sku_match.id} ('{sku_match.name}') while name matches different product(s)."
+                        )
+                    existing = sku_match
+                else:
+                    if len(name_matches) > 1:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Ambiguous product match: Multiple products found with name '{name}' in your organization. Please specify unique SKU to disambiguate."
+                        )
+                    existing = name_matches[0] if name_matches else None
                 if existing and existing.organization_id is None:
                     existing.organization_id = user_org_id
                 elif existing and existing.organization_id != user_org_id:

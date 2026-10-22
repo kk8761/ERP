@@ -87,6 +87,7 @@ async def lifespan(app: FastAPI):
         ("products", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
         ("suppliers", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
         ("customers", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("sync_idempotency_records", "payload_hash", "VARCHAR(64)", "VARCHAR(64)"),
     ]
     for tbl, col, pg_def, sqlite_def in migrations:
         is_critical = tbl in ("products", "suppliers", "users", "customers") and col == "organization_id"
@@ -107,7 +108,7 @@ async def lifespan(app: FastAPI):
                 raise RuntimeError(f"Critical schema migration failed for {tbl}.{col}: {mig_err}")
             logging.warning(f"[NexaERP DB Migration] Safe migration notice for {tbl}.{col}: {mig_err}")
 
-    # BUG-48: Explicit ownership resolution mapping branches, users, and business records to organizations
+    # BUG-48 & BUG-58: Explicit and deterministic ownership resolution without arbitrary LIMIT 1
     async with engine.begin() as conn:
         try:
             # 1. Resolve users from their assigned branches
@@ -116,32 +117,94 @@ async def lifespan(app: FastAPI):
                 "WHERE users.organization_id IS NULL AND users.branch_id IS NOT NULL"
             ))
 
-            # 2. Resolve customers from their sales orders and branches
+            # 2. Check for ambiguous customers associated with multiple organizations
+            amb_cust_res = await conn.execute(text(
+                "SELECT sales_orders.customer_id, COUNT(DISTINCT branches.organization_id) "
+                "FROM sales_orders "
+                "JOIN branches ON sales_orders.branch_id = branches.id "
+                "WHERE branches.organization_id IS NOT NULL "
+                "GROUP BY sales_orders.customer_id "
+                "HAVING COUNT(DISTINCT branches.organization_id) > 1"
+            ))
+            amb_custs = [r[0] for r in amb_cust_res.fetchall()]
+            if amb_custs:
+                raise RuntimeError(
+                    f"BUG-58 Migration Halt: Ambiguous customer ownership detected for customer ID(s): {amb_custs}. Associated with multiple organizations. Explicit owner reconciliation required."
+                )
+
+            # Resolve customers associated with exactly one organization
             await conn.execute(text(
                 "UPDATE customers SET organization_id = ("
                 "  SELECT branches.organization_id FROM sales_orders "
                 "  JOIN branches ON sales_orders.branch_id = branches.id "
-                "  WHERE sales_orders.customer_id = customers.id LIMIT 1"
-                ") WHERE customers.organization_id IS NULL"
+                "  WHERE sales_orders.customer_id = customers.id AND branches.organization_id IS NOT NULL "
+                "  GROUP BY branches.organization_id"
+                ") WHERE customers.organization_id IS NULL AND ("
+                "  SELECT COUNT(DISTINCT branches.organization_id) FROM sales_orders "
+                "  JOIN branches ON sales_orders.branch_id = branches.id "
+                "  WHERE sales_orders.customer_id = customers.id AND branches.organization_id IS NOT NULL"
+                ") = 1"
             ))
 
-            # 3. Resolve suppliers from purchase orders and branches
+            # 3. Check for ambiguous suppliers associated with multiple organizations
+            amb_sup_res = await conn.execute(text(
+                "SELECT purchase_orders.supplier_id, COUNT(DISTINCT branches.organization_id) "
+                "FROM purchase_orders "
+                "JOIN branches ON purchase_orders.branch_id = branches.id "
+                "WHERE branches.organization_id IS NOT NULL "
+                "GROUP BY purchase_orders.supplier_id "
+                "HAVING COUNT(DISTINCT branches.organization_id) > 1"
+            ))
+            amb_sups = [r[0] for r in amb_sup_res.fetchall()]
+            if amb_sups:
+                raise RuntimeError(
+                    f"BUG-58 Migration Halt: Ambiguous supplier ownership detected for supplier ID(s): {amb_sups}. Associated with multiple organizations. Explicit owner reconciliation required."
+                )
+
+            # Resolve suppliers associated with exactly one organization
             await conn.execute(text(
                 "UPDATE suppliers SET organization_id = ("
                 "  SELECT branches.organization_id FROM purchase_orders "
                 "  JOIN branches ON purchase_orders.branch_id = branches.id "
-                "  WHERE purchase_orders.supplier_id = suppliers.id LIMIT 1"
-                ") WHERE suppliers.organization_id IS NULL"
+                "  WHERE purchase_orders.supplier_id = suppliers.id AND branches.organization_id IS NOT NULL "
+                "  GROUP BY branches.organization_id"
+                ") WHERE suppliers.organization_id IS NULL AND ("
+                "  SELECT COUNT(DISTINCT branches.organization_id) FROM purchase_orders "
+                "  JOIN branches ON purchase_orders.branch_id = branches.id "
+                "  WHERE purchase_orders.supplier_id = suppliers.id AND branches.organization_id IS NOT NULL"
+                ") = 1"
             ))
 
-            # 4. Resolve products from warehouse stock movements and branches
+            # 4. Check for ambiguous products associated with multiple organizations
+            amb_prod_res = await conn.execute(text(
+                "SELECT stock_movements.product_id, COUNT(DISTINCT branches.organization_id) "
+                "FROM stock_movements "
+                "JOIN warehouses ON stock_movements.warehouse_id = warehouses.id "
+                "JOIN branches ON warehouses.branch_id = branches.id "
+                "WHERE branches.organization_id IS NOT NULL "
+                "GROUP BY stock_movements.product_id "
+                "HAVING COUNT(DISTINCT branches.organization_id) > 1"
+            ))
+            amb_prods = [r[0] for r in amb_prod_res.fetchall()]
+            if amb_prods:
+                raise RuntimeError(
+                    f"BUG-58 Migration Halt: Ambiguous product ownership detected for product ID(s): {amb_prods}. Associated with multiple organizations. Explicit owner reconciliation required."
+                )
+
+            # Resolve products associated with exactly one organization
             await conn.execute(text(
                 "UPDATE products SET organization_id = ("
                 "  SELECT branches.organization_id FROM stock_movements "
                 "  JOIN warehouses ON stock_movements.warehouse_id = warehouses.id "
                 "  JOIN branches ON warehouses.branch_id = branches.id "
-                "  WHERE stock_movements.product_id = products.id LIMIT 1"
-                ") WHERE products.organization_id IS NULL"
+                "  WHERE stock_movements.product_id = products.id AND branches.organization_id IS NOT NULL "
+                "  GROUP BY branches.organization_id"
+                ") WHERE products.organization_id IS NULL AND ("
+                "  SELECT COUNT(DISTINCT branches.organization_id) FROM stock_movements "
+                "  JOIN warehouses ON stock_movements.warehouse_id = warehouses.id "
+                "  JOIN branches ON warehouses.branch_id = branches.id "
+                "  WHERE stock_movements.product_id = products.id AND branches.organization_id IS NOT NULL"
+                ") = 1"
             ))
 
             # 5. For single-tenant or fresh deployments with exactly one organization, resolve remaining unassigned records
@@ -154,18 +217,17 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text(f"UPDATE suppliers SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
                 await conn.execute(text(f"UPDATE products SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
 
-            # 6. BUG-48 Verification: In a multi-organization environment, fail startup if unresolved ownership remains
+            # 6. BUG-48 & BUG-58 Verification: In a multi-organization environment, fail startup if unresolved ownership remains
             if len(org_rows) > 1:
                 for check_tbl in ["users", "customers", "suppliers", "products"]:
                     unres = (await conn.execute(text(f"SELECT COUNT(*) FROM {check_tbl} WHERE organization_id IS NULL"))).scalar() or 0
                     if unres > 0:
                         raise RuntimeError(
-                            f"BUG-48 Migration Halt: Found {unres} unresolved record(s) in '{check_tbl}' with missing organization ownership in a multi-tenant deployment. Explicit owner assignment is required."
+                            f"BUG-58 Migration Halt: Found {unres} unresolved record(s) in '{check_tbl}' with missing organization ownership in a multi-tenant deployment. Explicit owner assignment is required."
                         )
         except Exception as backfill_err:
-            if "BUG-48 Migration Halt" in str(backfill_err):
-                raise
-            logging.warning(f"[NexaERP DB Migration] Ownership resolution notice: {backfill_err}")
+            logging.error(f"[NexaERP DB Migration] Critical ownership migration failure: {backfill_err}")
+            raise RuntimeError(f"Database ownership migration failed: {backfill_err}") from backfill_err
 
     # BUG-36 & SEC-51: Strict schema verification before allowing application traffic
     async with engine.begin() as conn:

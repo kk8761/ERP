@@ -41,6 +41,10 @@ async def setup_db():
                 await conn.execute(text(f"UPDATE {tbl} SET organization_id = 1 WHERE organization_id IS NULL"))
             except Exception:
                 pass
+        try:
+            await conn.execute(text("ALTER TABLE sync_idempotency_records ADD COLUMN payload_hash VARCHAR(64)"))
+        except Exception:
+            pass
 
 
         for col, col_type in [

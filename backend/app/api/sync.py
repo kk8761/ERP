@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 import json
+import hashlib
 
 from app.database import get_db
 from app.auth.dependencies import get_current_user, is_admin_or_exec
@@ -74,14 +75,15 @@ async def sync_all_modules(
                 oldest_key = next(iter(_MODULE_DRAFT_CACHE))
                 _MODULE_DRAFT_CACHE.pop(oldest_key, None)
 
-            # BUG-51: Strip client-supplied server-owned fields
-            clean_data = {k: v for k, v in module_data.items() if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time"]}
+            # BUG-51 & SEC-52: Strip client-supplied server-owned fields including idempotency_key from clean_data
+            client_idemp_key = module_data.get("idempotency_key") or module_data.get("operation_id")
+            clean_data = {k: v for k, v in module_data.items() if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time", "idempotency_key"]}
 
             # BUG-47: Do not reset a successfully processed (SYNCED) draft to PENDING if payload hasn't changed
             existing_draft = await document_store.find_document("module_drafts", {"user_id": user_id, "module": module_name})
             draft_status = "PENDING"
             if existing_draft and existing_draft.get("status") == "SYNCED":
-                existing_clean = {k: v for k, v in existing_draft.get("data", {}).items() if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time"]}
+                existing_clean = {k: v for k, v in existing_draft.get("data", {}).items() if k not in ["_applied", "applied_at", "status", "processed_at", "claim_time", "idempotency_key"]}
                 if existing_clean == clean_data:
                     draft_status = "SYNCED"
 
@@ -93,18 +95,22 @@ async def sync_all_modules(
 
             # Error 10 Fix: Atomic upsert keyed by user and module; propagate persistence failures
             try:
+                upsert_dict: Dict[str, Any] = {
+                    "id": f"{user_id}:{module_name}",
+                    "user_id": user_id,
+                    "branch_id": current_user.branch_id,
+                    "module": module_name,
+                    "data": clean_data,
+                    "status": draft_status,
+                    "updated_at": now_utc.isoformat()
+                }
+                if client_idemp_key:
+                    upsert_dict["operation_id"] = str(client_idemp_key)
+
                 await document_store.upsert_document(
                     "module_drafts",
                     {"user_id": user_id, "module": module_name},
-                    {
-                        "id": f"{user_id}:{module_name}",
-                        "user_id": user_id,
-                        "branch_id": current_user.branch_id,
-                        "module": module_name,
-                        "data": clean_data,
-                        "status": draft_status,
-                        "updated_at": now_utc.isoformat()
-                    }
+                    upsert_dict
                 )
             except Exception as e:
                 persistence_failed = True
@@ -114,8 +120,13 @@ async def sync_all_modules(
                 )
 
     try:
-        # 1. Inventory stats (BUG-52: Scoped to user's organization)
-        effective_org = getattr(current_user, "organization_id", None) or 1
+        # 1. Inventory stats (BUG-52 & SEC-53: Scoped strictly to user's organization)
+        effective_org = getattr(current_user, "organization_id", None)
+        if effective_org is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization context required for synchronization. User has no assigned organization."
+            )
         prod_q = select(func.count(Product.id)).where(Product.organization_id == effective_org)
         prod_count_res = await db.execute(prod_q)
         total_products = prod_count_res.scalar_one() or 0
@@ -218,6 +229,14 @@ async def process_pending_drafts(
     active_branch = getattr(current_user, "active_branch_id", current_user.branch_id) or current_user.branch_id
     stale_threshold = (now - timedelta(minutes=5)).isoformat()
 
+    # SEC-53: Explicit organization context required to process drafts
+    user_org_id = getattr(current_user, "organization_id", None)
+    if user_org_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization assignment required to process synchronization drafts."
+        )
+
     # Retrieve pending drafts and expired PROCESSING drafts (worker crash recovery)
     all_drafts = await document_store.find_documents("module_drafts", {"user_id": user_id})
     pending_drafts = [
@@ -237,13 +256,26 @@ async def process_pending_drafts(
         draft_id = draft.get("id", f"{user_id}:{draft.get('module')}")
         module_name = draft.get("module")
         data = draft.get("data", {})
-        idempotency_key = data.get("idempotency_key") or f"IDEMP-{draft_id}-{draft.get('updated_at', '')}"
 
-        # BUG-47 & BUG-51: Check authoritative SQL idempotency ledger rather than trusting client flags
+        # SEC-52: Generate server-owned stable idempotency key from draft_id and stable payload hash or operation_id
+        payload_hash = hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
+        op_id = draft.get("operation_id") or data.get("operation_id")
+        if op_id and str(op_id).startswith("IDEMP-"):
+            idempotency_key = str(op_id)
+        else:
+            idempotency_key = f"IDEMP-{draft_id}-{payload_hash[:16]}"
+
+        # BUG-47, BUG-51 & SEC-52: Authoritative SQL idempotency ledger check and payload verification
         from app.models.sales import SyncIdempotencyRecord
         idemp_stmt = select(SyncIdempotencyRecord).where(SyncIdempotencyRecord.idempotency_key == idempotency_key)
         existing_idemp = (await db.execute(idemp_stmt)).scalar_one_or_none()
         if existing_idemp:
+            # Verify payload hash matches; reject conflicts with HTTP 409
+            if existing_idemp.payload_hash and existing_idemp.payload_hash != payload_hash:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Idempotency conflict: Operation key already bound to a different payload."
+                )
             await document_store.update_document(
                 "module_drafts",
                 {"id": draft_id},
@@ -252,12 +284,17 @@ async def process_pending_drafts(
             synced_count += 1
             continue
 
-        # BUG-47: Atomically claim draft with upsert=False
+        # BUG-55: Lease-version-aware atomic claim incorporating previous claim_time for stale drafts
         current_draft_status = draft.get("status", "PENDING")
+        claim_query: Dict[str, Any] = {"id": draft_id, "status": current_draft_status}
+        if current_draft_status == "PROCESSING":
+            claim_query["claim_time"] = draft.get("claim_time")
+
+        claim_token = str(uuid.uuid4())
         claimed = await document_store.claim_document(
             "module_drafts",
-            {"id": draft_id, "status": current_draft_status},
-            {"status": "PROCESSING", "claim_time": now.isoformat()}
+            claim_query,
+            {"status": "PROCESSING", "claim_time": now.isoformat(), "claim_token": claim_token}
         )
         if not claimed:
             continue
@@ -280,24 +317,49 @@ async def process_pending_drafts(
                         detail="Sales draft rejected: 'items' list is required and must contain at least one item."
                     )
 
-                from app.schemas.sales import SalesOrderCreate, SalesOrderItemCreate
+                # BUG-54 Fix: Use SalesOrderItemIn schema and compute price authoritative server-side
+                from app.schemas.sales import SalesOrderCreate, SalesOrderItemIn
                 from app.services.sales_service import create_sales_order
 
                 order_items = []
-                for idx, it in enumerate(items):
-                    p_id = it.get("product_id")
-                    qty = it.get("quantity")
-                    price = it.get("unit_price")
-                    if p_id is None or qty is None or price is None or int(qty) <= 0 or Decimal(str(price)) <= 0:
+                for idx, item in enumerate(items):
+                    product_id = item.get("product_id")
+                    quantity = item.get("quantity")
+                    if product_id is None or quantity is None:
                         raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Sales item at index {idx} contains invalid product_id, quantity, or unit_price."
+                            status_code=400,
+                            detail=f"Missing product ID or quantity at item {idx}."
                         )
-                    order_items.append(SalesOrderItemCreate(
-                        product_id=int(p_id),
-                        quantity=int(qty),
-                        unit_price=Decimal(str(price))
-                    ))
+                    # Validate numeric inputs before converting, rejecting floats like "1.5"
+                    if isinstance(product_id, str) and "." in product_id:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid product ID or quantity at item {idx}."
+                        )
+                    if isinstance(quantity, str) and "." in quantity:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid product ID or quantity at item {idx}."
+                        )
+                    try:
+                        p_id = int(product_id)
+                        qty = int(quantity)
+                    except (ValueError, TypeError):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid product ID or quantity at item {idx}."
+                        )
+                    if p_id <= 0 or qty <= 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid product ID or quantity at item {idx}."
+                        )
+                    order_items.append(
+                        SalesOrderItemIn(
+                            product_id=p_id,
+                            quantity=qty
+                        )
+                    )
 
                 order_in = SalesOrderCreate(
                     customer_id=data.get("customer_id"),
@@ -309,7 +371,7 @@ async def process_pending_drafts(
                     db=db,
                     order_in=order_in,
                     cashier_user_id=user_id,
-                    organization_id=current_user.organization_id
+                    organization_id=user_org_id
                 )
                 ref_id = str(order.id)
 
@@ -357,14 +419,15 @@ async def process_pending_drafts(
                     detail=f"Unsupported module '{module_name}'. Cannot process draft."
                 )
 
-            # BUG-47: Authoritative SQL Idempotency Ledger Entry in same transaction
+            # BUG-47 & SEC-52: Authoritative SQL Idempotency Ledger Entry with payload_hash
             idemp_rec = SyncIdempotencyRecord(
                 idempotency_key=idempotency_key,
                 module=module_name,
                 user_id=user_id,
-                organization_id=current_user.organization_id,
+                organization_id=user_org_id,
                 status="APPLIED",
-                reference_id=ref_id
+                reference_id=ref_id,
+                payload_hash=payload_hash
             )
             db.add(idemp_rec)
             await db.commit()

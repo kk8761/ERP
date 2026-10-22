@@ -13,23 +13,29 @@ from cryptography.fernet import Fernet
 
 from app.config import settings
 import struct
+from pathlib import Path
 from app.models.disaster_recovery import BackupRecord, TransactionLogEntry, DRDrillExecution, BackupAlert
 
-MAGIC_STREAM_HEADER = b"NEXASTR1\x00\x01"
+MAGIC_STREAM_HEADER_V1 = b"NEXASTR1\x00\x01"
+MAGIC_STREAM_HEADER = b"NEXASTR2\x00\x02"
 STREAM_CHUNK_SIZE = 64 * 1024  # 64 KB per authenticated chunk
 
 def get_dedicated_backup_cipher() -> Fernet:
     """
-    SEC-48: Dedicated, separate backup encryption key.
-    Uses BACKUP_ENCRYPTION_KEY environment variable if present,
-    or a dedicated domain-separated key derived independently from JWT secret.
+    SEC-48 & SEC-55: Dedicated, separate backup encryption key.
+    Requires BACKUP_ENCRYPTION_KEY environment variable in production.
     """
     dedicated_key_str = os.environ.get("BACKUP_ENCRYPTION_KEY") or getattr(settings, "BACKUP_ENCRYPTION_KEY", None)
-    if dedicated_key_str:
-        key = base64.urlsafe_b64encode(hashlib.sha256(dedicated_key_str.encode()).digest())
-    else:
-        # Derive dedicated key using domain-separated salt so JWT key rotation does not break backups
+    is_prod = (os.environ.get("ENVIRONMENT", "").lower() == "production") or (getattr(settings, "ENVIRONMENT", "").lower() == "production")
+    if not dedicated_key_str:
+        if is_prod:
+            raise RuntimeError(
+                "SEC-55 Production Security Violation: BACKUP_ENCRYPTION_KEY environment variable is required in production. Backup operations blocked."
+            )
+        # Derive dedicated key using domain-separated salt so JWT key rotation does not break backups in non-production
         key = base64.urlsafe_b64encode(hashlib.sha256(f"NEXA_DEDICATED_BACKUP_SECRET_SALT_2026_{settings.SECRET_KEY}".encode()).digest())
+    else:
+        key = base64.urlsafe_b64encode(hashlib.sha256(dedicated_key_str.encode()).digest())
     return Fernet(key)
 
 def get_legacy_backup_cipher() -> Fernet:
@@ -42,35 +48,80 @@ def get_backup_cipher() -> Fernet:
 
 def encrypt_backup_file(src_path: str) -> str:
     """
-    SEC-48: Streaming authenticated encryption using dedicated key.
-    Streams in 64KB chunks into a temporary file (.tmp.enc), verifies integrity,
-    and only then atomically renames and deletes plaintext.
+    SEC-48, SEC-55, BUG-59, BUG-60:
+    Streaming authenticated encryption using dedicated key.
+    - Packs monotonic chunk sequence index into each chunk payload to authenticate chunk sequence and reject reordering (BUG-60).
+    - Includes whole-file plaintext SHA-256 in header.
+    - Verifies encrypted output by decrypting all chunks and checking sequence & hash before deleting source plaintext (BUG-59).
     """
     cipher = get_dedicated_backup_cipher()
     enc_path = src_path + ".enc"
     tmp_enc_path = src_path + ".tmp.enc"
 
     try:
+        src_hasher = hashlib.sha256()
+        chunk_index = 0
+
         with open(src_path, "rb") as f_in, open(tmp_enc_path, "wb") as f_out:
             f_out.write(MAGIC_STREAM_HEADER)
+            # Placeholder for 32-byte plaintext SHA-256
+            f_out.write(b"\x00" * 32)
+
             while True:
                 chunk = f_in.read(STREAM_CHUNK_SIZE)
                 if not chunk:
                     break
-                enc_chunk = cipher.encrypt(chunk)
-                f_out.write(struct.pack(">I", len(enc_chunk)))
+                src_hasher.update(chunk)
+                # BUG-60: Monotonically increasing sequence index authenticated inside ciphertext
+                payload = struct.pack(">I", chunk_index) + chunk
+                enc_chunk = cipher.encrypt(payload)
+                # Outer chunk framing: [4 bytes chunk_index][4 bytes chunk_length][enc_chunk]
+                f_out.write(struct.pack(">II", chunk_index, len(enc_chunk)))
                 f_out.write(enc_chunk)
+                chunk_index += 1
 
-        # Integrity verification of encrypted output before removing plaintext
-        if not os.path.exists(tmp_enc_path) or os.path.getsize(tmp_enc_path) <= len(MAGIC_STREAM_HEADER):
-            raise RuntimeError("Encrypted backup output verification failed: file is missing or empty.")
+            # Seek back and write authoritative plaintext SHA-256
+            plaintext_sha = src_hasher.digest()
+            f_out.seek(len(MAGIC_STREAM_HEADER))
+            f_out.write(plaintext_sha)
 
-        # Atomic replacement
+        # BUG-59: Decrypt and verify every chunk and entire file checksum before deleting plaintext
+        verify_hasher = hashlib.sha256()
+        expected_chunk_idx = 0
+        with open(tmp_enc_path, "rb") as f_ver:
+            hdr = f_ver.read(len(MAGIC_STREAM_HEADER))
+            if hdr != MAGIC_STREAM_HEADER:
+                raise RuntimeError("Verification failed: Corrupt magic stream header.")
+            stored_sha = f_ver.read(32)
+            if stored_sha != plaintext_sha:
+                raise RuntimeError("Verification failed: Header checksum mismatch.")
+
+            while True:
+                hdr_bytes = f_ver.read(8)
+                if not hdr_bytes:
+                    break
+                c_idx, c_len = struct.unpack(">II", hdr_bytes)
+                if c_idx != expected_chunk_idx:
+                    raise RuntimeError(f"BUG-60 Verification failed: Chunk sequence mismatch at {c_idx}, expected {expected_chunk_idx}.")
+                enc_data = f_ver.read(c_len)
+                dec_payload = cipher.decrypt(enc_data)
+                if len(dec_payload) < 4:
+                    raise RuntimeError("Verification failed: Truncated chunk payload.")
+                payload_idx = struct.unpack(">I", dec_payload[:4])[0]
+                if payload_idx != expected_chunk_idx:
+                    raise RuntimeError(f"BUG-60 Verification failed: Inner payload chunk index {payload_idx} != expected {expected_chunk_idx}.")
+                verify_hasher.update(dec_payload[4:])
+                expected_chunk_idx += 1
+
+        if verify_hasher.digest() != plaintext_sha:
+            raise RuntimeError("BUG-59 Verification failed: Full-file decrypted SHA-256 does not match original plaintext.")
+
+        # Atomic replacement of target archive
         if os.path.exists(enc_path):
             os.remove(enc_path)
         os.rename(tmp_enc_path, enc_path)
 
-        # Only delete plaintext after successful encryption and verification
+        # Only delete plaintext after successful verification
         if os.path.exists(src_path) and enc_path != src_path:
             os.remove(src_path)
 
@@ -84,7 +135,9 @@ def encrypt_backup_file(src_path: str) -> str:
 
 def decrypt_backup_file(enc_path: str, dest_path: str) -> str:
     """
-    SEC-48: Streaming decryption supporting chunked streams and legacy single-blob backups.
+    SEC-48, BUG-59, BUG-60:
+    Streaming decryption supporting V2 sequence-authenticated streams,
+    V1 streams, and legacy single-blob backups.
     """
     tmp_dest_path = dest_path + ".tmp.dec"
     ciphers_to_try = [get_dedicated_backup_cipher(), get_legacy_backup_cipher()]
@@ -93,10 +146,49 @@ def decrypt_backup_file(enc_path: str, dest_path: str) -> str:
         with open(enc_path, "rb") as f_in:
             header = f_in.read(len(MAGIC_STREAM_HEADER))
             if header == MAGIC_STREAM_HEADER:
-                # Streaming chunked format
+                # V2 sequence-authenticated stream
+                expected_sha = f_in.read(32)
                 success = False
                 for cipher in ciphers_to_try:
-                    f_in.seek(len(MAGIC_STREAM_HEADER))
+                    f_in.seek(len(MAGIC_STREAM_HEADER) + 32)
+                    hasher = hashlib.sha256()
+                    expected_idx = 0
+                    current_success = True
+                    with open(tmp_dest_path, "wb") as f_out:
+                        while True:
+                            hdr_bytes = f_in.read(8)
+                            if not hdr_bytes:
+                                break
+                            c_idx, c_len = struct.unpack(">II", hdr_bytes)
+                            if c_idx != expected_idx:
+                                current_success = False
+                                break
+                            enc_data = f_in.read(c_len)
+                            try:
+                                dec_payload = cipher.decrypt(enc_data)
+                                payload_idx = struct.unpack(">I", dec_payload[:4])[0]
+                                if payload_idx != expected_idx:
+                                    current_success = False
+                                    break
+                                chunk_data = dec_payload[4:]
+                                hasher.update(chunk_data)
+                                f_out.write(chunk_data)
+                                expected_idx += 1
+                            except Exception:
+                                current_success = False
+                                break
+                    if current_success and hasher.digest() == expected_sha:
+                        success = True
+                        break
+
+                if not success:
+                    raise RuntimeError("Failed to decrypt backup stream: authentication or sequence check failed.")
+
+            elif header == MAGIC_STREAM_HEADER_V1:
+                # V1 legacy chunked stream
+                success = False
+                for cipher in ciphers_to_try:
+                    f_in.seek(len(MAGIC_STREAM_HEADER_V1))
                     current_success = True
                     with open(tmp_dest_path, "wb") as f_out:
                         while True:
@@ -115,7 +207,8 @@ def decrypt_backup_file(enc_path: str, dest_path: str) -> str:
                         success = True
                         break
                 if not success:
-                    raise RuntimeError("Failed to decrypt backup stream: key authentication failed.")
+                    raise RuntimeError("Failed to decrypt legacy V1 backup stream: key authentication failed.")
+
             else:
                 # Legacy single-blob Fernet format
                 f_in.seek(0)
@@ -163,6 +256,25 @@ class DisasterRecoveryService:
     Comprehensive Disaster Recovery, Backup Retention, PITR, and Backup Monitoring Service.
     Addresses Requirements 29.4, 29.5, 29.6, and 29.7.
     """
+
+    @staticmethod
+    def verify_offsite_storage_destination(dest_path: Optional[str] = None) -> bool:
+        """
+        SEC-56: Verifies that offsite archive destination is configured and accessible
+        before reporting an archive as offsite.
+        """
+        path_to_check = dest_path or os.environ.get("OFFHOST_COLD_ARCHIVE_PATH") or getattr(settings, "OFFHOST_COLD_ARCHIVE_PATH", None)
+        is_prod = (os.environ.get("ENVIRONMENT", "").lower() == "production") or (getattr(settings, "ENVIRONMENT", "").lower() == "production")
+        if not path_to_check:
+            if is_prod:
+                raise RuntimeError("SEC-56 Configuration Error: OFFHOST_COLD_ARCHIVE_PATH is required in production.")
+            return False
+        p = Path(path_to_check)
+        if not p.exists() or not p.is_dir():
+            if is_prod:
+                raise RuntimeError(f"SEC-56 Storage Error: Verified offsite destination '{path_to_check}' does not exist or is not a directory.")
+            return False
+        return True
 
     # -------------------------------------------------------------------------
     # 43.2 DISASTER RECOVERY PLAN & MONTHLY DRILLS (Requirements 29.4, 29.5)

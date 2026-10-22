@@ -17,11 +17,17 @@ async def create_sales_order(
     organization_id: Optional[int] = None
 ) -> SalesOrder:
     """
-    SEC-47 Fix: Enforce strict multi-tenant boundary for sales order creation.
-    Validates branch, customer, and all purchased products against organization_id.
+    SEC-47 & SEC-53 Fix: Enforce strict multi-tenant boundary for sales order creation.
+    Requires verified organization context and validates branch, customer, and products.
     """
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context is required for sales order operations."
+        )
+
     # Validate branch against organization if specified
-    if order_in.branch_id and organization_id is not None:
+    if order_in.branch_id:
         from app.models.org import Branch
         b_res = await db.execute(
             select(Branch).where(Branch.id == order_in.branch_id, Branch.organization_id == organization_id)
@@ -35,9 +41,7 @@ async def create_sales_order(
     # Validate customer against organization if specified
     customer = None
     if order_in.customer_id:
-        c_stmt = select(Customer).where(Customer.id == order_in.customer_id)
-        if organization_id is not None:
-            c_stmt = c_stmt.where(Customer.organization_id == organization_id)
+        c_stmt = select(Customer).where(Customer.id == order_in.customer_id, Customer.organization_id == organization_id)
         c_res = await db.execute(c_stmt)
         customer = c_res.scalar_one_or_none()
         if not customer:
@@ -54,10 +58,8 @@ async def create_sales_order(
     order_items: List[SalesOrderItem] = []
 
     for item_in in order_in.items:
-        # SEC-47: Scope product query strictly to user's organization
-        p_stmt = select(Product).where(Product.id == item_in.product_id)
-        if organization_id is not None:
-            p_stmt = p_stmt.where(Product.organization_id == organization_id)
+        # SEC-47 & SEC-53: Scope product query strictly to user's organization
+        p_stmt = select(Product).where(Product.id == item_in.product_id, Product.organization_id == organization_id)
         prod_res = await db.execute(p_stmt)
         product = prod_res.scalar_one_or_none()
         if not product:
@@ -100,10 +102,20 @@ async def create_sales_order(
             notes=f"POS Sale: {invoice_number}"
         )
 
+    # BUG-57 Fix: Enforce strict financial discount bounds
     discount = Decimal(str(order_in.discount_amount))
-    total_amount = subtotal + tax_amount - discount
-    if total_amount < Decimal("0.00"):
-        total_amount = Decimal("0.00")
+    if discount < Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Discount cannot be negative."
+        )
+    gross_amount = subtotal + tax_amount
+    if discount > gross_amount:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Discount cannot exceed the sale value."
+        )
+    total_amount = gross_amount - discount
 
     sales_order = SalesOrder(
         invoice_number=invoice_number,
