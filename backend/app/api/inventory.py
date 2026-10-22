@@ -91,7 +91,8 @@ async def create_product(
             detail=f"Product with SKU '{data.sku}' already exists"
         )
 
-    product = Product(**data.model_dump())
+    effective_org = getattr(current_user, "organization_id", None) or 1
+    product = Product(**data.model_dump(), organization_id=effective_org)
     db.add(product)
     await db.flush()
 
