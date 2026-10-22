@@ -465,7 +465,7 @@ class DisasterRecoveryService:
             "test_id": f"TEST-PITR-{uuid.uuid4().hex[:8].upper()}",
             "tested_at": now.isoformat(),
             "procedure": "Automated WAL Roll-Forward & Point-in-Time Restore Verification (Simulation)",
-            "test_status": "PASSED",
+            "test_status": "SIMULATED",
             "mode": "DRILL_SIMULATION",
             "is_simulated": True,
             "target_point": target.isoformat(),
@@ -488,15 +488,30 @@ class DisasterRecoveryService:
         and alerts immediately if failure occurs.
         """
         now = datetime.now(timezone.utc)
-        if not backup_name:
-            backup_name = f"nexaerp_{backup_type.lower()}_{now.strftime('%Y%m%d_%H%M%S')}.backup.gz"
+        from app.config import settings
+        is_postgres = "postgres" in settings.DATABASE_URL.lower()
+
+        if backup_name:
+            if not isinstance(backup_name, str) or not backup_name.strip():
+                raise ValueError("Invalid backup name: filename cannot be empty.")
+            if ".." in backup_name or "/" in backup_name or "\\" in backup_name or os.path.isabs(backup_name):
+                raise ValueError("Invalid backup name: path traversal characters and directory separators are forbidden.")
+            safe_name = os.path.basename(backup_name)
+            if safe_name != backup_name:
+                raise ValueError("Invalid backup name: path traversal characters are forbidden.")
+            backup_name = safe_name
+        else:
+            ext = ".dump" if is_postgres else ".backup.gz"
+            backup_name = f"nexaerp_{backup_type.lower()}_{now.strftime('%Y%m%d_%H%M%S')}{ext}"
 
         backup_id = f"BKP-{uuid.uuid4().hex[:12].upper()}"
 
         # Resolve real storage destination
         backup_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backups"))
         os.makedirs(backup_dir, exist_ok=True)
-        backup_file_path = os.path.join(backup_dir, backup_name)
+        backup_file_path = os.path.abspath(os.path.join(backup_dir, backup_name))
+        if not backup_file_path.startswith(backup_dir + os.sep) and backup_file_path != backup_dir:
+            raise ValueError("Target backup file escapes authorized backup directory.")
 
         if simulate_failure:
             # Create failed backup record and trigger critical alert
@@ -629,9 +644,9 @@ class DisasterRecoveryService:
             checksum_sha256=real_checksum,
             is_archived=False,
             metadata_json=json.dumps({
-                "compression": "gzip-9",
+                "compression": "pg_dump_custom_compression" if is_postgres else "gzip-9",
                 "backup_mode": backup_mode,
-                "encryption": "GZIP_INTEGRITY_VERIFIED",
+                "encryption": "NONE",
                 "verified_at": now.isoformat()
             })
         )
@@ -646,6 +661,9 @@ class DisasterRecoveryService:
         Collects comprehensive backup monitoring metrics, success rate, storage stats, and active alerts.
         """
         now = datetime.now(timezone.utc)
+        from app.config import settings
+        is_postgres = "postgres" in settings.DATABASE_URL.lower()
+
         backups = await DisasterRecoveryService.list_backups(db)
         alerts_res = await db.execute(select(BackupAlert).where(BackupAlert.resolved == False))
         active_alerts = list(alerts_res.scalars().all())
@@ -656,7 +674,7 @@ class DisasterRecoveryService:
         total_count = len(backups)
         completed_count = sum(1 for b in backups if b.status in ("COMPLETED", "ARCHIVED"))
         failed_count = sum(1 for b in backups if b.status == "FAILED")
-        success_rate = (completed_count / total_count * 100.0) if total_count > 0 else 100.0
+        success_rate = (completed_count / total_count * 100.0) if total_count > 0 else 0.0
 
         total_storage_bytes = sum(b.file_size_bytes for b in backups)
         latest_backup = backups[0] if backups else None
@@ -665,13 +683,16 @@ class DisasterRecoveryService:
         next_run = (now + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
 
         # Check retention compliance (every backup has retention_days >= 90)
-        retention_compliant = all(b.retention_days >= 90 for b in backups)
+        retention_compliant = all(b.retention_days >= 90 for b in backups) if total_count > 0 else False
 
         # Check RTO compliance (latest drill achieved RTO <= 14400s)
-        rto_compliant = latest_drill.rto_compliance_met if latest_drill else True
+        rto_compliant = latest_drill.rto_compliance_met if latest_drill else None
+        drill_achieved_minutes = round(latest_drill.rto_achieved_seconds / 60.0, 1) if latest_drill else None
+
+        status_label = "HEALTHY" if (total_count > 0 and failed_count == 0 and len(active_alerts) == 0) else ("UNVERIFIED" if total_count == 0 else ("WARNING" if len(active_alerts) > 0 else "CRITICAL"))
 
         return {
-            "status": "HEALTHY" if failed_count == 0 and len(active_alerts) == 0 else ("WARNING" if len(active_alerts) > 0 else "CRITICAL"),
+            "status": status_label,
             "health_timestamp": now.isoformat(),
             "metrics": {
                 "total_backups": total_count,
@@ -684,11 +705,11 @@ class DisasterRecoveryService:
                 "cold_glacier_count": sum(1 for b in backups if b.storage_tier == "COLD_GLACIER")
             },
             "sla_compliance": {
-                "rto_sla_status": "COMPLIANT" if rto_compliant else "BREACHED",
+                "rto_sla_status": "COMPLIANT" if rto_compliant is True else ("BREACHED" if rto_compliant is False else "UNVERIFIED"),
                 "rto_target_hours": 4.0,
-                "latest_drill_achieved_minutes": round(latest_drill.rto_achieved_seconds / 60.0, 1) if latest_drill else 18.5,
+                "latest_drill_achieved_minutes": drill_achieved_minutes,
                 "retention_policy_90_days_met": retention_compliant,
-                "pitr_readiness": "ACTIVE (WAL Streaming Online)"
+                "pitr_readiness": "ACTIVE (WAL Streaming Online)" if is_postgres else "UNVERIFIED (Requires PostgreSQL WAL archiving)"
             },
             "schedule": {
                 "last_successful_backup": latest_backup.created_at.isoformat() if latest_backup else None,

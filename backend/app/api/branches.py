@@ -34,11 +34,29 @@ async def list_mnc_branches(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Returns all enterprise subsidiaries, regional hubs, and operational branches
-    under the Multinational Corporation (MNC) parent organization.
-    Strictly read-only: does not mutate or inject sample data on GET requests (BUG-23).
+    Returns enterprise subsidiaries, regional hubs, and operational branches.
+    Enforces RBAC: non-admin staff only view branches they are authorized to access (Error 9).
     """
+    user_role_names = [ur.role.name for ur in (current_user.roles or []) if getattr(ur, "role", None)]
+    is_exec_or_admin = bool(current_user.is_superuser or any(r in ["System Administrator", "Executive", "Managing Director"] for r in user_role_names))
+    has_global_perm = is_exec_or_admin or "branches.manage" in getattr(current_user, "effective_permissions", set())
+
+    allowed_branch_ids = set()
+    if current_user.branch_id is not None:
+        allowed_branch_ids.add(current_user.branch_id)
+
+    doc = await document_store.find_document("employee_access_authorizations", {"email": current_user.email})
+    if doc:
+        raw_policy = doc.get("branch_access_policy", "ASSIGNED_ONLY")
+        policy = raw_policy if raw_policy in {"ASSIGNED_ONLY", "ALL_BRANCHES", "CUSTOM_LIST"} else "ASSIGNED_ONLY"
+        allowed = doc.get("accessible_branches", [])
+        if policy == "ALL_BRANCHES" or "ALL" in allowed:
+            has_global_perm = True
+
     stmt = select(Branch).order_by(Branch.id)
+    if not has_global_perm:
+        stmt = stmt.where(Branch.id.in_(allowed_branch_ids if allowed_branch_ids else [-1]))
+
     res = await db.execute(stmt)
     branches = res.scalars().all()
 
@@ -56,46 +74,19 @@ async def list_mnc_branches(
         emp_count_res = await db.execute(select(func.count(Employee.id)).where(Employee.branch_id == b.id))
         emp_count = emp_count_res.scalar() or 0
 
-        # Calculate real revenue for branch from sales ledger
-        rev_res = await db.execute(
-            select(func.sum(SalesOrder.total_amount)).where(SalesOrder.branch_id == b.id)
-        )
-        gross_rev = float(rev_res.scalar() or 0.0)
+        # Calculate real revenue for branch from sales ledger (protected for authorized users)
+        gross_rev = None
+        if has_global_perm or b.id == current_user.branch_id:
+            rev_res = await db.execute(
+                select(func.sum(SalesOrder.total_amount)).where(SalesOrder.branch_id == b.id)
+            )
+            gross_rev = float(rev_res.scalar() or 0.0)
 
-        # Country & Currency heuristics
-        currency = "INR"
-        country_code = "IN"
-        country_name = "India"
-        flag = "🇮🇳"
-
-        lower_name = (b.name or "").lower()
-        lower_code = (b.code or "").lower()
-
-        if "dubai" in lower_name or "dxb" in lower_code or "mena" in lower_name:
-            currency = "AED"
-            country_code = "AE"
-            country_name = "United Arab Emirates"
-            flag = "🇦🇪"
-        elif "singapore" in lower_name or "sin" in lower_code:
-            currency = "SGD"
-            country_code = "SG"
-            country_name = "Singapore"
-            flag = "🇸🇬"
-        elif "london" in lower_name or "lon" in lower_code:
-            currency = "GBP"
-            country_code = "GB"
-            country_name = "United Kingdom"
-            flag = "🇬🇧"
-        elif "new york" in lower_name or "nyc" in lower_code or "americas" in lower_name:
-            currency = "USD"
-            country_code = "US"
-            country_name = "United States"
-            flag = "🇺🇸"
-        elif "tokyo" in lower_name or "tyo" in lower_code:
-            currency = "JPY"
-            country_code = "JP"
-            country_name = "Japan"
-            flag = "🇯🇵"
+        # Country & Currency: Return stored values rather than guessing (Functional Error Fix)
+        currency = b.currency or "INR"
+        country_code = b.country or "IN"
+        flag = "🇮🇳" if country_code == "IN" else ("🇦🇪" if country_code == "AE" else ("🇸🇬" if country_code == "SG" else "🌐"))
+        country_name = "India" if country_code == "IN" else ("United Arab Emirates" if country_code == "AE" else ("Singapore" if country_code == "SG" else country_code))
 
         output.append({
             "id": b.id,
@@ -112,7 +103,7 @@ async def list_mnc_branches(
             "departments_count": dep_count,
             "warehouses_count": wh_count,
             "gross_revenue": gross_rev,
-            "is_hq": (b.id == 1 or "main" in lower_name or "hq" in lower_code or "global hq" in lower_name),
+            "is_hq": (b.id == 1 or "main" in (b.name or "").lower() or "hq" in (b.code or "").lower()),
             "status": "OPERATIONAL"
         })
 
@@ -143,7 +134,9 @@ async def create_mnc_branch(
         name=payload.name.strip(),
         code=payload.code.strip().upper(),
         city=payload.city.strip(),
-        address=payload.address.strip() if payload.address else f"Regional Office, {payload.city}"
+        address=payload.address.strip() if payload.address else f"Regional Office, {payload.city}",
+        country=payload.country.strip() if payload.country else "IN",
+        currency=payload.currency.strip().upper() if payload.currency else "INR"
     )
     db.add(new_branch)
     await db.flush()
@@ -172,7 +165,7 @@ async def create_mnc_branch(
         db=db,
         user_id=current_user.id,
         action="MNC_BRANCH_PROVISIONED",
-        entity="branch",
+        entity_name="branch",
         entity_id=new_branch.id,
         details=f"Provisioned new MNC regional branch '{new_branch.name}' ({new_branch.code}) in {new_branch.city}."
     )
@@ -184,7 +177,9 @@ async def create_mnc_branch(
             "id": new_branch.id,
             "name": new_branch.name,
             "code": new_branch.code,
-            "city": new_branch.city
+            "city": new_branch.city,
+            "country": new_branch.country,
+            "currency": new_branch.currency
         }
     }
 
@@ -197,7 +192,17 @@ async def get_consolidation_summary(
     """
     Consolidated Multinational Corporation (MNC) Executive Reporting:
     Rolls up revenues, active branches, global workforce, and multi-currency metrics.
+    Enforces Error 9: Requires explicit consolidated-reporting or executive permission.
     """
+    user_role_names = [ur.role.name for ur in (current_user.roles or []) if getattr(ur, "role", None)]
+    is_exec_or_admin = bool(current_user.is_superuser or any(r in ["System Administrator", "Executive", "Managing Director"] for r in user_role_names))
+    user_perms = getattr(current_user, "effective_permissions", set())
+
+    if not is_exec_or_admin and "reports.view" not in user_perms and "branches.manage" not in user_perms:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Consolidated corporate financial reporting requires 'reports.view' or 'branches.manage' permission."
+        )
     org_res = await db.execute(select(Organization).limit(1))
     org = org_res.scalar_one_or_none()
 
@@ -339,9 +344,15 @@ async def switch_branch_context(
     if payload.branch_id is None:
         if not is_exec_or_admin:
             raise HTTPException(status_code=403, detail="Only Executives and Administrators can view Consolidated Multi-Branch mode.")
-        current_user.branch_id = None
-        await db.commit()
-        return {"success": True, "active_branch": "All Branches (Consolidated)", "branch_id": None}
+        # Error 8 Fix: Do not mutate current_user.branch_id in DB. Record active context in session store.
+        await document_store.insert_document("user_session_branch_context", {
+            "id": f"ctx_{current_user.id}",
+            "user_id": current_user.id,
+            "active_branch_id": None,
+            "active_branch_name": "All Branches (Consolidated)",
+            "assigned_branch_id": current_user.branch_id
+        })
+        return {"success": True, "active_branch": "All Branches (Consolidated)", "branch_id": None, "active_branch_id": None, "assigned_branch_id": current_user.branch_id}
 
     branch_res = await db.execute(select(Branch).where(Branch.id == payload.branch_id))
     branch = branch_res.scalar_one_or_none()
@@ -360,7 +371,8 @@ async def switch_branch_context(
                 )
         else:
             allowed = doc.get("accessible_branches", [])
-            policy = doc.get("branch_access_policy", "ASSIGNED_ONLY")
+            raw_policy = doc.get("branch_access_policy", "ASSIGNED_ONLY")
+            policy = raw_policy if raw_policy in {"ASSIGNED_ONLY", "ALL_BRANCHES", "CUSTOM_LIST"} else "ASSIGNED_ONLY"
             if policy == "ASSIGNED_ONLY" and "ALL" not in allowed:
                 # Error 12 Fix: Reject substring matching. Compare exact branch ID, code, or exact full name.
                 def branch_matches(entry: Any) -> bool:
@@ -382,14 +394,21 @@ async def switch_branch_context(
                         detail=f"Access Denied: You are not authorized to access '{branch.name}'. Your authorized branches: {', '.join(str(b) for b in allowed)}."
                     )
 
-    current_user.branch_id = branch.id
-    await db.commit()
+    # Error 8 Fix: Keep assigned branch immutable on User record.
+    # Store active branch in session context store without mutating current_user.branch_id in DB.
+    await document_store.insert_document("user_session_branch_context", {
+        "id": f"ctx_{current_user.id}",
+        "user_id": current_user.id,
+        "active_branch_id": branch.id,
+        "active_branch_name": branch.name,
+        "assigned_branch_id": current_user.branch_id
+    })
     await record_audit_log(
         db, action="BRANCH_CONTEXT_SWITCHED", entity_name="User",
         user_id=current_user.id, user_email=current_user.email,
-        details={"branch_id": branch.id, "branch_name": branch.name}
+        details={"active_branch_id": branch.id, "assigned_branch_id": current_user.branch_id, "branch_name": branch.name}
     )
-    return {"success": True, "active_branch": branch.name, "branch_id": branch.id}
+    return {"success": True, "active_branch": branch.name, "branch_id": branch.id, "active_branch_id": branch.id, "assigned_branch_id": current_user.branch_id}
 
 
 class CrossBranchAccessRequestCreate(BaseModel):

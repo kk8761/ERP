@@ -27,6 +27,8 @@ class Branch(Base, TimestampMixin):
     code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     address: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    country: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="IN")
+    currency: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, default="INR")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     organization: Mapped["Organization"] = relationship("Organization", back_populates="branches")

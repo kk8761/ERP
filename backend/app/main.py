@@ -79,6 +79,9 @@ async def lifespan(app: FastAPI):
         ("intrusion_events", "is_reviewed", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT 0"),
         ("organizations", "legal_name", "VARCHAR(200)", "VARCHAR(200)"),
         ("organizations", "settings_json", "TEXT", "TEXT"),
+        ("branches", "country", "VARCHAR(50) DEFAULT 'IN'", "VARCHAR(50) DEFAULT 'IN'"),
+        ("branches", "currency", "VARCHAR(10) DEFAULT 'INR'", "VARCHAR(10) DEFAULT 'INR'"),
+        ("users", "last_login_at", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP"),
     ]
     for tbl, col, pg_def, sqlite_def in migrations:
         try:

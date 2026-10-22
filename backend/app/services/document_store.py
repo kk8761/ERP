@@ -117,6 +117,50 @@ class DocumentStoreService:
         self._write_local_collection(collection_name, local_docs)
         return doc
 
+    async def upsert_document(self, collection_name: str, query: Dict[str, Any], document: Dict[str, Any]) -> Dict[str, Any]:
+        """Atomically upsert a document keyed by unique query filter to prevent duplication (Error 10)."""
+        doc = dict(document)
+        now_iso = datetime.utcnow().isoformat()
+        if "created_at" not in doc:
+            doc["created_at"] = now_iso
+        doc["updated_at"] = now_iso
+
+        is_connected = await self._try_connect_mongo()
+        if is_connected and self._db is not None:
+            try:
+                coll = self._db[collection_name]
+                await coll.update_one(query, {"$set": doc}, upsert=True)
+                doc["storage_engine"] = "MongoDB Community Edition"
+                # Keep local mirror synchronized
+                local_docs = self._read_local_collection(collection_name)
+                found = False
+                for idx, existing in enumerate(local_docs):
+                    if all(existing.get(k) == v for k, v in query.items()):
+                        local_docs[idx] = {**existing, **doc}
+                        found = True
+                        break
+                if not found:
+                    local_docs.append(doc)
+                self._write_local_collection(collection_name, local_docs)
+                return doc
+            except Exception as e:
+                logger.warning("MongoDB upsert failed, falling back to local free store: %s", e)
+
+        # Free local document store fallback
+        doc["storage_engine"] = "Local Free Document Store (Persistent JSON Engine)"
+        local_docs = self._read_local_collection(collection_name)
+        found = False
+        for idx, existing in enumerate(local_docs):
+            if all(existing.get(k) == v for k, v in query.items()):
+                local_docs[idx] = {**existing, **doc}
+                found = True
+                break
+        if not found:
+            local_docs.append(doc)
+
+        self._write_local_collection(collection_name, local_docs)
+        return doc
+
     async def find_document(self, collection_name: str, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         is_connected = await self._try_connect_mongo()
         if is_connected and self._db is not None:

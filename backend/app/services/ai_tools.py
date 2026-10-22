@@ -457,9 +457,9 @@ async def tool_create_draft_purchase_order(
             "line_total": float(l_total)
         })
 
-    # Sensitive Action Check: Threshold >= 50,000 or execute_now=False requires Approval Preview
+    # Sensitive Action Check: Threshold >= 50,000 requires independent approval workflow (Error 7)
     APPROVAL_THRESHOLD = 50000.0
-    needs_approval = float(total_val) >= APPROVAL_THRESHOLD or not execute_now
+    needs_approval = float(total_val) >= APPROVAL_THRESHOLD
 
     action_id = f"ACT-PO-{uuid.uuid4().hex[:6].upper()}"
     preview = {
@@ -475,7 +475,7 @@ async def tool_create_draft_purchase_order(
             {"entity": "Supplier", "id": supplier.id, "name": supplier.name},
             {"entity": "Total Amount", "amount": float(total_val), "currency": "INR"}
         ],
-        "requires_human_approval": float(total_val) >= APPROVAL_THRESHOLD,
+        "requires_human_approval": needs_approval,
         "payload": {
             "supplier_id": supplier.id,
             "supplier_name": supplier.name,
@@ -484,6 +484,14 @@ async def tool_create_draft_purchase_order(
             "notes": notes or f"AI Generated replenishment order"
         }
     }
+
+    # Error 7 Fix: Never allow execute_now to bypass statutory approval threshold
+    if needs_approval:
+        return {
+            "status": "APPROVAL_REQUIRED",
+            "action_preview": preview,
+            "summary": f"Purchase order total ₹{float(total_val):,.2f} INR exceeds ₹{APPROVAL_THRESHOLD:,.2f} statutory threshold. Independent executive approval required."
+        }
 
     if not execute_now:
         return {
@@ -608,17 +616,19 @@ async def tool_get_overdue_invoices_and_receivables(
     db: AsyncSession,
     days_overdue: int = 15,
     organization_id: int = 1,
+    branch_id: Optional[int] = None,
     **kwargs
 ) -> Dict[str, Any]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=days_overdue)
-    # Sales orders with payment_status == PENDING
+    # Error 6 Fix: Apply branch filter to overdue receivables
     stmt = (
         select(SalesOrder)
         .options(selectinload(SalesOrder.customer))
         .where(and_(SalesOrder.payment_status == "PENDING", SalesOrder.created_at <= cutoff))
-        .order_by(desc(SalesOrder.total_amount))
-        .limit(20)
     )
+    if branch_id:
+        stmt = stmt.where(SalesOrder.branch_id == branch_id)
+    stmt = stmt.order_by(desc(SalesOrder.total_amount)).limit(20)
     res = await db.execute(stmt)
     orders = res.scalars().all()
 
@@ -665,6 +675,13 @@ async def tool_get_hr_leave_and_attendance_summary(
     user_id: int = 1,
     **kwargs
 ) -> Dict[str, Any]:
+    # Error 6 Fix: HR summary requires branch context; reject branchless requests for multi-tenant isolation
+    if not branch_id:
+        return {
+            "status": "ERROR",
+            "message": "Branch context required for HR summary. Access across unassigned branches is prohibited."
+        }
+
     from app.models.hr import Employee
     stmt = (
         select(LeaveRequest)
@@ -910,6 +927,14 @@ TOOL_REQUIRED_PERMISSIONS = {
     "list_scheduled_workflows": "settings.manage"
 }
 
+MCP_SERVICE_ACCOUNT_ALLOWED_TOOLS = {
+    "search_inventory",
+    "calculate_reorder_recommendations",
+    "compare_suppliers",
+    "get_vendor_scorecard",
+    "get_order_evaluation"
+}
+
 ADMIN_ONLY_TOOLS = {"create_scheduled_workflow", "update_vendor_ratings_batch"}
 
 async def execute_typed_tool(
@@ -931,12 +956,12 @@ async def execute_typed_tool(
     # SEC-30: Enforce RBAC per tool for all callers
     req_perm = TOOL_REQUIRED_PERMISSIONS.get(tool_name)
     
-    # 1. MCP Service Account (id 9999) permissions
+    # 1. MCP Service Account (id 9999) permissions: Error 6 positive allowlist
     if user_id == 9999:
-        if tool_name in ADMIN_ONLY_TOOLS or tool_name in ["create_draft_purchase_order", "get_hr_leave_and_attendance_summary"]:
+        if tool_name not in MCP_SERVICE_ACCOUNT_ALLOWED_TOOLS:
             return {
                 "status": "ERROR",
-                "message": f"Forbidden: Dedicated MCP service account cannot invoke restricted tool '{tool_name}'. Administrator credentials required."
+                "message": f"Forbidden: Dedicated MCP service account can only invoke tools in its authorized positive allowlist. Tool '{tool_name}' is not permitted."
             }
     # 2. Authenticated ERP User permissions - strictly loaded and verified from database (Error 3)
     else:
@@ -958,6 +983,11 @@ async def execute_typed_tool(
         if not is_admin_user:
             # Overwrite caller-supplied branch_id with the user's authoritative branch
             branch_id = user_branch_id
+            if branch_id is None and tool_name in ["get_hr_leave_and_attendance_summary", "get_overdue_invoices_and_receivables"]:
+                return {
+                    "status": "ERROR",
+                    "message": f"Forbidden: Branch context required to execute '{tool_name}'. No branch assigned to caller."
+                }
             if tool_name in ADMIN_ONLY_TOOLS:
                 return {
                     "status": "ERROR",

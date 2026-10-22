@@ -19,6 +19,7 @@ class User(Base, TimestampMixin):
     # Multi-Factor Authentication (TOTP / Google & Microsoft Authenticator)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     mfa_secret: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    last_login_at: Mapped[Optional[DateTime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Scopes
     branch_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("branches.id"), nullable=True)

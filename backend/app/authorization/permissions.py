@@ -11,6 +11,7 @@ PERMISSIONS = [
     {"code": "sales.create", "module": "sales", "description": "Create new sales transactions and POS receipts"},
     {"code": "sales.update", "module": "sales", "description": "Edit draft sales orders"},
     {"code": "sales.refund", "module": "sales", "description": "Process returns and refunds"},
+    {"code": "sales.manage", "module": "sales", "description": "Manage sales records, clients, and pipelines"},
     {"code": "customers.manage", "module": "sales", "description": "Create and manage customer profiles"},
 
     # Inventory
@@ -56,7 +57,7 @@ ROLE_TEMPLATES = {
     "System Administrator": [p["code"] for p in PERMISSIONS],
     "Branch Manager": [
         "dashboard.view", "reports.view", "reports.export",
-        "sales.view", "sales.create", "sales.update", "sales.refund", "customers.manage",
+        "sales.view", "sales.create", "sales.update", "sales.refund", "sales.manage", "customers.manage",
         "inventory.view", "inventory.create", "inventory.update", "inventory.adjust",
         "procurement.view", "procurement.create", "procurement.approve", "procurement.receive",
         "finance.view", "expenses.record",

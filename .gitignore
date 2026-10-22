@@ -23,6 +23,7 @@ htmlcov/
 *.db
 backups/
 *.backup*
+backend/data/
 
 # Node / Frontend
 frontend/node_modules/

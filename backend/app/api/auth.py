@@ -297,8 +297,9 @@ async def verify_2fa(
     _used_mfa_codes.setdefault(user.id, {})[clean_code] = now
     _mfa_failed_attempts.pop(user.id, None)
 
-    # 4. Mark MFA Verified & Enabled
+    # 4. Mark MFA Verified & Enabled, and set last_login_at timestamp
     user.mfa_enabled = True
+    user.last_login_at = datetime.now(timezone.utc)
 
     # 5. Compute effective permissions & roles
     effective_perms = await get_user_effective_permissions(user, db)

@@ -47,6 +47,17 @@ async def sync_all_modules(
     has_pending_drafts = False
 
     # Store incoming client drafts with durable persistence and memory bounding
+    # Branch scoping: non-admins require an assigned branch
+    is_admin = getattr(current_user, "is_superuser", False)
+    branch_id = getattr(current_user, "branch_id", None)
+    if not is_admin and branch_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No branch assigned to this account for branch-scoped synchronization."
+        )
+
+    persistence_failed = False
+    # Store incoming client drafts with durable atomic upsert and memory bounding (Error 10)
     if payload.modules:
         for module_name, module_data in payload.modules.items():
             encoded = json.dumps(module_data)
@@ -67,24 +78,27 @@ async def sync_all_modules(
                 "data": module_data
             }
 
-            # Durable draft persistence
+            # Error 10 Fix: Atomic upsert keyed by user and module; propagate persistence failures
             try:
-                await document_store.insert_document("module_drafts", {
-                    "id": f"{user_id}:{module_name}",
-                    "user_id": user_id,
-                    "branch_id": current_user.branch_id,
-                    "module": module_name,
-                    "data": module_data,
-                    "status": "PENDING",
-                    "updated_at": now_utc.isoformat()
-                })
-                has_pending_drafts = True
+                await document_store.upsert_document(
+                    "module_drafts",
+                    {"user_id": user_id, "module": module_name},
+                    {
+                        "id": f"{user_id}:{module_name}",
+                        "user_id": user_id,
+                        "branch_id": current_user.branch_id,
+                        "module": module_name,
+                        "data": module_data,
+                        "status": "PENDING",
+                        "updated_at": now_utc.isoformat()
+                    }
+                )
             except Exception as e:
-                pass
-
-    # Branch scoping: non-admins only see metrics scoped to their assigned branch
-    is_admin = getattr(current_user, "is_superuser", False)
-    branch_id = getattr(current_user, "branch_id", None)
+                persistence_failed = True
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to persist draft for module '{module_name}': {str(e)}"
+                )
 
     try:
         # 1. Inventory stats
@@ -98,8 +112,11 @@ async def sync_all_modules(
         order_count_res = await db.execute(sales_q)
         total_sales_orders = order_count_res.scalar_one() or 0
 
-        # 3. Finance stats
-        journal_count_res = await db.execute(select(func.count(JournalEntry.id)))
+        # 3. Finance stats (filtered by creator for non-admins)
+        journal_q = select(func.count(JournalEntry.id))
+        if not is_admin:
+            journal_q = journal_q.where(JournalEntry.created_by_user_id == user_id)
+        journal_count_res = await db.execute(journal_q)
         total_journals = journal_count_res.scalar_one() or 0
 
         # 4. Procurement stats (branch-scoped)
@@ -116,9 +133,12 @@ async def sync_all_modules(
         emp_count_res = await db.execute(emp_q)
         total_employees = emp_count_res.scalar_one() or 0
 
-        # 6. Unread Email stats
+        # 6. Unread Email stats (user-scoped for non-admins)
         from app.models.email_log import ReceivedEmail
-        unread_email_res = await db.execute(select(func.count(ReceivedEmail.id)).where(ReceivedEmail.is_read == False))
+        email_q = select(func.count(ReceivedEmail.id)).where(ReceivedEmail.is_read == False)
+        if not is_admin and current_user.email:
+            email_q = email_q.where(ReceivedEmail.recipient_email == current_user.email)
+        unread_email_res = await db.execute(email_q)
         unread_emails = unread_email_res.scalar_one() or 0
     except Exception:
         total_products = 0
@@ -128,8 +148,16 @@ async def sync_all_modules(
         total_employees = 0
         unread_emails = 0
 
-    # Truthful status: if client submitted uncommitted drafts, report PENDING; otherwise SYNCED
-    sync_status = "PENDING" if has_pending_drafts else "SYNCED"
+    # Error 10 Fix: Query existing drafts state from durable store. Return SYNCED only if zero pending drafts remain.
+    all_user_drafts = await document_store.find_documents("module_drafts", {"user_id": user_id, "status": "PENDING"})
+    pending_modules = {d["module"] for d in all_user_drafts}
+
+    if persistence_failed:
+        sync_status = "FAILED"
+    elif pending_modules or (payload.modules and len(payload.modules) > 0):
+        sync_status = "PENDING"
+    else:
+        sync_status = "SYNCED"
 
     return {
         "status": sync_status,
@@ -139,11 +167,11 @@ async def sync_all_modules(
         "branch_id": branch_id,
         "user_email": current_user.email if current_user else None,
         "module_metrics": {
-            "inventory": { "total_products": total_products, "status": "PENDING" if "inventory" in (payload.modules or {}) else "SYNCED" },
-            "sales": { "total_orders": total_sales_orders, "status": "PENDING" if "sales" in (payload.modules or {}) else "SYNCED" },
-            "finance": { "total_journal_entries": total_journals, "status": "PENDING" if "finance" in (payload.modules or {}) else "SYNCED" },
-            "procurement": { "total_purchase_orders": total_pos, "status": "PENDING" if "procurement" in (payload.modules or {}) else "SYNCED" },
-            "hr": { "total_employees": total_employees, "status": "PENDING" if "hr" in (payload.modules or {}) else "SYNCED" },
+            "inventory": { "total_products": total_products, "status": "PENDING" if "inventory" in pending_modules else "SYNCED" },
+            "sales": { "total_orders": total_sales_orders, "status": "PENDING" if "sales" in pending_modules else "SYNCED" },
+            "finance": { "total_journal_entries": total_journals, "status": "PENDING" if "finance" in pending_modules else "SYNCED" },
+            "procurement": { "total_purchase_orders": total_pos, "status": "PENDING" if "procurement" in pending_modules else "SYNCED" },
+            "hr": { "total_employees": total_employees, "status": "PENDING" if "hr" in pending_modules else "SYNCED" },
             "emails": { "unread_emails": unread_emails, "status": "SYNCED" }
         },
         "cached_draft_status": {

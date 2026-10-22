@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/data-import", tags=["Universal Document & Data O
 class BatchCommitRequest(BaseModel):
     entity_type: str  # "customers", "vendors", "products"
     records: List[Dict[str, Any]]
-    branch_id: Optional[int] = 1
+    branch_id: Optional[int] = None
 
 
 def _clean_str(val: Any) -> str:
@@ -578,6 +578,7 @@ async def commit_batch_import(
         "expenses": "finance.manage",
         "vouchers": "finance.manage",
         "customers": "sales.manage",
+        "clients": "sales.manage",
     }
     required_perm = REQUIRED_IMPORT_PERMS.get(entity_type)
     if required_perm is None:
@@ -601,7 +602,8 @@ async def commit_batch_import(
     if len(records) > 500:
         raise HTTPException(status_code=400, detail="Batch size exceeds maximum limit of 500 records per import.")
 
-    # SEC-26 / Audit Error 2: Strict branch ownership validation
+    # SEC-26 / Audit Error 1 & 2: Derive and enforce effective branch
+    effective_branch_id = payload.branch_id
     if not is_admin:
         if current_user.branch_id is None:
             raise HTTPException(
@@ -613,6 +615,10 @@ async def commit_batch_import(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Forbidden: Cannot import into another branch ({payload.branch_id}). Your account is assigned to branch {current_user.branch_id}."
             )
+        effective_branch_id = current_user.branch_id
+    else:
+        if effective_branch_id is None:
+            effective_branch_id = 1
 
     created_count = 0
     updated_count = 0
@@ -674,10 +680,22 @@ async def commit_batch_import(
                 existing_res = await db.execute(select(Product).where(or_(Product.sku == sku, Product.name == name)))
                 existing = existing_res.scalar_one_or_none()
 
-                sell_price = Decimal(str(_clean_num(r.get("selling_price"), 100.0)))
-                cost_price = Decimal(str(_clean_num(r.get("cost_price"), 75.0)))
-                stock = int(_clean_num(r.get("current_stock"), 50))
-                reorder = int(_clean_num(r.get("reorder_level"), 15))
+                # Error 3: Require explicit fields instead of inventing default prices and stock
+                raw_sell = r.get("selling_price")
+                raw_cost = r.get("cost_price")
+                raw_stock = r.get("current_stock")
+                raw_reorder = r.get("reorder_level")
+
+                if raw_sell is None or raw_cost is None or raw_stock is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Validation error: 'selling_price', 'cost_price', and 'current_stock' are required for product '{name}'."
+                    )
+
+                sell_price = Decimal(str(_clean_num(raw_sell)))
+                cost_price = Decimal(str(_clean_num(raw_cost)))
+                stock = int(_clean_num(raw_stock))
+                reorder = int(_clean_num(raw_reorder, 0))
 
                 # SEC-26: Reject negative price or stock values
                 if sell_price < 0 or cost_price < 0 or stock < 0 or reorder < 0:
@@ -689,7 +707,8 @@ async def commit_batch_import(
                 if existing:
                     existing.selling_price = sell_price
                     existing.cost_price = cost_price
-                    existing.current_stock += stock
+                    # Error 2 Fix: Treat import as absolute stock snapshot to prevent double-counting on re-import
+                    existing.current_stock = stock
                     existing.reorder_level = reorder
                     updated_count += 1
                 else:
@@ -721,14 +740,33 @@ async def commit_batch_import(
                     f_name = _clean_str(r.get("first_name")) or (full_n if full_n else "Employee")
                     l_name = _clean_str(r.get("last_name")) or "Staff"
                 desig = _clean_str(r.get("designation") or r.get("role")) or "Associate"
-                salary = Decimal(str(_clean_num(r.get("basic_salary") or r.get("salary") or r.get("base_salary"), 45000.0)))
 
+                # Error 3: Validate basic salary is explicitly provided and non-negative
+                raw_salary = r.get("basic_salary")
+                if raw_salary is None:
+                    raw_salary = r.get("salary")
+                if raw_salary is None:
+                    raw_salary = r.get("base_salary")
+                if raw_salary is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Validation error: Basic salary is required for employee '{f_name} {l_name}'."
+                    )
+                salary = Decimal(str(_clean_num(raw_salary)))
+                if salary < 0:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Basic salary cannot be negative.")
+
+                # Error 1 Fix: Scope employee lookup by branch to prevent cross-branch mutations
                 existing = None
                 if email:
-                    e_res = await db.execute(select(Employee).where(Employee.email == email))
+                    e_res = await db.execute(
+                        select(Employee).where(and_(Employee.email == email, Employee.branch_id == effective_branch_id))
+                    )
                     existing = e_res.scalar_one_or_none()
                 if not existing and code:
-                    e_res = await db.execute(select(Employee).where(Employee.employee_code == code))
+                    e_res = await db.execute(
+                        select(Employee).where(and_(Employee.employee_code == code, Employee.branch_id == effective_branch_id))
+                    )
                     existing = e_res.scalar_one_or_none()
 
                 if existing:
@@ -736,8 +774,7 @@ async def commit_batch_import(
                     existing.last_name = l_name
                     existing.designation = desig
                     existing.basic_salary = salary
-                    if payload.branch_id:
-                        existing.branch_id = payload.branch_id
+                    existing.branch_id = effective_branch_id
                     updated_count += 1
                 else:
                     emp = Employee(
@@ -748,42 +785,58 @@ async def commit_batch_import(
                         phone=_clean_str(r.get("phone")),
                         designation=desig,
                         basic_salary=salary,
-                        branch_id=payload.branch_id or 1
+                        branch_id=effective_branch_id
                     )
                     db.add(emp)
                     created_count += 1
 
-        elif entity_type in ["chart_of_accounts", "accounts", "general_ledger"]:
+        elif entity_type in ["chart_of_accounts", "accounts"]:
             for r in records:
                 code = _clean_str(r.get("code") or r.get("account_code"))
                 if not code:
                     continue
                 name = _clean_str(r.get("name") or r.get("account_name")) or f"Account {code}"
                 acc_type = (_clean_str(r.get("account_type")) or "ASSET").upper()
-                balance = Decimal(str(_clean_num(r.get("balance") or r.get("opening_balance"), 0.0)))
 
                 existing_res = await db.execute(select(Account).where(Account.code == code))
                 existing = existing_res.scalar_one_or_none()
                 if existing:
+                    # Error 4 Fix: Manage account metadata only; ordinary imports must not overwrite a live ledger balance directly
                     existing.name = name
                     existing.account_type = acc_type
-                    existing.balance = balance
                     updated_count += 1
                 else:
                     acc = Account(
                         code=code,
                         name=name,
                         account_type=acc_type,
-                        balance=balance
+                        balance=Decimal("0.0")
                     )
                     db.add(acc)
                     created_count += 1
+
+        elif entity_type == "general_ledger":
+            # Error 4 Fix: Prohibit direct raw balance overwriting on live general ledger
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="General ledger opening balances must be posted through balanced, validated journal entries in a controlled accounting period. Direct account balance overwrites are prohibited."
+            )
 
         elif entity_type in ["expenses", "vouchers"]:
             for r in records:
                 exp_num = _clean_str(r.get("expense_number") or r.get("voucher_number")) or f"EXP-{2000 + created_count + 1}"
                 cat = _clean_str(r.get("category") or r.get("expense_category")) or "Other"
-                amt = Decimal(str(_clean_num(r.get("amount") or r.get("total_amount"), 1000.0)))
+
+                # Error 3: Validate expense amount is explicitly provided and positive
+                raw_amount = r.get("amount")
+                if raw_amount is None:
+                    raw_amount = r.get("total_amount")
+                if raw_amount is None:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expense amount is required.")
+                amt = Decimal(str(_clean_num(raw_amount)))
+                if amt <= 0:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expense amount must be positive.")
+
                 desc = _clean_str(r.get("description") or r.get("name") or r.get("title")) or f"Imported Expense {exp_num}"
                 pay_method = (_clean_str(r.get("payment_method")) or "BANK_TRANSFER").upper()
 
@@ -804,7 +857,10 @@ async def commit_batch_import(
                 name = _clean_str(r.get("name") or r.get("warehouse_name")) or f"Warehouse {code}"
                 loc = _clean_str(r.get("location") or r.get("city")) or "Main Complex"
 
-                existing_res = await db.execute(select(Warehouse).where(Warehouse.code == code))
+                # Error 1 Fix: Scope warehouse lookup by effective branch
+                existing_res = await db.execute(
+                    select(Warehouse).where(and_(Warehouse.code == code, Warehouse.branch_id == effective_branch_id))
+                )
                 existing = existing_res.scalar_one_or_none()
                 if existing:
                     existing.name = name
@@ -812,7 +868,7 @@ async def commit_batch_import(
                     updated_count += 1
                 else:
                     wh = Warehouse(
-                        branch_id=payload.branch_id or 1,
+                        branch_id=effective_branch_id,
                         name=name,
                         code=code,
                         location=loc
@@ -880,10 +936,17 @@ async def commit_batch_import(
             "message": f"Successfully processed {created_count + updated_count} {entity_type} records into NexaERP."
         }
 
+    except HTTPException:
+        # Error 5 Fix: Propagate validation and business HTTP errors without converting to HTTP 500
+        await db.rollback()
+        raise
     except Exception as e:
         await db.rollback()
         logging.error(f"[DATA IMPORT COMMIT ERROR]: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Database commit error during batch import: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database commit error during batch import."
+        )
 
 
 @router.get("/templates/{entity_type}")

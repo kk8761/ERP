@@ -68,6 +68,18 @@ async def setup_db():
                 await conn.execute(text(f"ALTER TABLE organizations ADD COLUMN {col} {col_type}"))
             except Exception:
                 pass
+        for col, col_type in [
+            ("country", "VARCHAR(50) DEFAULT 'IN'"),
+            ("currency", "VARCHAR(10) DEFAULT 'INR'")
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE branches ADD COLUMN {col} {col_type}"))
+            except Exception:
+                pass
+        try:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP"))
+        except Exception:
+            pass
     yield
 
 @pytest.fixture(autouse=True)

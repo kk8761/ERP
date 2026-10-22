@@ -93,7 +93,7 @@ async def get_user_profile(
         "branch_name": branch_name,
         "mfa_enabled": current_user.mfa_enabled,
         "mfa_type": "TOTP Authenticator (Google / Microsoft)" if current_user.mfa_enabled else "Unenrolled",
-        "last_login": datetime.now(timezone.utc).strftime("%b %d, %Y %I:%M %p UTC"),
+        "last_login": current_user.last_login_at.strftime("%b %d, %Y %I:%M %p UTC") if getattr(current_user, "last_login_at", None) else None,
         "account_security_status": "HIGH (2FA Enforced)" if current_user.mfa_enabled else "STANDARD"
     }
 

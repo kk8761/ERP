@@ -114,13 +114,16 @@ async def create_backup(
     Creates a new backup snapshot with SHA-256 integrity checksum and 90+ day retention.
     Supports failure simulation for alert testing.
     """
-    record = await DisasterRecoveryService.create_backup(
-        db,
-        backup_name=payload.backup_name,
-        backup_type=payload.backup_type,
-        simulate_failure=payload.simulate_failure
-    )
-    return record
+    try:
+        record = await DisasterRecoveryService.create_backup(
+            db,
+            backup_name=payload.backup_name,
+            backup_type=payload.backup_type,
+            simulate_failure=payload.simulate_failure
+        )
+        return record
+    except ValueError as ex:
+        raise HTTPException(status_code=400, detail=str(ex))
 
 
 # -----------------------------------------------------------------------------
