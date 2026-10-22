@@ -55,11 +55,13 @@ export default function DashboardPage({ onNavigate }) {
     }
   };
 
-  const fetchMetrics = async () => {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+
+  const fetchMetrics = async (rangeVal = dateFilter) => {
     try {
       setLoading(true);
       const [metrics, reqs, bAccess] = await Promise.all([
-        apiRequest('/api/dashboard/metrics'),
+        apiRequest(`/api/dashboard/metrics?range=${encodeURIComponent(rangeVal)}`),
         apiRequest('/api/branches/access-requests').catch(() => []),
         apiRequest('/api/branches/my-access').catch(() => null)
       ]);
@@ -74,8 +76,8 @@ export default function DashboardPage({ onNavigate }) {
   };
 
   useEffect(() => {
-    fetchMetrics();
-  }, []);
+    fetchMetrics(dateFilter);
+  }, [dateFilter]);
 
   const greeting = getGreeting();
   const isAdmin = user?.is_superuser || branchInfo?.can_access_all;
@@ -507,75 +509,212 @@ export default function DashboardPage({ onNavigate }) {
             </select>
           </div>
 
-          {/* Smooth Multi-wave Area Chart matching screenshot */}
+          {/* Dynamic Multi-wave Area Chart */}
           <div style={{ width: '100%', height: '220px', position: 'relative' }}>
-            <svg width="100%" height="100%" viewBox="0 0 600 200" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0064d2" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#0064d2" stopOpacity="0.0" />
-                </linearGradient>
-                <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
-                </linearGradient>
-                <linearGradient id="purchGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.2" />
-                  <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
+            {(() => {
+              const rawPoints = data?.sales_overview_chart || [];
+              const points = rawPoints.length > 0 ? rawPoints : [
+                { date: 'Today', sales: 0, purchases: 0, profit: 0 }
+              ];
 
-              {/* Horizontal Grid lines */}
-              <line x1="30" y1="30" x2="590" y2="30" stroke="var(--border-color)" strokeDasharray="3 3" />
-              <line x1="30" y1="80" x2="590" y2="80" stroke="var(--border-color)" strokeDasharray="3 3" />
-              <line x1="30" y1="130" x2="590" y2="130" stroke="var(--border-color)" strokeDasharray="3 3" />
-              <line x1="30" y1="170" x2="590" y2="170" stroke="var(--border-color)" />
+              const maxVal = Math.max(
+                500,
+                ...points.flatMap(p => [Number(p.sales) || 0, Number(p.purchases) || 0, Number(p.profit) || 0])
+              );
+              // Clean Y-axis scale ceiling
+              const niceMax = Math.ceil((maxVal * 1.25) / 100) * 100;
 
-              {/* Y Axis labels */}
-              <text x="5" y="34" fontSize="10" fill="var(--text-muted)">₹ 60K</text>
-              <text x="5" y="84" fontSize="10" fill="var(--text-muted)">₹ 40K</text>
-              <text x="5" y="134" fontSize="10" fill="var(--text-muted)">₹ 20K</text>
-              <text x="12" y="174" fontSize="10" fill="var(--text-muted)">₹ 0</text>
+              const minX = 45;
+              const maxX = 580;
+              const minY = 30;
+              const baselineY = 170;
+              const plotH = baselineY - minY;
+              const plotW = maxX - minX;
 
-              {/* Profit Area (Bottom wave) */}
-              <path
-                d="M 40 160 Q 120 145, 180 150 T 320 135 T 450 140 T 580 130 L 580 170 L 40 170 Z"
-                fill="url(#profitGrad)"
-              />
-              <path
-                d="M 40 160 Q 120 145, 180 150 T 320 135 T 450 140 T 580 130"
-                fill="none" stroke="#10b981" strokeWidth="2.5"
-              />
+              const getX = (idx) => minX + (idx / Math.max(points.length - 1, 1)) * plotW;
+              const getY = (val) => baselineY - (Math.max(0, Number(val) || 0) / niceMax) * plotH;
 
-              {/* Purchases Area (Middle wave) */}
-              <path
-                d="M 40 140 Q 120 120, 180 130 T 320 105 T 450 115 T 580 95 L 580 170 L 40 170 Z"
-                fill="url(#purchGrad)"
-              />
-              <path
-                d="M 40 140 Q 120 120, 180 130 T 320 105 T 450 115 T 580 95"
-                fill="none" stroke="#ef4444" strokeWidth="2.5"
-              />
+              const salesCoords = points.map((p, idx) => ({ x: getX(idx), y: getY(p.sales), raw: p, idx }));
+              const purchCoords = points.map((p, idx) => ({ x: getX(idx), y: getY(p.purchases), raw: p, idx }));
+              const profitCoords = points.map((p, idx) => ({ x: getX(idx), y: getY(p.profit), raw: p, idx }));
 
-              {/* Sales Area (Top wave) */}
-              <path
-                d="M 40 110 Q 120 70, 180 95 T 320 60 T 450 75 T 580 45 L 580 170 L 40 170 Z"
-                fill="url(#salesGrad)"
-              />
-              <path
-                d="M 40 110 Q 120 70, 180 95 T 320 60 T 450 75 T 580 45"
-                fill="none" stroke="#0064d2" strokeWidth="3"
-              />
+              const getSplineD = (coords, closeBottom = false) => {
+                if (!coords || coords.length === 0) return '';
+                if (coords.length === 1) {
+                  return closeBottom
+                    ? `M ${coords[0].x} ${coords[0].y} L ${coords[0].x} ${baselineY} Z`
+                    : `M ${coords[0].x} ${coords[0].y}`;
+                }
+                let d = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
+                for (let i = 0; i < coords.length - 1; i++) {
+                  const p0 = coords[i === 0 ? 0 : i - 1];
+                  const p1 = coords[i];
+                  const p2 = coords[i + 1];
+                  const p3 = coords[i + 2] || p2;
+                  const cp1x = p1.x + (p2.x - p0.x) / 6;
+                  const cp1y = p1.y + (p2.y - p0.y) / 6;
+                  const cp2x = p2.x - (p3.x - p1.x) / 6;
+                  const cp2y = p2.y - (p3.y - p1.y) / 6;
+                  d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+                }
+                if (closeBottom) {
+                  d += ` L ${coords[coords.length - 1].x.toFixed(1)} ${baselineY} L ${coords[0].x.toFixed(1)} ${baselineY} Z`;
+                }
+                return d;
+              };
 
-              {/* X Axis dates */}
-              <text x="40" y="190" fontSize="10" fill="var(--text-muted)">Sep 16</text>
-              <text x="130" y="190" fontSize="10" fill="var(--text-muted)">Sep 20</text>
-              <text x="220" y="190" fontSize="10" fill="var(--text-muted)">Sep 24</text>
-              <text x="310" y="190" fontSize="10" fill="var(--text-muted)">Sep 28</text>
-              <text x="400" y="190" fontSize="10" fill="var(--text-muted)">Oct 2</text>
-              <text x="480" y="190" fontSize="10" fill="var(--text-muted)">Oct 6</text>
-              <text x="550" y="190" fontSize="10" fill="var(--text-muted)">Oct 14</text>
-            </svg>
+              const formatY = (v) => {
+                if (v >= 100000) return `₹ ${(v / 100000).toFixed(1)}L`;
+                if (v >= 1000) return `₹ ${Math.round(v / 1000)}K`;
+                return `₹ ${Math.round(v)}`;
+              };
+
+              const activePt = hoveredIndex !== null && points[hoveredIndex] ? points[hoveredIndex] : null;
+              const activeX = hoveredIndex !== null ? getX(hoveredIndex) : null;
+
+              return (
+                <>
+                  <svg
+                    width="100%"
+                    height="100%"
+                    viewBox="0 0 600 200"
+                    preserveAspectRatio="none"
+                    onMouseLeave={() => setHoveredIndex(null)}
+                  >
+                    <defs>
+                      <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#0064d2" stopOpacity="0.28" />
+                        <stop offset="100%" stopColor="#0064d2" stopOpacity="0.0" />
+                      </linearGradient>
+                      <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
+                        <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                      </linearGradient>
+                      <linearGradient id="purchGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#ef4444" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="#ef4444" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+
+                    {/* Horizontal Grid lines */}
+                    <line x1="35" y1="30" x2="590" y2="30" stroke="var(--border-color)" strokeDasharray="3 3" />
+                    <line x1="35" y1="77" x2="590" y2="77" stroke="var(--border-color)" strokeDasharray="3 3" />
+                    <line x1="35" y1="123" x2="590" y2="123" stroke="var(--border-color)" strokeDasharray="3 3" />
+                    <line x1="35" y1="170" x2="590" y2="170" stroke="var(--border-color)" />
+
+                    {/* Y Axis labels */}
+                    <text x="5" y="34" fontSize="10" fill="var(--text-muted)">{formatY(niceMax)}</text>
+                    <text x="5" y="81" fontSize="10" fill="var(--text-muted)">{formatY(niceMax * 0.66)}</text>
+                    <text x="5" y="127" fontSize="10" fill="var(--text-muted)">{formatY(niceMax * 0.33)}</text>
+                    <text x="12" y="174" fontSize="10" fill="var(--text-muted)">₹ 0</text>
+
+                    {/* Profit Area & Line */}
+                    <path d={getSplineD(profitCoords, true)} fill="url(#profitGrad)" />
+                    <path d={getSplineD(profitCoords, false)} fill="none" stroke="#10b981" strokeWidth="2.5" />
+
+                    {/* Purchases Area & Line */}
+                    <path d={getSplineD(purchCoords, true)} fill="url(#purchGrad)" />
+                    <path d={getSplineD(purchCoords, false)} fill="none" stroke="#ef4444" strokeWidth="2" strokeDasharray="4 2" />
+
+                    {/* Sales Area & Line */}
+                    <path d={getSplineD(salesCoords, true)} fill="url(#salesGrad)" />
+                    <path d={getSplineD(salesCoords, false)} fill="none" stroke="#0064d2" strokeWidth="3" />
+
+                    {/* Active vertical cursor line */}
+                    {activeX !== null && (
+                      <line x1={activeX} y1="25" x2={activeX} y2="170" stroke="#0064d2" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.8" />
+                    )}
+
+                    {/* Data Points and Hover Target Slices */}
+                    {points.map((pt, idx) => {
+                      const cx = getX(idx);
+                      const sy = getY(pt.sales);
+                      const py = getY(pt.purchases);
+                      const fry = getY(pt.profit);
+                      const isHovered = hoveredIndex === idx;
+
+                      return (
+                        <g key={idx}>
+                          {/* Invisible hover trigger column */}
+                          <rect
+                            x={cx - (plotW / (points.length * 2))}
+                            y="20"
+                            width={plotW / points.length}
+                            height="160"
+                            fill="transparent"
+                            style={{ cursor: 'pointer' }}
+                            onMouseEnter={() => setHoveredIndex(idx)}
+                          />
+
+                          {/* Dots */}
+                          <circle cx={cx} cy={sy} r={isHovered ? 5 : 3} fill="#0064d2" stroke="#fff" strokeWidth="1.5" />
+                          <circle cx={cx} cy={py} r={isHovered ? 4 : 2.5} fill="#ef4444" stroke="#fff" strokeWidth="1" />
+                          <circle cx={cx} cy={fry} r={isHovered ? 4 : 2.5} fill="#10b981" stroke="#fff" strokeWidth="1" />
+                        </g>
+                      );
+                    })}
+
+                    {/* X Axis dynamic dates */}
+                    {points.map((pt, idx) => {
+                      const step = Math.ceil(points.length / 8);
+                      if (idx % step !== 0 && idx !== points.length - 1) return null;
+                      const cx = getX(idx);
+                      return (
+                        <text
+                          key={idx}
+                          x={cx}
+                          y="190"
+                          fontSize="10"
+                          textAnchor="middle"
+                          fill={hoveredIndex === idx ? 'var(--primary)' : 'var(--text-muted)'}
+                          fontWeight={hoveredIndex === idx ? 700 : 400}
+                        >
+                          {pt.date}
+                        </text>
+                      );
+                    })}
+                  </svg>
+
+                  {/* Floating Interactive Tooltip */}
+                  {activePt && activeX !== null && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${Math.min(Math.max((activeX / 600) * 100, 15), 85)}%`,
+                        top: '15px',
+                        transform: 'translateX(-50%)',
+                        backgroundColor: 'var(--bg-surface)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '8px 12px',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                        pointerEvents: 'none',
+                        zIndex: 10,
+                        fontSize: '11px',
+                        minWidth: '130px',
+                        backdropFilter: 'blur(8px)'
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px', borderBottom: '1px solid var(--border-color)', paddingBottom: '3px' }}>
+                        {activePt.date}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0064d2', fontWeight: 600 }}>
+                        <span>Sales:</span>
+                        <span>₹ {Number(activePt.sales).toLocaleString('en-IN')}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#ef4444' }}>
+                        <span>Purchases:</span>
+                        <span>₹ {Number(activePt.purchases).toLocaleString('en-IN')}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#10b981', fontWeight: 600 }}>
+                        <span>Profit:</span>
+                        <span>₹ {Number(activePt.profit).toLocaleString('en-IN')}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
 

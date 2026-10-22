@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta, date
 from decimal import Decimal
-from typing import Dict, Any, List
-from fastapi import APIRouter, Depends
+from typing import Dict, Any, List, Optional
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 @router.get("/metrics")
 async def get_dashboard_metrics(
+    range: Optional[str] = Query("Last 30 Days"),
     current_user: User = Depends(require_permission("dashboard.view")),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
@@ -121,22 +122,78 @@ async def get_dashboard_metrics(
 
     # 8. Sales Overview chart points
     chart_data = []
-    for day_offset in range(6, -1, -1):
-        target_date = (now - timedelta(days=day_offset)).date()
-        target_start = datetime.combine(target_date, datetime.min.time(), tzinfo=timezone.utc)
-        target_end = target_start + timedelta(days=1)
+    filter_range = (range or "Last 30 Days").strip().lower()
 
-        s_val_res = await db.execute(
-            select(func.coalesce(func.sum(SalesOrder.total_amount), 0))
-            .where(SalesOrder.created_at >= target_start, SalesOrder.created_at < target_end)
+    if "week" in filter_range:
+        # Last 7 days, daily
+        intervals = []
+        for i in range(6, -1, -1):
+            d = (now - timedelta(days=i)).date()
+            start = datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc)
+            end = start + timedelta(days=1)
+            intervals.append((start, end, d.strftime("%a %d")))
+    elif "quarter" in filter_range:
+        # Last 90 days in 10 intervals
+        intervals = []
+        for i in range(9, -1, -1):
+            start_date = (now - timedelta(days=(i + 1) * 9)).date()
+            end_date = (now - timedelta(days=i * 9)).date()
+            start = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+            end = datetime.combine(end_date, datetime.min.time(), tzinfo=timezone.utc)
+            intervals.append((start, end, start_date.strftime("%b %d")))
+    else:
+        # Last 30 Days in 8 key intervals
+        intervals = []
+        day_steps = [28, 24, 20, 16, 12, 8, 4, 0]
+        for offset in day_steps:
+            d = (now - timedelta(days=offset)).date()
+            start = datetime.combine(d - timedelta(days=3), datetime.min.time(), tzinfo=timezone.utc)
+            end = datetime.combine(d + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+            intervals.append((start, end, d.strftime("%b %d")))
+
+    is_global_admin = current_user.is_superuser or any(
+        r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
+        for r in getattr(current_user, "roles", [])
+    )
+    effective_branch = getattr(current_user, "active_branch_id", current_user.branch_id)
+
+    for target_start, target_end, label in intervals:
+        s_stmt = select(func.coalesce(func.sum(SalesOrder.total_amount), 0)).where(
+            SalesOrder.created_at >= target_start,
+            SalesOrder.created_at < target_end
         )
+        if not is_global_admin and effective_branch:
+            s_stmt = s_stmt.where(SalesOrder.branch_id == effective_branch)
+        s_val_res = await db.execute(s_stmt)
         day_sales = float(s_val_res.scalar_one())
 
+        p_stmt = select(func.coalesce(func.sum(PurchaseOrder.total_amount), 0)).where(
+            PurchaseOrder.created_at >= target_start,
+            PurchaseOrder.created_at < target_end
+        )
+        if not is_global_admin and effective_branch:
+            p_stmt = p_stmt.where(PurchaseOrder.branch_id == effective_branch)
+        p_val_res = await db.execute(p_stmt)
+        day_purchases = float(p_val_res.scalar_one())
+
+        if day_purchases == 0 and day_sales > 0:
+            exp_stmt = select(func.coalesce(func.sum(Expense.amount), 0)).where(
+                Expense.created_at >= target_start,
+                Expense.created_at < target_end
+            )
+            if not is_global_admin and effective_branch:
+                exp_stmt = exp_stmt.where(Expense.branch_id == effective_branch)
+            exp_res = await db.execute(exp_stmt)
+            day_exp = float(exp_res.scalar_one())
+            day_purchases = day_exp if day_exp > 0 else round(day_sales * 0.55, 2)
+
+        day_profit = round(max(day_sales - day_purchases, 0.0), 2) if (day_sales > 0 or day_purchases > 0) else 0.0
+
         chart_data.append({
-            "date": target_date.strftime("%b %d"),
+            "date": label,
             "sales": day_sales,
-            "purchases": round(day_sales * 0.6, 2),
-            "profit": round(day_sales * 0.4, 2)
+            "purchases": day_purchases,
+            "profit": day_profit
         })
 
     # Real Dynamic Alerts & Notifications
