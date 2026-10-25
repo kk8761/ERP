@@ -15,12 +15,59 @@ export default function DashboardPage({ onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState('Last 30 Days');
   const [expenseFilter, setExpenseFilter] = useState('This Month');
+  const [currentDateTime, setCurrentDateTime] = useState(new Date());
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [branchInfo, setBranchInfo] = useState(null);
 
-  const fetchMetrics = async () => {
+  // Auto-updating live clock
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentDateTime(new Date()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getGreeting = () => {
+    const hour = currentDateTime.getHours();
+    const name = user?.full_name?.split(' ')[0] || user?.username || 'Team Member';
+    if (hour >= 5 && hour < 12) {
+      return {
+        title: `Good Morning, ${name}! 🌅`,
+        badge: 'Morning Shift',
+        subtext: "Here's your morning operational snapshot and enterprise sales velocity."
+      };
+    } else if (hour >= 12 && hour < 17) {
+      return {
+        title: `Good Afternoon, ${name}! ☀️`,
+        badge: 'Afternoon Ops',
+        subtext: 'Mid-day transactions, inventory movements, and subsidiary performance.'
+      };
+    } else if (hour >= 17 && hour < 21) {
+      return {
+        title: `Good Evening, ${name}! 🌆`,
+        badge: 'Evening Rollup',
+        subtext: 'Daily reconciliation, cash drawer closures, and regional summaries.'
+      };
+    } else {
+      return {
+        title: `Working Late / Night Shift, ${name}! 🌙`,
+        badge: 'Night Operations',
+        subtext: '24/7 Global multi-branch consolidation, transit tracking, and security monitoring.'
+      };
+    }
+  };
+
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+
+  const fetchMetrics = async (rangeVal = dateFilter) => {
     try {
       setLoading(true);
-      const metrics = await apiRequest('/api/dashboard/metrics');
+      const [metrics, reqs, bAccess] = await Promise.all([
+        apiRequest(`/api/dashboard/metrics?range=${encodeURIComponent(rangeVal)}`),
+        apiRequest('/api/branches/access-requests').catch(() => []),
+        apiRequest('/api/branches/my-access').catch(() => null)
+      ]);
       setData(metrics);
+      setPendingRequests(reqs || []);
+      setBranchInfo(bAccess);
     } catch (err) {
       console.error('Failed to load dashboard metrics:', err);
     } finally {
@@ -29,8 +76,12 @@ export default function DashboardPage({ onNavigate }) {
   };
 
   useEffect(() => {
-    fetchMetrics();
-  }, []);
+    fetchMetrics(dateFilter);
+  }, [dateFilter]);
+
+  const greeting = getGreeting();
+  const isAdmin = user?.is_superuser || branchInfo?.can_access_all;
+  const pendingCount = pendingRequests.filter(r => r.status === 'PENDING').length;
 
   const kpis = data?.kpis || {
     total_sales: 0,
@@ -54,17 +105,31 @@ export default function DashboardPage({ onNavigate }) {
         gap: '16px'
       }}>
         <div>
-          <h1 style={{
-            fontSize: '24px',
-            fontWeight: 800,
-            fontFamily: 'var(--font-brand)',
-            color: 'var(--text-main)',
-            letterSpacing: '-0.3px'
-          }}>
-            Good Morning, {user?.full_name?.split(' ')[0] || 'Karthik'}
-          </h1>
-          <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)' }}>
-            Here's what's happening in your business today.
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={{
+              fontSize: '24px',
+              fontWeight: 800,
+              fontFamily: 'var(--font-brand)',
+              color: 'var(--text-main)',
+              letterSpacing: '-0.3px',
+              margin: 0
+            }}>
+              {greeting.title}
+            </h1>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              backgroundColor: 'var(--primary-light)',
+              color: 'var(--primary)',
+              padding: '2px 8px',
+              borderRadius: '999px',
+              border: '1px solid var(--primary-border)'
+            }}>
+              {greeting.badge}
+            </span>
+          </div>
+          <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+            {greeting.subtext}
           </p>
         </div>
 
@@ -78,10 +143,10 @@ export default function DashboardPage({ onNavigate }) {
             backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border-color)',
             fontSize: '12.5px',
-            fontWeight: 600
+            fontWeight: 700
           }}>
             <Store size={14} color="var(--primary)" />
-            <span>{user?.branch_name || 'Main Store'}</span>
+            <span>{branchInfo?.current_branch || user?.branch_name || 'Hyderabad Global HQ'}</span>
           </div>
 
           <div style={{
@@ -93,10 +158,13 @@ export default function DashboardPage({ onNavigate }) {
             backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border-color)',
             fontSize: '12.5px',
-            color: 'var(--text-secondary)'
+            color: 'var(--text-secondary)',
+            fontWeight: 600
           }}>
-            <Calendar size={14} />
-            <span>Wednesday, 15 Oct 2026 10:30 AM</span>
+            <Clock size={14} color="var(--primary)" />
+            <span>
+              {currentDateTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} • {currentDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
           </div>
 
           <button
@@ -109,6 +177,40 @@ export default function DashboardPage({ onNavigate }) {
           </button>
         </div>
       </div>
+
+      {/* Cross-Branch Access Request Alert Banner for Admins or Employees */}
+      {isAdmin && pendingCount > 0 && (
+        <div style={{
+          padding: '12px 18px',
+          borderRadius: '10px',
+          backgroundColor: 'rgba(234, 179, 8, 0.1)',
+          border: '1px solid rgba(234, 179, 8, 0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Bell size={18} color="#b45309" />
+            <div>
+              <span style={{ fontSize: '13px', fontWeight: 800, color: '#92400e' }}>
+                {pendingCount} Pending Cross-Branch & Authority Access Request{pendingCount > 1 ? 's' : ''}
+              </span>
+              <div style={{ fontSize: '12px', color: '#b45309', marginTop: '2px' }}>
+                Employees are requesting authorized access to other subsidiaries. Review in the MNC Multi-Branch Controller.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('people')}
+            className="btn btn-primary"
+            style={{ fontSize: '12px', padding: '6px 14px', backgroundColor: '#d97706', borderColor: '#d97706' }}
+          >
+            Review Requests in HR / Switcher →
+          </button>
+        </div>
+      )}
 
       {/* Shopkeeper 2-Step Workflow Guide Banner */}
       {kpis.inventory_items === 0 && (
@@ -407,75 +509,212 @@ export default function DashboardPage({ onNavigate }) {
             </select>
           </div>
 
-          {/* Smooth Multi-wave Area Chart matching screenshot */}
+          {/* Dynamic Multi-wave Area Chart */}
           <div style={{ width: '100%', height: '220px', position: 'relative' }}>
-            <svg width="100%" height="100%" viewBox="0 0 600 200" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0064d2" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#0064d2" stopOpacity="0.0" />
-                </linearGradient>
-                <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
-                </linearGradient>
-                <linearGradient id="purchGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.2" />
-                  <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
+            {(() => {
+              const rawPoints = data?.sales_overview_chart || [];
+              const points = rawPoints.length > 0 ? rawPoints : [
+                { date: 'Today', sales: 0, purchases: 0, profit: 0 }
+              ];
 
-              {/* Horizontal Grid lines */}
-              <line x1="30" y1="30" x2="590" y2="30" stroke="var(--border-color)" strokeDasharray="3 3" />
-              <line x1="30" y1="80" x2="590" y2="80" stroke="var(--border-color)" strokeDasharray="3 3" />
-              <line x1="30" y1="130" x2="590" y2="130" stroke="var(--border-color)" strokeDasharray="3 3" />
-              <line x1="30" y1="170" x2="590" y2="170" stroke="var(--border-color)" />
+              const maxVal = Math.max(
+                500,
+                ...points.flatMap(p => [Number(p.sales) || 0, Number(p.purchases) || 0, Number(p.profit) || 0])
+              );
+              // Clean Y-axis scale ceiling
+              const niceMax = Math.ceil((maxVal * 1.25) / 100) * 100;
 
-              {/* Y Axis labels */}
-              <text x="5" y="34" fontSize="10" fill="var(--text-muted)">₹ 60K</text>
-              <text x="5" y="84" fontSize="10" fill="var(--text-muted)">₹ 40K</text>
-              <text x="5" y="134" fontSize="10" fill="var(--text-muted)">₹ 20K</text>
-              <text x="12" y="174" fontSize="10" fill="var(--text-muted)">₹ 0</text>
+              const minX = 45;
+              const maxX = 580;
+              const minY = 30;
+              const baselineY = 170;
+              const plotH = baselineY - minY;
+              const plotW = maxX - minX;
 
-              {/* Profit Area (Bottom wave) */}
-              <path
-                d="M 40 160 Q 120 145, 180 150 T 320 135 T 450 140 T 580 130 L 580 170 L 40 170 Z"
-                fill="url(#profitGrad)"
-              />
-              <path
-                d="M 40 160 Q 120 145, 180 150 T 320 135 T 450 140 T 580 130"
-                fill="none" stroke="#10b981" strokeWidth="2.5"
-              />
+              const getX = (idx) => minX + (idx / Math.max(points.length - 1, 1)) * plotW;
+              const getY = (val) => baselineY - (Math.max(0, Number(val) || 0) / niceMax) * plotH;
 
-              {/* Purchases Area (Middle wave) */}
-              <path
-                d="M 40 140 Q 120 120, 180 130 T 320 105 T 450 115 T 580 95 L 580 170 L 40 170 Z"
-                fill="url(#purchGrad)"
-              />
-              <path
-                d="M 40 140 Q 120 120, 180 130 T 320 105 T 450 115 T 580 95"
-                fill="none" stroke="#ef4444" strokeWidth="2.5"
-              />
+              const salesCoords = points.map((p, idx) => ({ x: getX(idx), y: getY(p.sales), raw: p, idx }));
+              const purchCoords = points.map((p, idx) => ({ x: getX(idx), y: getY(p.purchases), raw: p, idx }));
+              const profitCoords = points.map((p, idx) => ({ x: getX(idx), y: getY(p.profit), raw: p, idx }));
 
-              {/* Sales Area (Top wave) */}
-              <path
-                d="M 40 110 Q 120 70, 180 95 T 320 60 T 450 75 T 580 45 L 580 170 L 40 170 Z"
-                fill="url(#salesGrad)"
-              />
-              <path
-                d="M 40 110 Q 120 70, 180 95 T 320 60 T 450 75 T 580 45"
-                fill="none" stroke="#0064d2" strokeWidth="3"
-              />
+              const getSplineD = (coords, closeBottom = false) => {
+                if (!coords || coords.length === 0) return '';
+                if (coords.length === 1) {
+                  return closeBottom
+                    ? `M ${coords[0].x} ${coords[0].y} L ${coords[0].x} ${baselineY} Z`
+                    : `M ${coords[0].x} ${coords[0].y}`;
+                }
+                let d = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
+                for (let i = 0; i < coords.length - 1; i++) {
+                  const p0 = coords[i === 0 ? 0 : i - 1];
+                  const p1 = coords[i];
+                  const p2 = coords[i + 1];
+                  const p3 = coords[i + 2] || p2;
+                  const cp1x = p1.x + (p2.x - p0.x) / 6;
+                  const cp1y = p1.y + (p2.y - p0.y) / 6;
+                  const cp2x = p2.x - (p3.x - p1.x) / 6;
+                  const cp2y = p2.y - (p3.y - p1.y) / 6;
+                  d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+                }
+                if (closeBottom) {
+                  d += ` L ${coords[coords.length - 1].x.toFixed(1)} ${baselineY} L ${coords[0].x.toFixed(1)} ${baselineY} Z`;
+                }
+                return d;
+              };
 
-              {/* X Axis dates */}
-              <text x="40" y="190" fontSize="10" fill="var(--text-muted)">Sep 16</text>
-              <text x="130" y="190" fontSize="10" fill="var(--text-muted)">Sep 20</text>
-              <text x="220" y="190" fontSize="10" fill="var(--text-muted)">Sep 24</text>
-              <text x="310" y="190" fontSize="10" fill="var(--text-muted)">Sep 28</text>
-              <text x="400" y="190" fontSize="10" fill="var(--text-muted)">Oct 2</text>
-              <text x="480" y="190" fontSize="10" fill="var(--text-muted)">Oct 6</text>
-              <text x="550" y="190" fontSize="10" fill="var(--text-muted)">Oct 14</text>
-            </svg>
+              const formatY = (v) => {
+                if (v >= 100000) return `₹ ${(v / 100000).toFixed(1)}L`;
+                if (v >= 1000) return `₹ ${Math.round(v / 1000)}K`;
+                return `₹ ${Math.round(v)}`;
+              };
+
+              const activePt = hoveredIndex !== null && points[hoveredIndex] ? points[hoveredIndex] : null;
+              const activeX = hoveredIndex !== null ? getX(hoveredIndex) : null;
+
+              return (
+                <>
+                  <svg
+                    width="100%"
+                    height="100%"
+                    viewBox="0 0 600 200"
+                    preserveAspectRatio="none"
+                    onMouseLeave={() => setHoveredIndex(null)}
+                  >
+                    <defs>
+                      <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#0064d2" stopOpacity="0.28" />
+                        <stop offset="100%" stopColor="#0064d2" stopOpacity="0.0" />
+                      </linearGradient>
+                      <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
+                        <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                      </linearGradient>
+                      <linearGradient id="purchGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#ef4444" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="#ef4444" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+
+                    {/* Horizontal Grid lines */}
+                    <line x1="35" y1="30" x2="590" y2="30" stroke="var(--border-color)" strokeDasharray="3 3" />
+                    <line x1="35" y1="77" x2="590" y2="77" stroke="var(--border-color)" strokeDasharray="3 3" />
+                    <line x1="35" y1="123" x2="590" y2="123" stroke="var(--border-color)" strokeDasharray="3 3" />
+                    <line x1="35" y1="170" x2="590" y2="170" stroke="var(--border-color)" />
+
+                    {/* Y Axis labels */}
+                    <text x="5" y="34" fontSize="10" fill="var(--text-muted)">{formatY(niceMax)}</text>
+                    <text x="5" y="81" fontSize="10" fill="var(--text-muted)">{formatY(niceMax * 0.66)}</text>
+                    <text x="5" y="127" fontSize="10" fill="var(--text-muted)">{formatY(niceMax * 0.33)}</text>
+                    <text x="12" y="174" fontSize="10" fill="var(--text-muted)">₹ 0</text>
+
+                    {/* Profit Area & Line */}
+                    <path d={getSplineD(profitCoords, true)} fill="url(#profitGrad)" />
+                    <path d={getSplineD(profitCoords, false)} fill="none" stroke="#10b981" strokeWidth="2.5" />
+
+                    {/* Purchases Area & Line */}
+                    <path d={getSplineD(purchCoords, true)} fill="url(#purchGrad)" />
+                    <path d={getSplineD(purchCoords, false)} fill="none" stroke="#ef4444" strokeWidth="2" strokeDasharray="4 2" />
+
+                    {/* Sales Area & Line */}
+                    <path d={getSplineD(salesCoords, true)} fill="url(#salesGrad)" />
+                    <path d={getSplineD(salesCoords, false)} fill="none" stroke="#0064d2" strokeWidth="3" />
+
+                    {/* Active vertical cursor line */}
+                    {activeX !== null && (
+                      <line x1={activeX} y1="25" x2={activeX} y2="170" stroke="#0064d2" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.8" />
+                    )}
+
+                    {/* Data Points and Hover Target Slices */}
+                    {points.map((pt, idx) => {
+                      const cx = getX(idx);
+                      const sy = getY(pt.sales);
+                      const py = getY(pt.purchases);
+                      const fry = getY(pt.profit);
+                      const isHovered = hoveredIndex === idx;
+
+                      return (
+                        <g key={idx}>
+                          {/* Invisible hover trigger column */}
+                          <rect
+                            x={cx - (plotW / (points.length * 2))}
+                            y="20"
+                            width={plotW / points.length}
+                            height="160"
+                            fill="transparent"
+                            style={{ cursor: 'pointer' }}
+                            onMouseEnter={() => setHoveredIndex(idx)}
+                          />
+
+                          {/* Dots */}
+                          <circle cx={cx} cy={sy} r={isHovered ? 5 : 3} fill="#0064d2" stroke="#fff" strokeWidth="1.5" />
+                          <circle cx={cx} cy={py} r={isHovered ? 4 : 2.5} fill="#ef4444" stroke="#fff" strokeWidth="1" />
+                          <circle cx={cx} cy={fry} r={isHovered ? 4 : 2.5} fill="#10b981" stroke="#fff" strokeWidth="1" />
+                        </g>
+                      );
+                    })}
+
+                    {/* X Axis dynamic dates */}
+                    {points.map((pt, idx) => {
+                      const step = Math.ceil(points.length / 8);
+                      if (idx % step !== 0 && idx !== points.length - 1) return null;
+                      const cx = getX(idx);
+                      return (
+                        <text
+                          key={idx}
+                          x={cx}
+                          y="190"
+                          fontSize="10"
+                          textAnchor="middle"
+                          fill={hoveredIndex === idx ? 'var(--primary)' : 'var(--text-muted)'}
+                          fontWeight={hoveredIndex === idx ? 700 : 400}
+                        >
+                          {pt.date}
+                        </text>
+                      );
+                    })}
+                  </svg>
+
+                  {/* Floating Interactive Tooltip */}
+                  {activePt && activeX !== null && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${Math.min(Math.max((activeX / 600) * 100, 15), 85)}%`,
+                        top: '15px',
+                        transform: 'translateX(-50%)',
+                        backgroundColor: 'var(--bg-surface)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '8px 12px',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                        pointerEvents: 'none',
+                        zIndex: 10,
+                        fontSize: '11px',
+                        minWidth: '130px',
+                        backdropFilter: 'blur(8px)'
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px', borderBottom: '1px solid var(--border-color)', paddingBottom: '3px' }}>
+                        {activePt.date}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0064d2', fontWeight: 600 }}>
+                        <span>Sales:</span>
+                        <span>₹ {Number(activePt.sales).toLocaleString('en-IN')}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#ef4444' }}>
+                        <span>Purchases:</span>
+                        <span>₹ {Number(activePt.purchases).toLocaleString('en-IN')}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#10b981', fontWeight: 600 }}>
+                        <span>Profit:</span>
+                        <span>₹ {Number(activePt.profit).toLocaleString('en-IN')}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
 
@@ -503,76 +742,82 @@ export default function DashboardPage({ onNavigate }) {
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '24px', minHeight: '200px' }}>
             {/* SVG Donut */}
-            <div style={{ position: 'relative', width: '150px', height: '150px' }}>
-              <svg width="150" height="150" viewBox="0 0 100 100">
-                {kpis.total_expenses === 0 ? (
-                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="var(--border-color)" strokeWidth="12" />
-                ) : (
-                  <>
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#0064d2" strokeWidth="16" strokeDasharray="95 156" strokeDashoffset="0" />
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#10b981" strokeWidth="16" strokeDasharray="55 196" strokeDashoffset="-95" />
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f59e0b" strokeWidth="16" strokeDasharray="38 213" strokeDashoffset="-150" />
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#ec4899" strokeWidth="16" strokeDasharray="20 231" strokeDashoffset="-188" />
-                    <circle cx="50" cy="50" r="40" fill="transparent" stroke="#8b5cf6" strokeWidth="16" strokeDasharray="43 208" strokeDashoffset="-208" />
-                  </>
-                )}
-              </svg>
-              <div style={{
-                position: 'absolute', inset: 0,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                textAlign: 'center'
-              }}>
-                <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-main)' }}>
-                  ₹ {kpis.total_expenses.toLocaleString('en-IN')}
-                </span>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Total Expenses</span>
-              </div>
-            </div>
+            {(() => {
+              const expList = data?.expense_breakdown && data.expense_breakdown.length > 0
+                ? data.expense_breakdown
+                : [];
+              const colors = ['#0064d2', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#64748b'];
+              const circumference = 251.327; // 2 * pi * 40
 
-            {/* Legend */}
-            {kpis.total_expenses === 0 ? (
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '140px', lineHeight: 1.5 }}>
-                No store expenses booked yet for this period.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0064d2' }}></span>
-                    <span>Inventory</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>38%</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
-                    <span>Staff & Payroll</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>22%</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }}></span>
-                    <span>Rent & Utilities</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>15%</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ec4899' }}></span>
-                    <span>Marketing</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>8%</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#8b5cf6' }}></span>
-                    <span>Other</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>17%</span>
-                </div>
-              </div>
-            )}
+              let cumulative = 0;
+              const slices = expList.map((item, idx) => {
+                const pct = Math.max(0, Number(item.percentage) || 0);
+                const dashLen = (pct / 100) * circumference;
+                const offset = -cumulative;
+                cumulative += dashLen;
+                return {
+                  ...item,
+                  color: colors[idx % colors.length],
+                  dashArray: `${dashLen.toFixed(1)} ${(circumference - dashLen).toFixed(1)}`,
+                  dashOffset: offset.toFixed(1)
+                };
+              });
+
+              return (
+                <>
+                  <div style={{ position: 'relative', width: '150px', height: '150px' }}>
+                    <svg width="150" height="150" viewBox="0 0 100 100">
+                      {kpis.total_expenses === 0 || slices.length === 0 ? (
+                        <circle cx="50" cy="50" r="40" fill="transparent" stroke="var(--border-color)" strokeWidth="12" />
+                      ) : (
+                        slices.map((slice, idx) => (
+                          <circle
+                            key={idx}
+                            cx="50"
+                            cy="50"
+                            r="40"
+                            fill="transparent"
+                            stroke={slice.color}
+                            strokeWidth="16"
+                            strokeDasharray={slice.dashArray}
+                            strokeDashoffset={slice.dashOffset}
+                          />
+                        ))
+                      )}
+                    </svg>
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      textAlign: 'center'
+                    }}>
+                      <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-main)' }}>
+                        ₹ {kpis.total_expenses.toLocaleString('en-IN')}
+                      </span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Total Expenses</span>
+                    </div>
+                  </div>
+
+                  {/* Legend */}
+                  {kpis.total_expenses === 0 || slices.length === 0 ? (
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '140px', lineHeight: 1.5 }}>
+                      No store expenses booked yet for this period.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px', maxWidth: '180px' }}>
+                      {slices.map((slice, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: slice.color }}></span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '105px' }}>{slice.category}</span>
+                          </span>
+                          <span style={{ fontWeight: 600 }}>{slice.percentage}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
       </div>

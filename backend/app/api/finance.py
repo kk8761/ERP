@@ -116,6 +116,25 @@ async def create_journal_entry(
             detail=f"Double-entry imbalance! Total Debit ({total_debit}) must equal Total Credit ({total_credit})"
         )
 
+    # Validate that all referenced accounts exist and are active (BUG-04)
+    account_ids = {l.account_id for l in data.lines}
+    acc_stmt = select(Account).where(Account.id.in_(account_ids))
+    acc_res = await db.execute(acc_stmt)
+    accounts_by_id = {acc.id: acc for acc in acc_res.scalars().all()}
+
+    for aid in account_ids:
+        acc = accounts_by_id.get(aid)
+        if not acc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"General Ledger account with ID {aid} does not exist."
+            )
+        if not acc.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"General Ledger account '{acc.name}' ({acc.code}) is inactive and cannot accept journal postings."
+            )
+
     entry_num = f"JE-{uuid.uuid4().hex[:6].upper()}"
     lines = [
         JournalEntryLine(
@@ -140,15 +159,13 @@ async def create_journal_entry(
     )
     db.add(entry)
 
-    # Update account balances
+    # Update account balances atomically
     for line in data.lines:
-        acc_res = await db.execute(select(Account).where(Account.id == line.account_id))
-        acc = acc_res.scalar_one_or_none()
-        if acc:
-            if acc.account_type in ["ASSET", "EXPENSE"]:
-                acc.balance += (line.debit - line.credit)
-            else:
-                acc.balance += (line.credit - line.debit)
+        acc = accounts_by_id[line.account_id]
+        if acc.account_type in ["ASSET", "EXPENSE"]:
+            acc.balance += (line.debit - line.credit)
+        else:
+            acc.balance += (line.credit - line.debit)
 
     await record_audit_log(
         db, action="JOURNAL_ENTRY_POSTED", entity_name="JournalEntry",

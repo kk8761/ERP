@@ -10,6 +10,7 @@ class Account(Base, TimestampMixin):
     __tablename__ = "accounts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     code: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     account_type: Mapped[str] = mapped_column(String(50), nullable=False) # ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE
@@ -20,6 +21,7 @@ class JournalEntry(Base, TimestampMixin):
     __tablename__ = "journal_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    organization_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     entry_number: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     entry_date: Mapped[date] = mapped_column(Date, default=date.today)
     reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)

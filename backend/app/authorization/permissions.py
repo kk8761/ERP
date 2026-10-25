@@ -11,6 +11,7 @@ PERMISSIONS = [
     {"code": "sales.create", "module": "sales", "description": "Create new sales transactions and POS receipts"},
     {"code": "sales.update", "module": "sales", "description": "Edit draft sales orders"},
     {"code": "sales.refund", "module": "sales", "description": "Process returns and refunds"},
+    {"code": "sales.manage", "module": "sales", "description": "Manage sales records, clients, and pipelines"},
     {"code": "customers.manage", "module": "sales", "description": "Create and manage customer profiles"},
 
     # Inventory
@@ -18,17 +19,23 @@ PERMISSIONS = [
     {"code": "inventory.create", "module": "inventory", "description": "Add new products and categories"},
     {"code": "inventory.update", "module": "inventory", "description": "Update product details and pricing"},
     {"code": "inventory.adjust", "module": "inventory", "description": "Perform manual stock adjustments"},
+    {"code": "warehouses.manage", "module": "inventory", "description": "Create and configure warehouse storage locations"},
+    {"code": "inventory.manage", "module": "inventory", "description": "Full inventory lifecycle management"},
 
     # Procurement
     {"code": "procurement.view", "module": "procurement", "description": "View suppliers and purchase orders"},
     {"code": "procurement.create", "module": "procurement", "description": "Create purchase requisitions & orders"},
     {"code": "procurement.approve", "module": "procurement", "description": "Approve purchase orders for fulfillment"},
     {"code": "procurement.receive", "module": "procurement", "description": "Record goods receipts into inventory"},
+    {"code": "suppliers.manage", "module": "procurement", "description": "Create and manage suppliers and vendors"},
+    {"code": "procurement.manage", "module": "procurement", "description": "Manage procurement policies, vendor ratings, and approvals"},
 
     # Finance & Accounting
     {"code": "finance.view", "module": "finance", "description": "View chart of accounts, expenses, and ledger"},
     {"code": "finance.post", "module": "finance", "description": "Create journal entries and post financial records"},
     {"code": "expenses.record", "module": "finance", "description": "Record operational expenses"},
+    {"code": "accounts.manage", "module": "finance", "description": "Manage chart of accounts and live ledger configurations"},
+    {"code": "finance.manage", "module": "finance", "description": "Manage corporate financial records and general ledger"},
 
     # Human Resources & Payroll
     {"code": "hr.view", "module": "hr", "description": "View employee list and directory"},
@@ -56,9 +63,9 @@ ROLE_TEMPLATES = {
     "System Administrator": [p["code"] for p in PERMISSIONS],
     "Branch Manager": [
         "dashboard.view", "reports.view", "reports.export",
-        "sales.view", "sales.create", "sales.update", "sales.refund", "customers.manage",
-        "inventory.view", "inventory.create", "inventory.update", "inventory.adjust",
-        "procurement.view", "procurement.create", "procurement.approve", "procurement.receive",
+        "sales.view", "sales.create", "sales.update", "sales.refund", "sales.manage", "customers.manage",
+        "inventory.view", "inventory.create", "inventory.update", "inventory.adjust", "warehouses.manage", "inventory.manage",
+        "procurement.view", "procurement.create", "procurement.approve", "procurement.receive", "suppliers.manage", "procurement.manage",
         "finance.view", "expenses.record",
         "hr.view", "attendance.record", "leaves.manage",
         "users.view", "access_requests.request", "ai.use",
@@ -73,7 +80,7 @@ ROLE_TEMPLATES = {
     ],
     "Inventory Clerk": [
         "dashboard.view",
-        "inventory.view", "inventory.create", "inventory.update", "inventory.adjust",
+        "inventory.view", "inventory.create", "inventory.update", "inventory.adjust", "warehouses.manage",
         "procurement.view", "procurement.receive",
         "attendance.record",
         "access_requests.request", "ai.use"
@@ -81,7 +88,7 @@ ROLE_TEMPLATES = {
     "Accountant": [
         "dashboard.view", "reports.view", "reports.export",
         "sales.view",
-        "finance.view", "finance.post", "expenses.record",
+        "finance.view", "finance.post", "expenses.record", "accounts.manage", "finance.manage",
         "payroll.view",
         "attendance.record",
         "access_requests.request", "ai.use"
@@ -90,7 +97,6 @@ ROLE_TEMPLATES = {
         "dashboard.view",
         "hr.view", "hr.manage", "attendance.record", "leaves.manage",
         "payroll.view", "payroll.process",
-        "attendance.record",
         "access_requests.request", "ai.use"
     ],
     "Auditor": [

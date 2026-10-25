@@ -1,3 +1,4 @@
+import os
 import uuid
 import logging
 from contextlib import asynccontextmanager
@@ -36,6 +37,12 @@ from app.api.security import router as security_router
 from app.api.sync import router as sync_router
 from app.api.emails import router as emails_router
 from app.api.workflows import router as workflows_router
+from app.api.alexa import router as alexa_router
+from app.api.aws import router as aws_router
+from app.api.mcp import router as mcp_router
+from app.api.data_import import router as data_import_router
+from app.api.branches import router as branches_router
+from app.api.settings import router as settings_router
 
 from app.mongodb import init_mongodb, close_mongodb, check_mongodb_status
 
@@ -67,8 +74,25 @@ async def lifespan(app: FastAPI):
         ("purchase_orders", "invoiced_amount", "NUMERIC(12, 2)", "NUMERIC(12, 2)"),
         ("purchase_orders", "shipping_cost", "NUMERIC(12, 2) DEFAULT 0", "NUMERIC(12, 2) DEFAULT 0"),
         ("purchase_orders", "tax_duties_cost", "NUMERIC(12, 2) DEFAULT 0", "NUMERIC(12, 2) DEFAULT 0"),
+        ("employees", "reports_to_id", "INTEGER REFERENCES employees(id)", "INTEGER REFERENCES employees(id)"),
+        ("employees", "hierarchy_role", "VARCHAR(30) DEFAULT 'MEMBER'", "VARCHAR(30) DEFAULT 'MEMBER'"),
+        ("intrusion_events", "is_reviewed", "BOOLEAN DEFAULT FALSE", "BOOLEAN DEFAULT 0"),
+        ("organizations", "legal_name", "VARCHAR(200)", "VARCHAR(200)"),
+        ("organizations", "settings_json", "TEXT", "TEXT"),
+        ("branches", "country", "VARCHAR(50) DEFAULT 'IN'", "VARCHAR(50) DEFAULT 'IN'"),
+        ("branches", "currency", "VARCHAR(10) DEFAULT 'INR'", "VARCHAR(10) DEFAULT 'INR'"),
+        ("users", "last_login_at", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP"),
+        # BUG-36, SEC-51 & SEC-68: Safe migration for organization_id multi-tenancy columns
+        ("users", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("products", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("suppliers", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("customers", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("accounts", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("journal_entries", "organization_id", "INTEGER REFERENCES organizations(id)", "INTEGER REFERENCES organizations(id)"),
+        ("sync_idempotency_records", "payload_hash", "VARCHAR(64)", "VARCHAR(64)"),
     ]
     for tbl, col, pg_def, sqlite_def in migrations:
+        is_critical = tbl in ("products", "suppliers", "users", "customers") and col == "organization_id"
         try:
             async with engine.begin() as conn:
                 if is_postgres:
@@ -81,7 +105,152 @@ async def lifespan(app: FastAPI):
                     if col not in existing:
                         await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {sqlite_def}"))
         except Exception as mig_err:
+            if is_critical:
+                logging.error(f"[NexaERP DB Migration] Critical migration failure for {tbl}.{col}: {mig_err}")
+                raise RuntimeError(f"Critical schema migration failed for {tbl}.{col}: {mig_err}")
             logging.warning(f"[NexaERP DB Migration] Safe migration notice for {tbl}.{col}: {mig_err}")
+
+    # BUG-48 & BUG-58: Explicit and deterministic ownership resolution without arbitrary LIMIT 1
+    async with engine.begin() as conn:
+        try:
+            # 1. Resolve users from their assigned branches
+            await conn.execute(text(
+                "UPDATE users SET organization_id = (SELECT branches.organization_id FROM branches WHERE branches.id = users.branch_id) "
+                "WHERE users.organization_id IS NULL AND users.branch_id IS NOT NULL"
+            ))
+
+            # 2. Check for ambiguous customers associated with multiple organizations among unassigned records
+            amb_cust_res = await conn.execute(text(
+                "SELECT sales_orders.customer_id, COUNT(DISTINCT branches.organization_id) "
+                "FROM sales_orders "
+                "JOIN customers ON sales_orders.customer_id = customers.id "
+                "JOIN branches ON sales_orders.branch_id = branches.id "
+                "WHERE customers.organization_id IS NULL AND branches.organization_id IS NOT NULL "
+                "GROUP BY sales_orders.customer_id "
+                "HAVING COUNT(DISTINCT branches.organization_id) > 1"
+            ))
+            amb_custs = [r[0] for r in amb_cust_res.fetchall()]
+            if amb_custs:
+                raise RuntimeError(
+                    f"BUG-58 Migration Halt: Ambiguous customer ownership detected for customer ID(s): {amb_custs}. Associated with multiple organizations. Explicit owner reconciliation required."
+                )
+
+            # Resolve customers associated with exactly one organization
+            await conn.execute(text(
+                "UPDATE customers SET organization_id = ("
+                "  SELECT branches.organization_id FROM sales_orders "
+                "  JOIN branches ON sales_orders.branch_id = branches.id "
+                "  WHERE sales_orders.customer_id = customers.id AND branches.organization_id IS NOT NULL "
+                "  GROUP BY branches.organization_id"
+                ") WHERE customers.organization_id IS NULL AND ("
+                "  SELECT COUNT(DISTINCT branches.organization_id) FROM sales_orders "
+                "  JOIN branches ON sales_orders.branch_id = branches.id "
+                "  WHERE sales_orders.customer_id = customers.id AND branches.organization_id IS NOT NULL"
+                ") = 1"
+            ))
+
+            # 3. Check for ambiguous suppliers associated with multiple organizations among unassigned records
+            amb_sup_res = await conn.execute(text(
+                "SELECT purchase_orders.supplier_id, COUNT(DISTINCT branches.organization_id) "
+                "FROM purchase_orders "
+                "JOIN suppliers ON purchase_orders.supplier_id = suppliers.id "
+                "JOIN branches ON purchase_orders.branch_id = branches.id "
+                "WHERE suppliers.organization_id IS NULL AND branches.organization_id IS NOT NULL "
+                "GROUP BY purchase_orders.supplier_id "
+                "HAVING COUNT(DISTINCT branches.organization_id) > 1"
+            ))
+            amb_sups = [r[0] for r in amb_sup_res.fetchall()]
+            if amb_sups:
+                raise RuntimeError(
+                    f"BUG-58 Migration Halt: Ambiguous supplier ownership detected for supplier ID(s): {amb_sups}. Associated with multiple organizations. Explicit owner reconciliation required."
+                )
+
+            # Resolve suppliers associated with exactly one organization
+            await conn.execute(text(
+                "UPDATE suppliers SET organization_id = ("
+                "  SELECT branches.organization_id FROM purchase_orders "
+                "  JOIN branches ON purchase_orders.branch_id = branches.id "
+                "  WHERE purchase_orders.supplier_id = suppliers.id AND branches.organization_id IS NOT NULL "
+                "  GROUP BY branches.organization_id"
+                ") WHERE suppliers.organization_id IS NULL AND ("
+                "  SELECT COUNT(DISTINCT branches.organization_id) FROM purchase_orders "
+                "  JOIN branches ON purchase_orders.branch_id = branches.id "
+                "  WHERE purchase_orders.supplier_id = suppliers.id AND branches.organization_id IS NOT NULL"
+                ") = 1"
+            ))
+
+            # 4. Check for ambiguous products associated with multiple organizations among unassigned records
+            amb_prod_res = await conn.execute(text(
+                "SELECT stock_movements.product_id, COUNT(DISTINCT branches.organization_id) "
+                "FROM stock_movements "
+                "JOIN products ON stock_movements.product_id = products.id "
+                "JOIN warehouses ON stock_movements.warehouse_id = warehouses.id "
+                "JOIN branches ON warehouses.branch_id = branches.id "
+                "WHERE products.organization_id IS NULL AND branches.organization_id IS NOT NULL "
+                "GROUP BY stock_movements.product_id "
+                "HAVING COUNT(DISTINCT branches.organization_id) > 1"
+            ))
+            amb_prods = [r[0] for r in amb_prod_res.fetchall()]
+            if amb_prods:
+                raise RuntimeError(
+                    f"BUG-58 Migration Halt: Ambiguous product ownership detected for product ID(s): {amb_prods}. Associated with multiple organizations. Explicit owner reconciliation required."
+                )
+
+            # Resolve products associated with exactly one organization
+            await conn.execute(text(
+                "UPDATE products SET organization_id = ("
+                "  SELECT branches.organization_id FROM stock_movements "
+                "  JOIN warehouses ON stock_movements.warehouse_id = warehouses.id "
+                "  JOIN branches ON warehouses.branch_id = branches.id "
+                "  WHERE stock_movements.product_id = products.id AND branches.organization_id IS NOT NULL "
+                "  GROUP BY branches.organization_id"
+                ") WHERE products.organization_id IS NULL AND ("
+                "  SELECT COUNT(DISTINCT branches.organization_id) FROM stock_movements "
+                "  JOIN warehouses ON stock_movements.warehouse_id = warehouses.id "
+                "  JOIN branches ON warehouses.branch_id = branches.id "
+                "  WHERE stock_movements.product_id = products.id AND branches.organization_id IS NOT NULL"
+                ") = 1"
+            ))
+
+            # 5. For single-tenant or fresh deployments with exactly one organization, resolve remaining unassigned records
+            org_res = await conn.execute(text("SELECT id FROM organizations"))
+            org_rows = org_res.fetchall()
+            if len(org_rows) == 1:
+                single_org_id = org_rows[0][0]
+                await conn.execute(text(f"UPDATE users SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE customers SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE suppliers SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE products SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE accounts SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+                await conn.execute(text(f"UPDATE journal_entries SET organization_id = {single_org_id} WHERE organization_id IS NULL"))
+
+            # 6. BUG-48 & BUG-58 Verification: In a multi-organization environment, fail startup if unresolved ownership remains
+            if len(org_rows) > 1:
+                for check_tbl in ["users", "customers", "suppliers", "products"]:
+                    unres = (await conn.execute(text(f"SELECT COUNT(*) FROM {check_tbl} WHERE organization_id IS NULL"))).scalar() or 0
+                    if unres > 0:
+                        raise RuntimeError(
+                            f"BUG-58 Migration Halt: Found {unres} unresolved record(s) in '{check_tbl}' with missing organization ownership in a multi-tenant deployment. Explicit owner assignment is required."
+                        )
+        except Exception as backfill_err:
+            logging.error(f"[NexaERP DB Migration] Critical ownership migration failure: {backfill_err}")
+            raise RuntimeError(f"Database ownership migration failed: {backfill_err}") from backfill_err
+
+    # BUG-36 & SEC-51: Strict schema verification before allowing application traffic
+    async with engine.begin() as conn:
+        for check_tbl, check_col in [("products", "organization_id"), ("suppliers", "organization_id"), ("users", "organization_id"), ("customers", "organization_id")]:
+            if is_postgres:
+                chk = await conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns WHERE table_name = '{check_tbl}' AND column_name = '{check_col}'"
+                ))
+                if not chk.scalar():
+                    raise RuntimeError(f"Schema verification failed: column {check_tbl}.{check_col} does not exist.")
+            else:
+                pragma_res = await conn.execute(text(f"PRAGMA table_info({check_tbl})"))
+                cols = [r[1] for r in pragma_res.fetchall()]
+                if check_col not in cols:
+                    raise RuntimeError(f"Schema verification failed: column {check_tbl}.{check_col} does not exist in SQLite schema.")
+
 
     # 3. Auto-seed initial enterprise admin and catalog if database is fresh (e.g. newly provisioned Postgres on Render)
     try:
@@ -199,18 +368,57 @@ app.include_router(security_router)
 app.include_router(sync_router)
 app.include_router(emails_router)
 app.include_router(workflows_router)
+app.include_router(alexa_router)
+app.include_router(aws_router)
+app.include_router(mcp_router)
+app.include_router(data_import_router)
+app.include_router(branches_router)
+app.include_router(settings_router)
 
-@app.get("/", tags=["Root"])
-async def root():
-    return {
-        "status": "healthy",
-        "app": settings.APP_NAME,
-        "environment": settings.ENVIRONMENT,
-        "version": "2.1.0",
-        "message": "NexaERP Enterprise API is active and operational.",
-        "docs_url": "/docs",
-        "health_url": "/api/health"
-    }
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_dist_dir = os.path.join(_repo_root, "frontend", "dist")
+_dist_assets = os.path.join(_dist_dir, "assets")
+
+if os.path.exists(_dist_assets):
+    app.mount("/assets", StaticFiles(directory=_dist_assets), name="react_assets")
+
+for _s_dir in ["css", "js"]:
+    _f_path = os.path.join(_repo_root, _s_dir)
+    if os.path.exists(_f_path):
+        app.mount(f"/{_s_dir}", StaticFiles(directory=_f_path), name=_s_dir)
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.get("/", include_in_schema=False)
+@app.get("/login", include_in_schema=False)
+@app.get("/app", include_in_schema=False)
+async def serve_react_root(request: Request):
+    accept_header = request.headers.get("accept", "")
+    if "application/json" in accept_header and "text/html" not in accept_header:
+        return JSONResponse({
+            "status": "healthy",
+            "app": settings.APP_NAME,
+            "environment": settings.ENVIRONMENT,
+            "version": "2.1.0",
+            "message": "NexaERP Enterprise API is active and operational.",
+            "docs_url": "/docs",
+            "health_url": "/api/health"
+        })
+    if os.path.exists(os.path.join(_dist_dir, "index.html")):
+        return FileResponse(os.path.join(_dist_dir, "index.html"))
+    return FileResponse(os.path.join(_repo_root, "dashboard.html"))
+
+@app.get("/dashboard.html", include_in_schema=False)
+async def serve_dashboard_html():
+    return FileResponse(os.path.join(_repo_root, "dashboard.html"))
+
+@app.get("/landing.html", include_in_schema=False)
+async def serve_landing_html():
+    return FileResponse(os.path.join(_repo_root, "landing.html"))
+
 
 @app.get("/api/health", tags=["Health"])
 async def health_check():
@@ -219,6 +427,8 @@ async def health_check():
 
     # Detect active AI providers
     ai_providers = []
+    if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+        ai_providers.append(f"AWS Bedrock ({settings.AWS_BEDROCK_MODEL_ID})")
     if settings.GROQ_API_KEY:
         ai_providers.append(f"Groq Cloud ({settings.GROQ_MODEL})")
     if settings.GEMINI_API_KEY:

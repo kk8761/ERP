@@ -35,28 +35,47 @@ async def _resolve_user_tenant(db: AsyncSession, current_user: User) -> tuple[in
     Resolves the organization_id, organization_name, and branch_id for the current user
     to enforce strict company tenant isolation.
     """
+    org_id = current_user.organization_id
     branch_id = current_user.branch_id
-    org_id = 1
-    org_name = "Nexa Global Enterprises"
 
+    # If user has a branch, verify that the branch belongs to the user's organization
     if branch_id:
         b_res = await db.execute(select(Branch).where(Branch.id == branch_id))
         branch = b_res.scalar_one_or_none()
-        if branch and branch.organization_id:
+        if not branch:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User's assigned branch not found."
+            )
+        if org_id is not None and branch.organization_id != org_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User's assigned branch belongs to a different organization."
+            )
+        if org_id is None:
             org_id = branch.organization_id
-            o_res = await db.execute(select(Organization).where(Organization.id == org_id))
+
+    # Reject missing organization context instead of defaulting to organization 1
+    if not org_id:
+        if current_user.is_superuser:
+            o_res = await db.execute(select(Organization).order_by(Organization.id.asc()).limit(1))
             org = o_res.scalar_one_or_none()
             if org:
-                org_name = org.name
-    else:
-        # Check first organization in DB
-        o_res = await db.execute(select(Organization).limit(1))
-        org = o_res.scalar_one_or_none()
-        if org:
-            org_id = org.id
-            org_name = org.name
+                return org.id, org.name, branch_id
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not belong to any valid organization context."
+        )
 
-    return org_id, org_name, branch_id
+    o_res = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = o_res.scalar_one_or_none()
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found."
+        )
+
+    return org.id, org.name, branch_id
 
 @router.post("/query")
 async def query_ai(

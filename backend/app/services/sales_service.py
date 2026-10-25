@@ -13,8 +13,43 @@ from app.services.inventory_service import adjust_product_stock
 async def create_sales_order(
     db: AsyncSession,
     order_in: SalesOrderCreate,
-    cashier_user_id: int
+    cashier_user_id: int,
+    organization_id: Optional[int] = None
 ) -> SalesOrder:
+    """
+    SEC-47 & SEC-53 Fix: Enforce strict multi-tenant boundary for sales order creation.
+    Requires verified organization context and validates branch, customer, and products.
+    """
+    if organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context is required for sales order operations."
+        )
+
+    # Validate branch against organization if specified
+    if order_in.branch_id:
+        from app.models.org import Branch
+        b_res = await db.execute(
+            select(Branch).where(Branch.id == order_in.branch_id, Branch.organization_id == organization_id)
+        )
+        if not b_res.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Branch with ID {order_in.branch_id} does not belong to your organization."
+            )
+
+    # Validate customer against organization if specified
+    customer = None
+    if order_in.customer_id:
+        c_stmt = select(Customer).where(Customer.id == order_in.customer_id, Customer.organization_id == organization_id)
+        c_res = await db.execute(c_stmt)
+        customer = c_res.scalar_one_or_none()
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Customer with ID {order_in.customer_id} not found in your organization."
+            )
+
     # Generate unique invoice number
     invoice_number = f"INV-{uuid.uuid4().hex[:6].upper()}"
 
@@ -23,12 +58,14 @@ async def create_sales_order(
     order_items: List[SalesOrderItem] = []
 
     for item_in in order_in.items:
-        prod_res = await db.execute(select(Product).where(Product.id == item_in.product_id))
+        # SEC-47 & SEC-53: Scope product query strictly to user's organization
+        p_stmt = select(Product).where(Product.id == item_in.product_id, Product.organization_id == organization_id)
+        prod_res = await db.execute(p_stmt)
         product = prod_res.scalar_one_or_none()
         if not product:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Product with ID {item_in.product_id} not found"
+                detail=f"Product with ID {item_in.product_id} not found in your organization."
             )
 
         if product.current_stock < item_in.quantity:
@@ -62,13 +99,24 @@ async def create_sales_order(
             movement_type="SALE_OUT",
             user_id=cashier_user_id,
             reference_id=invoice_number,
-            notes=f"POS Sale: {invoice_number}"
+            notes=f"POS Sale: {invoice_number}",
+            organization_id=organization_id
         )
 
+    # BUG-57 Fix: Enforce strict financial discount bounds
     discount = Decimal(str(order_in.discount_amount))
-    total_amount = subtotal + tax_amount - discount
-    if total_amount < Decimal("0.00"):
-        total_amount = Decimal("0.00")
+    if discount < Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Discount cannot be negative."
+        )
+    gross_amount = subtotal + tax_amount
+    if discount > gross_amount:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Discount cannot exceed the sale value."
+        )
+    total_amount = gross_amount - discount
 
     sales_order = SalesOrder(
         invoice_number=invoice_number,
@@ -87,12 +135,10 @@ async def create_sales_order(
     )
     db.add(sales_order)
 
-    # Update customer spend if customer specified
-    if order_in.customer_id:
-        cust_res = await db.execute(select(Customer).where(Customer.id == order_in.customer_id))
-        customer = cust_res.scalar_one_or_none()
-        if customer:
-            customer.total_spend = (customer.total_spend or Decimal("0.00")) + total_amount
+    # Update customer spend if customer validated
+    if customer:
+        customer.total_spend = (customer.total_spend or Decimal("0.00")) + total_amount
 
     await db.flush()
     return sales_order
+

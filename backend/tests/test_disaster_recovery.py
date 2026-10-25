@@ -122,7 +122,9 @@ async def test_point_in_time_recovery_and_wal(client: AsyncClient, admin_auth_to
     res = await client.post("/api/disaster-recovery/pitr/test", headers=headers)
     assert res.status_code == 200
     test_result = res.json()
-    assert test_result["test_status"] == "PASSED"
+    assert test_result["test_status"] == "SIMULATED"
+    assert test_result["mode"] == "DRILL_SIMULATION"
+    assert test_result["is_simulated"] is True
     assert "procedure" in test_result
 
 

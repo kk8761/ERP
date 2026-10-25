@@ -118,7 +118,13 @@ async def seed():
 
         db.add(UserRole(user_id=admin_user.id, role_id=role_map["System Administrator"]))
 
-        # Additional demo users for role testing
+        # SEC-24 / BUG-21: In production, provision only system roles, permissions, organizational structure,
+        # and bootstrap admin. Prohibit fictitious products, revenue, customers, suppliers, and demo accounts.
+        if settings.ENVIRONMENT.lower() == "production":
+            await db.commit()
+            logging.info("[NexaERP] Production environment initialized: system roles, permissions, organization hierarchy, and bootstrap admin provisioned without demo business transactions.")
+            return
+
         demo_users = [
             ("cashier@nexaerp.internal", "Sunil Reddy", "Cashier@12345", "Sales Representative / Cashier", sales_dept.id),
             ("assistant@nexaerp.internal", "Arun Kumar (Shop Assistant)", "Assistant@12345", "Sales Representative / Cashier", sales_dept.id),
@@ -358,6 +364,10 @@ async def seed():
         logging.info("[NexaERP] Database successfully initialized and seeded!")
 
 async def ensure_essential_users(db):
+    # BUG-22: In production, never recreate fixed-password demo accounts automatically during startup
+    if settings.ENVIRONMENT.lower() == "production":
+        return
+
     from sqlalchemy import select
     from app.models.org import Branch, Department
     from app.models.auth import Role, User, UserRole
@@ -366,17 +376,17 @@ async def ensure_essential_users(db):
     b_res = await db.execute(select(Branch).limit(1))
     main_branch = b_res.scalar_one_or_none()
     
-    d_res = await db.execute(select(Department).where(Department.code == "DEP-SALES"))
+    d_res = await db.execute(select(Department).where(Department.code == "DEP-SALES").limit(1))
     sales_dept = d_res.scalar_one_or_none()
     
-    r_res = await db.execute(select(Role).where(Role.name == "Sales Representative / Cashier"))
+    r_res = await db.execute(select(Role).where(Role.name == "Sales Representative / Cashier").limit(1))
     sales_role = r_res.scalar_one_or_none()
 
     if not main_branch or not sales_dept or not sales_role:
         return
 
     # Check assistant@nexaerp.internal
-    u_res = await db.execute(select(User).where(User.email == "assistant@nexaerp.internal"))
+    u_res = await db.execute(select(User).where(User.email == "assistant@nexaerp.internal").limit(1))
     if not u_res.scalar_one_or_none():
         assistant = User(
             email="assistant@nexaerp.internal",
@@ -392,4 +402,51 @@ async def ensure_essential_users(db):
         await db.flush()
         db.add(UserRole(user_id=assistant.id, role_id=sales_role.id))
         await db.commit()
-        logging.info("[NexaERP] Successfully provisioned Shop Assistant account (assistant@nexaerp.internal)")
+    # Check shopadmin@nexaerp.internal (Retail Storekeeper / Shopkeeper Admin)
+    bm_res = await db.execute(select(Role).where(Role.name == "Branch Manager").limit(1))
+    bm_role = bm_res.scalar_one_or_none()
+    
+    sa_res = await db.execute(select(User).where(User.email == "shopadmin@nexaerp.internal").limit(1))
+    if not sa_res.scalar_one_or_none() and bm_role:
+        shop_admin = User(
+            email="shopadmin@nexaerp.internal",
+            full_name="Ramesh Verma (Retail Store Owner & Admin)",
+            password_hash=hash_password("ShopAdmin@12345"),
+            is_active=True,
+            is_superuser=False,
+            mfa_enabled=False,
+            branch_id=main_branch.id,
+            department_id=sales_dept.id
+        )
+        db.add(shop_admin)
+        await db.flush()
+        db.add(UserRole(user_id=shop_admin.id, role_id=bm_role.id))
+        await db.commit()
+        logging.info("[NexaERP] Successfully provisioned Shopkeeper Admin account (shopadmin@nexaerp.internal)")
+
+
+    # Ensure hierarchy roles and reporting lines on seeded employees
+    from app.models.hr import Employee
+    admin_emp_res = await db.execute(select(Employee).where(Employee.employee_code == "EMP-1001"))
+    admin_emp = admin_emp_res.scalar_one_or_none()
+    if admin_emp:
+        admin_emp.hierarchy_role = "EXECUTIVE"
+        admin_emp.reports_to_id = None
+        for code, role, boss_name in [
+            ("EMP-1002", "TEAM_LEAD", "Karthik Reddy"),
+            ("EMP-1003", "MANAGER", "Karthik Reddy"),
+            ("EMP-1004", "MANAGER", "Karthik Reddy"),
+        ]:
+            s_res = await db.execute(select(Employee).where(Employee.employee_code == code))
+            s_emp = s_res.scalar_one_or_none()
+            if s_emp:
+                s_emp.hierarchy_role = role
+                s_emp.reports_to_id = admin_emp.id
+                s_emp.reporting_manager = boss_name
+        await db.commit()
+
+    try:
+        from app.seed_retail_catalog import seed_retail
+        await seed_retail()
+    except Exception as e:
+        logging.warning("Retail catalog auto-seed notice: %s", e)

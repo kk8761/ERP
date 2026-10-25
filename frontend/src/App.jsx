@@ -4,6 +4,16 @@ import TopNav from './components/TopNav';
 import Sidebar from './components/Sidebar';
 import AIAssistantDrawer from './components/AIAssistantDrawer';
 
+// Dedicated Retail Portal Components
+import RetailTopNav from './components/RetailTopNav';
+import RetailSidebar from './components/RetailSidebar';
+import RetailLoginPage from './pages/RetailLoginPage';
+import RetailDashboardPage from './pages/RetailDashboardPage';
+
+// Dedicated Enterprise Portal Components
+import EnterpriseLoginPage from './pages/EnterpriseLoginPage';
+import GatewayLandingPage from './pages/GatewayLandingPage';
+
 // Module Pages
 import DashboardPage from './pages/DashboardPage';
 import POSTerminalPage from './pages/POSTerminalPage';
@@ -15,12 +25,13 @@ import HRPage from './pages/HRPage';
 import SecurityElevationPage from './pages/SecurityElevationPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
-import LoginPage from './pages/LoginPage';
 import ManufacturingPage from './pages/ManufacturingPage';
 import GRCPage from './pages/GRCPage';
 import PredictiveAIPage from './pages/PredictiveAIPage';
 import EmailHubPage from './pages/EmailHubPage';
 import InstanceActivationPage from './pages/InstanceActivationPage';
+
+// Modals & Utilities
 import BarcodeScannerModal from './components/BarcodeScannerModal';
 import SignatureCaptureModal from './components/SignatureCaptureModal';
 import ActionNotAllowedModal from './components/ActionNotAllowedModal';
@@ -39,6 +50,38 @@ function MainApp() {
   const [cursorPill, setCursorPill] = useState(null);
   const [dlpAlert, setDlpAlert] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('nexaerp_theme') || 'light');
+
+  // Default to Retail Portal on port 5174 or /retail, otherwise Pure Enterprise Suite
+  const [portal, setPortal] = useState(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.port === '5174' || window.location.pathname.toLowerCase().startsWith('/retail')) {
+        return 'retail';
+      }
+    }
+    return 'enterprise';
+  });
+
+  const switchPortal = (mode) => {
+    setPortal(mode);
+    localStorage.setItem('nexaerp_portal', mode);
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', mode === 'enterprise' ? '/' : `/${mode}`);
+    }
+    setCurrentTab('dashboard');
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname.toLowerCase();
+      if (path.startsWith('/retail')) {
+        setPortal('retail');
+      } else {
+        setPortal('enterprise');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   
   // Cloud Instance Activation Lifecycle (Ephemeral Compute + Permanent Persistent Storage)
   const [isInstanceActive, setIsInstanceActive] = useState(() => {
@@ -70,12 +113,12 @@ function MainApp() {
     localStorage.setItem('nexaerp_theme', theme);
   }, [theme]);
 
-  // Enterprise Security: Intercept right-click and display "Control Disabled" safety notification
+  // Enterprise Security: Intercept right-click only in Enterprise portal
   useEffect(() => {
+    if (portal !== 'enterprise') return;
     let dismissTimer = null;
 
     const triggerControlDisabled = (data = {}) => {
-      // 1. Pop out main toast notification
       setControlDisabledNotice({
         action: data.action || 'Right Click',
         timestamp: new Date().toLocaleTimeString()
@@ -86,7 +129,6 @@ function MainApp() {
         setControlDisabledNotice(null);
       }, 3500);
 
-      // 2. Pop out pill at cursor position if coordinates provided
       if (typeof data.x === 'number' && typeof data.y === 'number') {
         const x = Math.min(window.innerWidth - 160, Math.max(10, data.x + 8));
         const y = Math.min(window.innerHeight - 40, Math.max(10, data.y + 8));
@@ -96,51 +138,23 @@ function MainApp() {
     };
 
     const handleContextMenu = (e) => {
+      // Don't block admins in dev
+      if (user?.is_superuser || user?.email?.includes('admin')) return;
       e.preventDefault();
       triggerControlDisabled({ x: e.clientX, y: e.clientY, action: 'Right Click' });
     };
-    
-    // Enterprise Security: Intercept DevTools shortcuts (F12, Ctrl+Shift+I/J, Ctrl+U)
-    const handleKeySecurity = (e) => {
-      // F12
-      if (e.key === 'F12' || e.keyCode === 123) {
-        e.preventDefault();
-        triggerControlDisabled({ action: 'DevTools Shortcut (F12)' });
-        return;
-      }
-      // Ctrl+Shift+I or Ctrl+Shift+J or Cmd+Alt+I (DevTools Inspect)
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j')) {
-        e.preventDefault();
-        triggerControlDisabled({ action: 'Inspect Element Shortcut' });
-        return;
-      }
-      // Ctrl+U / Cmd+U (View Source)
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'U' || e.key === 'u')) {
-        e.preventDefault();
-        triggerControlDisabled({ action: 'View Source Shortcut' });
-        return;
-      }
-    };
 
-    const handleCustomControlDisabled = (e) => {
-      triggerControlDisabled(e.detail || {});
-    };
-
-    document.addEventListener('contextmenu', handleContextMenu, { capture: true });
-    window.addEventListener('keydown', handleKeySecurity, { capture: true });
-    window.addEventListener('nexa:control-disabled', handleCustomControlDisabled);
-
+    window.addEventListener('contextmenu', handleContextMenu);
     return () => {
+      window.removeEventListener('contextmenu', handleContextMenu);
       if (dismissTimer) clearTimeout(dismissTimer);
-      document.removeEventListener('contextmenu', handleContextMenu, { capture: true });
-      window.removeEventListener('keydown', handleKeySecurity, { capture: true });
-      window.removeEventListener('nexa:control-disabled', handleCustomControlDisabled);
     };
-  }, []);
+  }, [portal, user]);
 
-  // Enterprise Security: Intercept screenshot attempts (PrintScreen, Snipping tool, etc.)
+  // Enterprise Security: Intercept screenshot attempts (exempt for Company Administrators/Superusers and Retail)
   useEffect(() => {
-    if (!user) return;
+    if (!user || portal !== 'enterprise') return;
+    if (user.is_superuser || user.role === 'admin' || user.email?.toLowerCase().includes('admin')) return;
     const cleanup = initScreenshotGuard((alertData) => {
       setDlpAlert({
         actionType: alertData.actionType,
@@ -153,7 +167,67 @@ function MainApp() {
       }, 8000);
     });
     return cleanup;
-  }, [user]);
+  }, [user, portal]);
+
+  // Enterprise Hands-Free "Hey Alexa" Wake-Word Engine
+  useEffect(() => {
+    if (!user) return;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    let recognition = null;
+    let isExplicitlyStopped = false;
+
+    const startWakeWordListener = () => {
+      try {
+        recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        recognition.onresult = (event) => {
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript.toLowerCase().trim();
+            if (/\b(?:hey\s+|hi\s+|ok\s+|hello\s+)?(?:alexa|nexa)\b/i.test(transcript)) {
+              setIsAIOpen(true);
+              try { recognition.stop(); } catch (e) {}
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('start-alexa-voice', { detail: { wakePrompt: transcript } }));
+              }, 250);
+              return;
+            }
+          }
+        };
+
+        recognition.onerror = (e) => {
+          if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+            isExplicitlyStopped = true;
+          }
+        };
+
+        recognition.onend = () => {
+          if (!isExplicitlyStopped && !isAIOpen) {
+            setTimeout(() => {
+              try { recognition.start(); } catch (e) {}
+            }, 1200);
+          }
+        };
+
+        recognition.start();
+      } catch (err) {
+        console.warn("Could not start global wake word listener:", err);
+      }
+    };
+
+    startWakeWordListener();
+
+    return () => {
+      isExplicitlyStopped = true;
+      if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
+    };
+  }, [user, isAIOpen]);
 
   if (loading) {
     return (
@@ -181,17 +255,30 @@ function MainApp() {
         }}>
           N
         </div>
-        <div style={{ fontSize: '14px', fontWeight: 600 }}>Loading NexaERP Workspace...</div>
+        <div style={{ fontSize: '14px', fontWeight: 600 }}>Loading NexaERP Suite...</div>
       </div>
     );
   }
 
+  // ─── UN-AUTHENTICATED ROUTING: DIRECT LOGIN (NO PROMPTS FOR OTHER LOGINS) ─────
   if (!user) {
-    return <LoginPage />;
+    if (portal === 'retail') {
+      return (
+        <RetailLoginPage 
+          onLoginSuccess={() => setCurrentTab('dashboard')}
+        />
+      );
+    }
+    // Company / Enterprise Console is the direct default login
+    return (
+      <EnterpriseLoginPage 
+        onLoginSuccess={() => setCurrentTab('dashboard')}
+      />
+    );
   }
 
-  // Enterprise Gateway: Post-login Company Overview & Instance Activation Portal
-  if (!isInstanceActive) {
+  // Enterprise Gateway: Post-login Company Overview & Instance Activation Portal (Enterprise Only)
+  if (portal === 'enterprise' && !isInstanceActive) {
     return (
       <InstanceActivationPage
         onActivate={handleActivateInstance}
@@ -199,43 +286,73 @@ function MainApp() {
     );
   }
 
-  const renderContent = () => {
+  // ─── AUTHENTICATED CONTENT ROUTING ──────────────────────
+  const renderRetailContent = () => {
+    switch (currentTab) {
+      case 'dashboard':
+        return <RetailDashboardPage onNavigate={setCurrentTab} />;
+      case 'pos':
+        return <POSTerminalPage onNavigate={setCurrentTab} />;
+      case 'inventory':
+      case 'products':
+        return <InventoryPage initialTab="products" catalogType="retail" onNavigate={setCurrentTab} />;
+      case 'orders':
+      case 'sales_orders':
+        return <SalesPage initialTab="orders" onNavigate={setCurrentTab} />;
+      case 'customers':
+        return <SalesPage initialTab="customers" onNavigate={setCurrentTab} />;
+      case 'returns':
+        return <SalesPage initialTab="returns" onNavigate={setCurrentTab} />;
+      case 'cash_register':
+        return <POSTerminalPage onNavigate={setCurrentTab} initialTab="register" />;
+      case 'employees':
+      case 'staff':
+        return <HRPage initialTab="employees" onNavigate={setCurrentTab} />;
+      case 'reports':
+        return <ReportsPage />;
+      default:
+        return <RetailDashboardPage onNavigate={setCurrentTab} />;
+    }
+  };
+
+  const renderEnterpriseContent = () => {
     switch (currentTab) {
       // Dashboard Home
       case 'dashboard':
         return <DashboardPage onNavigate={setCurrentTab} />;
 
-      // Point of Sale Register
+      // Point of Sale & Cash Register (legacy route fallback to Sales Orders)
       case 'pos':
-        return <POSTerminalPage onNavigate={setCurrentTab} />;
-
-      // Sales Sub-Modules
-      case 'sales_orders':
+      case 'cash_register':
         return <SalesPage initialTab="orders" onNavigate={setCurrentTab} />;
-      case 'invoices':
-        return <SalesPage initialTab="invoices" onNavigate={setCurrentTab} />;
+
+      // Sales & Customer Management
+      case 'sales':
+      case 'sales_orders':
+      case 'orders':
+        return <SalesPage initialTab="orders" onNavigate={setCurrentTab} />;
       case 'customers':
         return <SalesPage initialTab="customers" onNavigate={setCurrentTab} />;
-      case 'add_customer':
-        return <SalesPage initialTab="customers" initialAction="create" onNavigate={setCurrentTab} />;
       case 'returns':
         return <SalesPage initialTab="returns" onNavigate={setCurrentTab} />;
+      case 'invoices':
+        return <SalesPage initialTab="invoices" onNavigate={setCurrentTab} />;
 
-      // Inventory Sub-Modules
+      // Inventory & Warehouse Management (Strictly Industrial / Manufacturing)
       case 'products':
-        return <InventoryPage initialTab="products" onNavigate={setCurrentTab} />;
-      case 'add_product':
-        return <InventoryPage initialTab="products" initialAction="create" onNavigate={setCurrentTab} />;
+        return <InventoryPage initialTab="products" catalogType="industrial" onNavigate={setCurrentTab} />;
       case 'inventory':
-        return <InventoryPage initialTab="overview" onNavigate={setCurrentTab} />;
+      case 'stock_overview':
+        return <InventoryPage initialTab="overview" catalogType="industrial" onNavigate={setCurrentTab} />;
       case 'stock_movements':
-        return <InventoryPage initialTab="movements" onNavigate={setCurrentTab} />;
+        return <InventoryPage initialTab="movements" catalogType="industrial" onNavigate={setCurrentTab} />;
       case 'barcode_scanner':
-        return <InventoryPage initialTab="scanner" onNavigate={setCurrentTab} />;
+        return <InventoryPage initialTab="scanner" catalogType="industrial" onNavigate={setCurrentTab} />;
       case 'stock_depletion':
-        return <InventoryPage initialTab="predictions" onNavigate={setCurrentTab} />;
+      case 'stock_exhaustion':
+        return <InventoryPage initialTab="predictions" catalogType="industrial" onNavigate={setCurrentTab} />;
 
-      // Manufacturing & Industry 4.0 Sub-Modules (From NexaERP)
+      // Manufacturing & Industry 4.0
       case 'manufacturing':
         return <ManufacturingPage initialTab="orders" />;
       case 'boms':
@@ -245,21 +362,7 @@ function MainApp() {
       case 'oee':
         return <ManufacturingPage initialTab="oee" />;
 
-      // Governance, Risk & Compliance (From NexaERP)
-      case 'grc':
-        return <GRCPage initialTab="heatmap" />;
-      case 'compliance':
-        return <GRCPage initialTab="frameworks" />;
-      case 'risk_register':
-        return <GRCPage initialTab="register" />;
-      case 'audits':
-        return <GRCPage initialTab="audits" />;
-
-      // Predictive AI & What-If Simulation (From NexaERP)
-      case 'predictive_ai':
-        return <PredictiveAIPage />;
-
-      // Procurement & Vendor Master
+      // Procurement & Intelligent Vendor Ratings
       case 'procurement':
         return <ProcurementPage initialTab="orders" />;
       case 'new_purchase':
@@ -267,7 +370,7 @@ function MainApp() {
       case 'suppliers':
         return <ProcurementPage initialTab="suppliers" />;
 
-      // Finance & General Ledger Sub-Modules
+      // Corporate Finance & General Ledger
       case 'finance':
       case 'accounting':
         return <FinancePage initialTab="overview" />;
@@ -283,9 +386,12 @@ function MainApp() {
       case 'financial_reports':
         return <FinancePage initialTab="reports" />;
 
-      // Human Resources Sub-Modules
+      // Human Capital & Org Hierarchy
       case 'employees':
         return <HRPage initialTab="employees" />;
+      case 'org_hierarchy':
+      case 'hierarchy':
+        return <HRPage initialTab="hierarchy" />;
       case 'add_employee':
         return <HRPage initialTab="employees" initialAction="create" />;
       case 'attendance':
@@ -294,55 +400,99 @@ function MainApp() {
         return <HRPage initialTab="leaves" />;
       case 'payroll':
         return <HRPage initialTab="payroll" />;
-
-      // Analytics & Executive Reports
-      case 'reports':
-        return <ReportsPage />;
-
-      // System Settings & Outlets
-      case 'settings':
-        return <SettingsPage initialTab="org" />;
-      case 'branches':
-        return <SettingsPage initialTab="branches" />;
-      case 'pos_settings':
-        return <SettingsPage initialTab="pos" />;
-      case 'security_policies':
-        return <SettingsPage initialTab="security" />;
-      case 'disaster_recovery':
-        return <SettingsPage initialTab="db" />;
-
-      // Security, JIT Elevation & User Administration
       case 'users':
         return <SecurityElevationPage initialTab="users" />;
       case 'elevation':
         return <SecurityElevationPage initialTab="elevation" />;
-      case 'admin':
-        return <SecurityElevationPage initialTab="audit" />;
-      case 'screenshots':
-      case 'dlp_evidence':
-        return <SecurityElevationPage initialTab="screenshots" />;
 
-      // Mail Center & AI Email Hub
+      // GRC & Risk Management
+      case 'grc':
+        return <GRCPage initialTab="heatmap" />;
+      case 'compliance':
+        return <GRCPage initialTab="frameworks" />;
+      case 'risk_register':
+        return <GRCPage initialTab="register" />;
+      case 'audits':
+        return <GRCPage initialTab="audits" />;
+
+      // Email Hub & Communications
       case 'email_hub':
       case 'emails':
-      case 'inbox':
-      case 'mail':
-        return <EmailHubPage onNavigate={setCurrentTab} />;
+        return <EmailHubPage />;
 
-      // Company Overview & Instance Architecture Portal
+      // Predictive AI & What-If Simulation
+      case 'predictive_ai':
+        return <PredictiveAIPage />;
+
+      // Enterprise Security & Audit
+      case 'security':
+        return <SecurityElevationPage initialTab="elevation" />;
+      case 'admin':
+      case 'audit_logs':
+        return <SecurityElevationPage initialTab="audit" />;
+      case 'screenshots':
+        return <SecurityElevationPage initialTab="screenshots" />;
+
+      // Analytics & Reports
+      case 'reports':
+        return <ReportsPage />;
+
+      // System Settings & Database Recovery
       case 'company_portal':
-      case 'instance_info':
-        return (
-          <InstanceActivationPage
-            onActivate={() => setCurrentTab('dashboard')}
-          />
-        );
+        return <SettingsPage initialTab="org" />;
+      case 'disaster_recovery':
+        return <SettingsPage initialTab="db" />;
+      case 'settings':
+        return <SettingsPage initialTab="org" />;
 
       default:
         return <DashboardPage onNavigate={setCurrentTab} />;
     }
   };
 
+  // ─── RETAIL PORTAL LAYOUT ───────────────────────────────
+  if (portal === 'retail') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+        <RetailTopNav
+          currentTab={currentTab}
+          onNavigate={setCurrentTab}
+          onOpenScanner={() => setIsScannerOpen(true)}
+          onSwitchPortal={() => switchPortal('enterprise')}
+          theme={theme}
+          onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+        />
+
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <RetailSidebar
+            currentTab={currentTab}
+            onNavigate={setCurrentTab}
+            onSwitchPortal={() => switchPortal('enterprise')}
+          />
+
+          <main style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '20px',
+            backgroundColor: 'var(--bg-app)'
+          }}>
+            {renderRetailContent()}
+          </main>
+        </div>
+
+        {/* Universal Barcode Scanner Modal */}
+        <BarcodeScannerModal
+          isOpen={isScannerOpen}
+          onClose={() => setIsScannerOpen(false)}
+          onBarcodeDetected={(prod) => {
+            setCurrentTab('pos');
+          }}
+        />
+      </div>
+    );
+  }
+
+  // ─── ENTERPRISE PORTAL LAYOUT ───────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
       {/* Top Application Bar */}
@@ -350,6 +500,7 @@ function MainApp() {
         currentTab={currentTab}
         onNavigate={setCurrentTab}
         onToggleAI={() => setIsAIOpen(prev => !prev)}
+        onOpenAI={() => setIsAIOpen(true)}
         onOpenScanner={() => setIsScannerOpen(true)}
         onOpenSignature={() => setIsSignatureOpen(true)}
         theme={theme}
@@ -370,7 +521,7 @@ function MainApp() {
           padding: '24px',
           backgroundColor: 'var(--bg-app)'
         }}>
-          {renderContent()}
+          {renderEnterpriseContent()}
         </main>
 
         <AIAssistantDrawer
@@ -402,65 +553,60 @@ function MainApp() {
       <ActionNotAllowedModal
         isOpen={isRightClickBlocked}
         onClose={() => setIsRightClickBlocked(false)}
+        actionType="Context Menu Inspection"
       />
 
-      {/* Floating Real-Time DLP Security Alert Banner */}
+      {/* DLP Security Warning Toast */}
       {dlpAlert && (
-        <div 
-          className="animate-slide-down"
-          style={{
-            position: 'fixed',
-            top: '16px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 9999,
-            backgroundColor: '#0f172a',
-            color: '#ffffff',
-            border: '2px solid #ef4444',
-            borderRadius: '10px',
-            padding: '14px 20px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 0 15px rgba(239, 68, 68, 0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '14px',
-            maxWidth: '620px',
-            width: '92%'
-          }}
-        >
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 999999,
+          backgroundColor: '#991b1b',
+          color: '#ffffff',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)',
+          border: '1px solid #ef4444',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '14px',
+          maxWidth: '650px',
+          width: '90%'
+        }}>
           <div style={{
-            width: '36px',
-            height: '36px',
+            width: '40px',
+            height: '40px',
             borderRadius: '50%',
-            backgroundColor: '#ef4444',
+            backgroundColor: 'rgba(255, 255, 255, 0.2)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <ShieldAlert size={20} color="#ffffff" />
+            <ShieldAlert size={24} color="#ffffff" />
           </div>
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>DLP SECURITY ALERT: SCREEN CAPTURE DETECTED</span>
-              <span style={{ fontSize: '10px', backgroundColor: 'rgba(239, 68, 68, 0.3)', padding: '1px 6px', borderRadius: '4px' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>DLP Security Alert: Screen Capture Detected</span>
+              <span style={{ fontSize: '10px', backgroundColor: 'rgba(0, 0, 0, 0.3)', padding: '2px 6px', borderRadius: '4px' }}>
                 {dlpAlert.actionType}
               </span>
             </div>
-            <div style={{ fontSize: '12px', color: '#e2e8f0', marginTop: '2px', lineHeight: 1.4 }}>
+            <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>
               User <strong>{dlpAlert.userName}</strong> attempted a screen capture at <strong>{dlpAlert.timestamp}</strong>. Evidence image & audit logs have been dispatched to the Administrator.
             </div>
           </div>
-
           <button
             onClick={() => setDlpAlert(null)}
             style={{
               background: 'none',
               border: 'none',
-              color: '#94a3b8',
+              color: '#ffffff',
               cursor: 'pointer',
-              padding: '4px',
-              borderRadius: '4px'
+              padding: '4px'
             }}
           >
             <X size={18} />
@@ -468,55 +614,44 @@ function MainApp() {
         </div>
       )}
 
-      {/* Pop-Out Notification: Control Disabled */}
+      {/* Floating Control Disabled Banner */}
       {controlDisabledNotice && (
-        <div 
-          role="alert"
+        <div
           style={{
             position: 'fixed',
-            top: '20px',
+            bottom: '24px',
             right: '24px',
-            zIndex: 99999,
+            zIndex: 999999,
             backgroundColor: '#0f172a',
             color: '#ffffff',
-            border: '2px solid #ef4444',
-            borderRadius: '12px',
+            borderRadius: '10px',
             padding: '12px 18px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(239, 68, 68, 0.4)',
+            border: '1px solid #334155',
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            maxWidth: '420px',
-            animation: 'fadeIn 0.2s ease-out',
-            cursor: 'default'
+            gap: '10px',
+            fontSize: '13px',
+            animation: 'fadeIn 0.2s ease-out'
           }}
         >
           <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '8px',
-            backgroundColor: '#ef4444',
+            width: '28px',
+            height: '28px',
+            borderRadius: '50%',
+            backgroundColor: 'rgba(239, 68, 68, 0.2)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            boxShadow: '0 2px 8px rgba(239, 68, 68, 0.4)'
+            justifyContent: 'center'
           }}>
-            <Lock size={18} color="#ffffff" />
+            <Lock size={15} color="#ef4444" />
           </div>
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '13px', fontWeight: 800, color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '0.4px' }}>
-              <span>CONTROL DISABLED</span>
-              <span style={{ fontSize: '9px', fontWeight: 700, backgroundColor: 'rgba(239, 68, 68, 0.25)', border: '1px solid #ef4444', padding: '1px 5px', borderRadius: '4px', color: '#f87171' }}>
-                RESTRICTED
-              </span>
-            </div>
-            <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '2px', lineHeight: 1.4 }}>
-              Right-click and context menu controls are disabled on this platform.
+          <div>
+            <div style={{ fontWeight: 700, color: '#f8fafc' }}>Action Disabled</div>
+            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+              {controlDisabledNotice.action} is restricted by corporate DLP governance.
             </div>
           </div>
-
           <button
             onClick={() => setControlDisabledNotice(null)}
             style={{
@@ -524,12 +659,10 @@ function MainApp() {
               border: 'none',
               color: '#94a3b8',
               cursor: 'pointer',
-              padding: '4px',
-              borderRadius: '4px'
+              marginLeft: '8px'
             }}
-            title="Dismiss notification"
           >
-            <X size={16} />
+            <X size={14} />
           </button>
         </div>
       )}

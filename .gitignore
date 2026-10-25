@@ -1,6 +1,7 @@
 # Environment & Secret files
 .env
 .env.*
+!.env.example
 *.env
 *.key
 *.pem
@@ -21,6 +22,10 @@ backend/.pytest_cache/
 htmlcov/
 *.sqlite3
 *.db
+backups/
+*.backup*
+backend/data/
+backend/quarantine_cache.json
 
 # Node / Frontend
 frontend/node_modules/
@@ -49,3 +54,8 @@ build/
 .claude/
 .gemini/
 skills-lock.json
+node-v20.18.0-win-x64/
+node.zip
+scratch/
+*.zip
+

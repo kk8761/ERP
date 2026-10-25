@@ -23,7 +23,8 @@ async def test_dlp_screenshot_incident_captures_who_image_time_and_notifies_admi
             full_name=f"John Doe {u_suffix}",
             password_hash=get_password_hash("EmpPass123!"),
             is_active=True,
-            is_superuser=False
+            is_superuser=False,
+            organization_id=1
         )
         # Security admin
         admin = User(
@@ -31,7 +32,8 @@ async def test_dlp_screenshot_incident_captures_who_image_time_and_notifies_admi
             full_name=f"Admin Chief {u_suffix}",
             password_hash=get_password_hash("AdminPass123!"),
             is_active=True,
-            is_superuser=True
+            is_superuser=True,
+            organization_id=1
         )
         session.add_all([emp, admin])
         await session.commit()

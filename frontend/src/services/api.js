@@ -1,4 +1,12 @@
 export function getApiBaseUrl() {
+  if (typeof window !== 'undefined') {
+    if (window.location.port === '5174') {
+      return 'http://localhost:8001';
+    }
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:8000';
+    }
+  }
   if (import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL.trim() !== '') {
     return import.meta.env.VITE_API_URL.replace(/\/+$/, '');
   }

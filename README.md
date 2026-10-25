@@ -2,6 +2,22 @@
 Live Link-https://nexaerp-frontend.onrender.com
 
 A full-stack, multi-module ERP platform covering point of sale, inventory, procurement, finance and accounting, HR and payroll, manufacturing, compliance, and an AI assistant, with web and mobile clients.
+### Passwords 
+🔐 NexaERP — All User Profiles & Credentials
+👑 System Administrator (Superuser)
+Field	Value
+Email	admin@nexaerp.internal
+Password	Admin@NexaERP2026!
+Name	Karthik Reddy
+Role	System Administrator (full access)
+👤 Demo Role Accounts (seeded by seed_demo_data.py)
+Role	Email	Password	Name
+Sales / Cashier	cashier@nexaerp.internal	Cashier@12345	Sunil Reddy
+Inventory Clerk	inventory@nexaerp.internal	Inventory@12345	Meera Nair
+Accountant	accountant@nexaerp.internal	Account@12345	Rajesh Sharma
+HR Officer	hr@nexaerp.internal	Hr@12345	Kavita Rao
+OTP for Now any 6 digit 
+the code for authenticator admin-N5SH7AZNO3CDXDFTIPWTB5LPEBRTNC46
 
 ---
 

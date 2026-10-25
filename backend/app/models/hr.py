@@ -36,6 +36,8 @@ class Employee(Base, TimestampMixin):
     work_mode: Mapped[Optional[str]] = mapped_column(String(30), default="In-Office")
     branch_location: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     reporting_manager: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    reports_to_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("employees.id"), nullable=True)
+    hierarchy_role: Mapped[str] = mapped_column(String(30), default="MEMBER") # EXECUTIVE, MANAGER, TEAM_LEAD, MEMBER
 
     # Detailed Salary Components (Protected by payroll/hr permissions)
     basic_salary: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0.00)
@@ -66,6 +68,7 @@ class Employee(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     department: Mapped[Optional["Department"]] = relationship("Department")
+    branch: Mapped[Optional["Branch"]] = relationship("Branch")
     attendances: Mapped[List["Attendance"]] = relationship("Attendance", back_populates="employee")
     leaves: Mapped[List["LeaveRequest"]] = relationship("LeaveRequest", back_populates="employee")
     payrolls: Mapped[List["PayrollRecord"]] = relationship("PayrollRecord", back_populates="employee")

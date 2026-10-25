@@ -46,7 +46,8 @@ async def list_access_requests(
     for r in requests:
         # Check automatic expiration
         current_status = r.status
-        if current_status == "APPROVED" and r.valid_until and r.valid_until < now:
+        v_until = r.valid_until.replace(tzinfo=timezone.utc) if (r.valid_until and r.valid_until.tzinfo is None) else r.valid_until
+        if current_status == "APPROVED" and v_until and v_until < now:
             current_status = "EXPIRED"
 
         out.append(AccessRequestOut(

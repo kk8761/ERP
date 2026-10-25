@@ -22,7 +22,7 @@ except ImportError:
 from app.database import get_db
 from app.models.inventory import Product, ProductCategory
 from app.models.auth import User
-from app.api.auth import get_current_user
+from app.auth.dependencies import get_current_user, require_permission
 from app.services.inventory_service import adjust_product_stock
 from app.services.audit_service import record_audit_log
 
@@ -433,13 +433,24 @@ async def extract_features_endpoint(
 async def deduct_scanned_product_stock(
     req: VisionDeductRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission("inventory.adjust"))
 ):
     """
     Deducts stock when an item is detected moving out of the store / cashier checkout.
     Automatically creates a stock movement record and audit log.
+    SEC-63: Enforces inventory.adjust permission and verified organization ownership.
     """
-    product = await db.get(Product, req.product_id)
+    user_org = getattr(current_user, "organization_id", None)
+    if user_org is None and not getattr(current_user, "is_superuser", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required to deduct inventory."
+        )
+
+    effective_org = user_org or 1
+    stmt = select(Product).where(Product.id == req.product_id, Product.organization_id == effective_org)
+    res = await db.execute(stmt)
+    product = res.scalar_one_or_none()
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -460,7 +471,8 @@ async def deduct_scanned_product_stock(
         quantity_change=-req.quantity,
         movement_type="SALE_OUT",
         user_id=current_user.id,
-        notes=req.notes or f"Computer Vision exit deduction: {req.quantity} {product.unit_of_measure} checked out via camera vision"
+        notes=req.notes or f"Computer Vision exit deduction: {req.quantity} {product.unit_of_measure} checked out via camera vision",
+        organization_id=effective_org
     )
 
     await record_audit_log(

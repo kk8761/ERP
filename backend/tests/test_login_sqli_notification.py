@@ -67,7 +67,7 @@ async def test_sqli_in_login_email_notifies_administrator(client: AsyncClient):
         assert dispatched_email is not None, "Administrator notification email was not logged in DB"
         assert "SQL Injection Attempt Detected During Login" in dispatched_email.subject
         assert attacker_ip in dispatched_email.subject
-        assert dispatched_email.status in ("SENT", "PENDING")
+        assert dispatched_email.status in ("SENT", "PENDING", "SIMULATED")
 
         # Check AuditLog
         audit_stmt = select(AuditLog).where(

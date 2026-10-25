@@ -99,6 +99,21 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const registerStore = async (storeData) => {
+    const data = await apiRequest('/api/auth/register-store', {
+      method: 'POST',
+      body: JSON.stringify(storeData)
+    });
+    if (data.access_token) {
+      localStorage.setItem('token', data.access_token);
+      localStorage.setItem('nexaerp_token', data.access_token);
+      localStorage.setItem('nexaerp_user', JSON.stringify(data.user));
+      setToken(data.access_token);
+      setUser(data.user);
+    }
+    return data;
+  };
+
   const hasPermission = (permissionCode) => {
     if (!user) return false;
     if (user.is_superuser) return true;
@@ -118,6 +133,7 @@ export function AuthProvider({ children }) {
       loading,
       login,
       verify2FA,
+      registerStore,
       logout,
       refreshUser,
       hasPermission,

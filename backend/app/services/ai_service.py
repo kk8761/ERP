@@ -8,11 +8,14 @@ import urllib.error
 from decimal import Decimal
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone, date, timedelta
+from fastapi import HTTPException, status
 from sqlalchemy import select, func, desc, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
+from app.models.auth import User, UserRole
+from app.authorization.rbac_engine import get_user_effective_permissions
 from app.models.org import Organization, Branch
 from app.models.sales import SalesOrder
 from app.models.inventory import Product
@@ -148,19 +151,26 @@ def call_enterprise_ai_llm(system_prompt: str, user_prompt: str) -> Optional[str
     safe_system = mask_sensitive_pii(system_prompt)
     safe_user = mask_sensitive_pii(user_prompt)
 
-    # 1. Groq
+    # 1. AWS Bedrock (if configured)
+    if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+        from app.services.aws_service import invoke_aws_bedrock
+        bedrock_ans = invoke_aws_bedrock(safe_system, safe_user)
+        if bedrock_ans:
+            return bedrock_ans
+
+    # 2. Groq
     if settings.GROQ_API_KEY:
         ans = _call_groq_llm_direct(safe_system, safe_user)
         if ans:
             return ans
 
-    # 2. Google Gemini
+    # 3. Google Gemini
     if settings.GEMINI_API_KEY:
         ans = _call_gemini_llm(safe_system, safe_user)
         if ans:
             return ans
 
-    # 3. OpenAI
+    # 4. OpenAI
     if settings.OPENAI_API_KEY:
         ans = _call_openai_llm(safe_system, safe_user)
         if ans:
@@ -186,14 +196,23 @@ async def _fetch_live_erp_context(
     b_res = await db.execute(branch_stmt)
     org_branch_ids = [b for b in b_res.scalars().all()]
 
-    # 2. Products in catalog
-    prod_stmt = select(Product).where(Product.is_active == True).order_by(Product.current_stock.asc()).limit(20)
+    # 2. Products in catalog (strictly scoped to this organization)
+    prod_stmt = (
+        select(Product)
+        .where(Product.organization_id == organization_id, Product.is_active == True)
+        .order_by(Product.current_stock.asc())
+        .limit(20)
+    )
     prod_res = await db.execute(prod_stmt)
     products = prod_res.scalars().all()
     low_stock = [p for p in products if p.current_stock <= p.reorder_level]
 
-    # 3. Active registered vendors
-    vend_stmt = select(Supplier).where(Supplier.status == "ACTIVE").limit(10)
+    # 3. Active registered vendors (strictly scoped to this organization)
+    vend_stmt = (
+        select(Supplier)
+        .where(Supplier.organization_id == organization_id, Supplier.status == "ACTIVE")
+        .limit(10)
+    )
     vend_res = await db.execute(vend_stmt)
     suppliers = vend_res.scalars().all()
 
@@ -222,11 +241,13 @@ async def _fetch_live_erp_context(
         po_conditions.append(PurchaseOrder.branch_id == branch_id)
     elif org_branch_ids:
         po_conditions.append(PurchaseOrder.branch_id.in_(org_branch_ids))
+    else:
+        po_conditions.append(PurchaseOrder.branch_id == -999)
 
     po_stmt = (
         select(PurchaseOrder)
         .options(selectinload(PurchaseOrder.supplier))
-        .where(and_(*po_conditions) if po_conditions else True)
+        .where(and_(*po_conditions))
         .order_by(desc(PurchaseOrder.created_at))
         .limit(5)
     )
@@ -294,15 +315,23 @@ async def _try_execute_action(
     # --- ACTION 1: CREATE PURCHASE ORDER ---
     is_po_cmd = bool(re.search(r'\b(create\s+(?:a\s+|an\s+)?(?:po|purchase\s+order)|issue\s+(?:a\s+|an\s+)?(?:po|purchase\s+order)|place\s+(?:a\s+|an\s+)?(?:po|order)|make\s+(?:a\s+|an\s+)?(?:po|purchase\s+order))\b', p_lower))
     if is_po_cmd:
-        supp_res = await db.execute(select(Supplier))
+        user_obj = (await db.execute(select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id))).scalar_one_or_none()
+        user_perms = await get_user_effective_permissions(user_obj, db) if user_obj else set()
+        if not user_obj or (not user_obj.is_superuser and "procurement.create" not in user_perms):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: 'procurement.create' required to create purchase orders via AI."
+            )
+
+        supp_res = await db.execute(select(Supplier).where(Supplier.organization_id == organization_id))
         all_suppliers = supp_res.scalars().all()
-        prod_res = await db.execute(select(Product))
+        prod_res = await db.execute(select(Product).where(Product.organization_id == organization_id))
         all_products = prod_res.scalars().all()
 
         if not all_suppliers or not all_products:
             return {
                 "executed": False,
-                "message": "Cannot issue Purchase Order: Requires at least one registered supplier and product in master catalog."
+                "message": "Cannot issue Purchase Order: Requires at least one registered supplier and product in your company master catalog."
             }
 
         # Resolve product
@@ -468,9 +497,17 @@ async def _try_execute_action(
     # --- ACTION 2: CREATE PURCHASE REQUISITION ---
     is_pr_cmd = bool(re.search(r'\b(create\s+pr|create\s+purchase\s+requisition|raise\s+pr|raise\s+requisition|new\s+pr)\b', p_lower))
     if is_pr_cmd:
-        prod_res = await db.execute(select(Product))
+        user_obj = (await db.execute(select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id))).scalar_one_or_none()
+        user_perms = await get_user_effective_permissions(user_obj, db) if user_obj else set()
+        if not user_obj or (not user_obj.is_superuser and "procurement.create" not in user_perms):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: 'procurement.create' required to create purchase requisitions via AI."
+            )
+
+        prod_res = await db.execute(select(Product).where(Product.organization_id == organization_id))
         all_products = prod_res.scalars().all()
-        supp_res = await db.execute(select(Supplier))
+        supp_res = await db.execute(select(Supplier).where(Supplier.organization_id == organization_id))
         all_suppliers = supp_res.scalars().all()
 
         target_prod = None
@@ -565,7 +602,15 @@ async def _try_execute_action(
     # --- ACTION 3: ADJUST INVENTORY / STOCK ---
     is_stock_cmd = bool(re.search(r'\b(adjust\s+stock|update\s+stock|add\s+\d+\s+stock|replenish\s+stock|change\s+stock)\b', p_lower))
     if is_stock_cmd:
-        prod_res = await db.execute(select(Product))
+        user_obj = (await db.execute(select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id))).scalar_one_or_none()
+        user_perms = await get_user_effective_permissions(user_obj, db) if user_obj else set()
+        if not user_obj or (not user_obj.is_superuser and "inventory.adjust" not in user_perms):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: 'inventory.adjust' required to adjust stock via AI."
+            )
+
+        prod_res = await db.execute(select(Product).where(Product.organization_id == organization_id))
         all_products = prod_res.scalars().all()
         target_prod = None
         for p in all_products:
@@ -602,7 +647,8 @@ async def _try_execute_action(
             quantity_change=qty_change,
             movement_type="MANUAL_ADJUSTMENT",
             user_id=user_id,
-            notes=f"AI Assistant stock adjustment triggered by {user_email}"
+            notes=f"AI Assistant stock adjustment triggered by {user_email}",
+            organization_id=organization_id
         )
         await db.commit()
 
@@ -629,6 +675,14 @@ async def _try_execute_action(
     # --- ACTION 4: ADD / ONBOARD VENDOR ---
     is_vendor_cmd = bool(re.search(r'\b(add\s+vendor|create\s+vendor|register\s+vendor|register\s+supplier|new\s+vendor|onboard\s+vendor|onboard\s+supplier)\b', p_lower))
     if is_vendor_cmd:
+        user_obj = (await db.execute(select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id))).scalar_one_or_none()
+        user_perms = await get_user_effective_permissions(user_obj, db) if user_obj else set()
+        if not user_obj or (not user_obj.is_superuser and "procurement.create" not in user_perms and "procurement.manage" not in user_perms):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: 'procurement.create' or 'procurement.manage' required to onboard vendors via AI."
+            )
+
         name_match = re.search(r'(?:vendor|supplier|named|name)\s+([A-Za-z0-9\s&]+?)(?:\s+with|\s+email|\s+phone|$)', prompt, re.IGNORECASE)
         vendor_name = name_match.group(1).strip() if name_match else ""
         
@@ -663,6 +717,7 @@ async def _try_execute_action(
         vendor_phone = phone_match.group(0) if phone_match else "+91 98765 43210"
 
         new_vendor = Supplier(
+            organization_id=organization_id,
             vendor_code=f"VEND-{uuid.uuid4().hex[:4].upper()}",
             name=vendor_name,
             email=vendor_email,
@@ -746,8 +801,36 @@ async def _generate_intelligent_domain_response(
         ]
         return answer, suggestions, ["DOC-CORP-001 (Procurement Authority)", "DOC-CORP-002 (Inventory SOP)"]
 
+    # 1B. TRIGGER & AUTOMATION ENGINE CAPABILITIES
+    if re.search(r'\b(?:through\s+(?:the\s+)?triggers?|triggers?|workflow\s*triggers?|schedule\s*triggers?|at\s+(?:a\s+)?particular\s+time|particular\s+trigger|can\s+you\s+(?:do|run|execute)\s+.*?\b(?:trigger|particular\s+time))\b', p_lower) or ("trigger" in p_lower and ("particular time" in p_lower or "say you to do" in p_lower or "can you do" in p_lower or "something" in p_lower or "how" in p_lower or "what" in p_lower)):
+        answer = (
+            f"⚡ **{organization_name} — Autonomous Trigger & Workflow Engine**\n\n"
+            f"**Yes, absolutely!** You can instruct me to execute any ERP action at a **particular time** or upon a **particular trigger condition**.\n\n"
+            f"### 1. ⏰ Time-Based Scheduled Triggers (Cron Engine)\n"
+            f"- **Execution**: Runs automatically at a specific time or recurring interval in the background.\n"
+            f"- **Live Examples**:\n"
+            f"  - *\"Every morning at 9:00 AM, scan low stock items and calculate reorder recommendations\"*\n"
+            f"  - *\"Every night at 11:00 PM, generate a sales and revenue summary\"*\n"
+            f"  - *\"Every Monday at 10:00 AM, audit overdue invoices and draft reminder emails\"*\n\n"
+            f"### 2. 🎯 Event-Driven & Threshold Triggers\n"
+            f"- **Execution**: Triggers automatically when a business condition occurs in the database.\n"
+            f"- **Live Examples**:\n"
+            f"  - **Stock Deficit**: Triggers replenishment alert when an SKU drops below safety stock.\n"
+            f"  - **Approval Matrix (DOC-CORP-001)**: Automatically routes purchase orders > ₹50,000 to the Finance Manager.\n"
+            f"  - **Overdue Invoices**: Triggers aging escalation when payment is overdue by 15+ days.\n\n"
+            f"💡 **Say or type**: *\"Schedule a trigger to scan low stock every morning at 9 AM\"* to create a live trigger now!"
+        )
+        suggestions = [
+            "Schedule a trigger to scan low stock every morning at 9 AM",
+            "Route purchase requests above ₹50,000 to the Finance Manager",
+            "List active workflows and triggers",
+            "Show today's sales summary"
+        ]
+        return answer, suggestions, ["DOC-CORP-001 (Procurement Authority)", "DOC-CORP-002 (Inventory Safety Buffer SOP)"]
+
     # 2. SALES / REVENUE / ORDER PERFORMANCE
-    if re.search(r'\b(sales?|revenue|income|turnover|sold|orders?|transactions?|invoice|how\s+much\s+(did\s+we\s+make|earned))\b', p_lower):
+    is_po_or_procurement = bool(re.search(r'\b(purchase\s*order|po\b|procurement|supplier|vendor|policy|approval|return|refund|hr\b|leave|salary)\b', p_lower))
+    if not is_po_or_procurement and re.search(r'\b(sales?|revenue|income|turnover|sold|sales\s*orders?|\borders?\b|transactions?|invoice|how\s+much\s+(did\s+we\s+make|earned))\b', p_lower):
         order_stmt = select(SalesOrder).order_by(desc(SalesOrder.created_at)).limit(5)
         o_res = await db.execute(order_stmt)
         recent_orders = o_res.scalars().all()

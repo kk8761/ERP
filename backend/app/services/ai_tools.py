@@ -171,7 +171,7 @@ TOOL_REGISTRY_METADATA = [
 
 async def tool_search_inventory(
     db: AsyncSession,
-    organization_id: int = 1,
+    organization_id: Optional[int] = None,
     branch_id: Optional[int] = None,
     query: Optional[str] = None,
     low_stock_only: bool = False,
@@ -179,6 +179,8 @@ async def tool_search_inventory(
     **kwargs
 ) -> Dict[str, Any]:
     stmt = select(Product).where(Product.is_active == True)
+    if organization_id is not None:
+        stmt = stmt.where(Product.organization_id == organization_id)
     if query:
         q = f"%{query.strip()}%"
         stmt = stmt.where(or_(Product.name.ilike(q), Product.sku.ilike(q), Product.barcode.ilike(q)))
@@ -215,12 +217,15 @@ async def tool_search_inventory(
 
 async def tool_calculate_reorder_recommendations(
     db: AsyncSession,
-    organization_id: int = 1,
+    organization_id: Optional[int] = None,
     branch_id: Optional[int] = None,
     urgency_threshold: str = "ALL",
     **kwargs
 ) -> Dict[str, Any]:
-    stmt = select(Product).where(and_(Product.is_active == True, Product.current_stock <= Product.reorder_level)).order_by(Product.current_stock.asc())
+    stmt = select(Product).where(and_(Product.is_active == True, Product.current_stock <= Product.reorder_level))
+    if organization_id is not None:
+        stmt = stmt.where(or_(Product.organization_id == organization_id, Product.organization_id.is_(None)))
+    stmt = stmt.order_by(Product.current_stock.asc())
     res = await db.execute(stmt)
     low_prods = res.scalars().all()
 
@@ -431,6 +436,10 @@ async def tool_create_draft_purchase_order(
         qty = int(it.get("quantity", 1))
         unit_cost = it.get("unit_cost")
 
+        # BUG-18: Reject non-positive quantities and negative costs
+        if qty <= 0:
+            return {"status": "ERROR", "message": f"Validation error: Quantity for product '{p_name}' must be greater than zero (received {qty})."}
+
         p_res = await db.execute(select(Product).where(or_(
             Product.name.ilike(f"%{p_name.strip()}%"),
             Product.sku.ilike(f"%{p_name.strip()}%")
@@ -440,6 +449,9 @@ async def tool_create_draft_purchase_order(
             return {"status": "ERROR", "message": f"Product '{p_name}' not found in catalog"}
 
         u_cost = Decimal(str(unit_cost)) if unit_cost is not None else prod.cost_price
+        if u_cost < Decimal("0.00"):
+            return {"status": "ERROR", "message": f"Validation error: Unit cost for product '{p_name}' cannot be negative (received {u_cost})."}
+
         l_total = u_cost * qty
         total_val += l_total
         prepared_items.append({
@@ -450,9 +462,9 @@ async def tool_create_draft_purchase_order(
             "line_total": float(l_total)
         })
 
-    # Sensitive Action Check: Threshold >= 50,000 or execute_now=False requires Approval Preview
+    # Sensitive Action Check: Threshold >= 50,000 requires independent approval workflow (Error 7)
     APPROVAL_THRESHOLD = 50000.0
-    needs_approval = float(total_val) >= APPROVAL_THRESHOLD or not execute_now
+    needs_approval = float(total_val) >= APPROVAL_THRESHOLD
 
     action_id = f"ACT-PO-{uuid.uuid4().hex[:6].upper()}"
     preview = {
@@ -468,7 +480,7 @@ async def tool_create_draft_purchase_order(
             {"entity": "Supplier", "id": supplier.id, "name": supplier.name},
             {"entity": "Total Amount", "amount": float(total_val), "currency": "INR"}
         ],
-        "requires_human_approval": float(total_val) >= APPROVAL_THRESHOLD,
+        "requires_human_approval": needs_approval,
         "payload": {
             "supplier_id": supplier.id,
             "supplier_name": supplier.name,
@@ -477,6 +489,14 @@ async def tool_create_draft_purchase_order(
             "notes": notes or f"AI Generated replenishment order"
         }
     }
+
+    # Error 7 Fix: Never allow execute_now to bypass statutory approval threshold
+    if needs_approval:
+        return {
+            "status": "APPROVAL_REQUIRED",
+            "action_preview": preview,
+            "summary": f"Purchase order total ₹{float(total_val):,.2f} INR exceeds ₹{APPROVAL_THRESHOLD:,.2f} statutory threshold. Independent executive approval required."
+        }
 
     if not execute_now:
         return {
@@ -601,17 +621,19 @@ async def tool_get_overdue_invoices_and_receivables(
     db: AsyncSession,
     days_overdue: int = 15,
     organization_id: int = 1,
+    branch_id: Optional[int] = None,
     **kwargs
 ) -> Dict[str, Any]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=days_overdue)
-    # Sales orders with payment_status == PENDING
+    # Error 6 Fix: Apply branch filter to overdue receivables
     stmt = (
         select(SalesOrder)
         .options(selectinload(SalesOrder.customer))
         .where(and_(SalesOrder.payment_status == "PENDING", SalesOrder.created_at <= cutoff))
-        .order_by(desc(SalesOrder.total_amount))
-        .limit(20)
     )
+    if branch_id:
+        stmt = stmt.where(SalesOrder.branch_id == branch_id)
+    stmt = stmt.order_by(desc(SalesOrder.total_amount)).limit(20)
     res = await db.execute(stmt)
     orders = res.scalars().all()
 
@@ -654,13 +676,26 @@ async def tool_get_hr_leave_and_attendance_summary(
     db: AsyncSession,
     status_filter: str = "PENDING",
     organization_id: int = 1,
+    branch_id: Optional[int] = None,
+    user_id: int = 1,
     **kwargs
 ) -> Dict[str, Any]:
+    # Error 6 Fix: HR summary requires branch context; reject branchless requests for multi-tenant isolation
+    if not branch_id:
+        return {
+            "status": "ERROR",
+            "message": "Branch context required for HR summary. Access across unassigned branches is prohibited."
+        }
+
+    from app.models.hr import Employee
     stmt = (
         select(LeaveRequest)
+        .join(Employee, LeaveRequest.employee_id == Employee.id)
         .options(selectinload(LeaveRequest.employee))
         .order_by(desc(LeaveRequest.created_at))
     )
+    if branch_id:
+        stmt = stmt.where(Employee.branch_id == branch_id)
     if status_filter != "ALL":
         stmt = stmt.where(LeaveRequest.status == status_filter)
     stmt = stmt.limit(20)
@@ -668,9 +703,16 @@ async def tool_get_hr_leave_and_attendance_summary(
     res = await db.execute(stmt)
     leaves = res.scalars().all()
 
-    # Today's attendance snapshot
+    # Today's attendance snapshot scoped by branch
     today = date.today()
-    att_stmt = select(func.count(Attendance.id), Attendance.status).where(Attendance.date == today).group_by(Attendance.status)
+    att_stmt = (
+        select(func.count(Attendance.id), Attendance.status)
+        .join(Employee, Attendance.employee_id == Employee.id)
+        .where(Attendance.date == today)
+    )
+    if branch_id:
+        att_stmt = att_stmt.where(Employee.branch_id == branch_id)
+    att_stmt = att_stmt.group_by(Attendance.status)
     att_res = await db.execute(att_stmt)
     att_breakdown = {r[1]: r[0] for r in att_res.all()}
 
@@ -874,6 +916,32 @@ TOOL_DISPATCH_MAP = {
     "update_vendor_ratings_batch": tool_update_vendor_ratings_batch
 }
 
+# SEC-30: Per-tool required permissions for robust RBAC enforcement
+TOOL_REQUIRED_PERMISSIONS = {
+    "create_scheduled_workflow": "settings.manage",
+    "update_vendor_ratings_batch": "procurement.manage",
+    "create_draft_purchase_order": "procurement.create",
+    "get_hr_leave_and_attendance_summary": "hr.view",
+    "get_overdue_invoices_and_receivables": "finance.view",
+    "search_inventory": "inventory.view",
+    "calculate_reorder_recommendations": "inventory.view",
+    "compare_suppliers": "procurement.view",
+    "get_vendor_scorecard": "procurement.view",
+    "get_order_evaluation": "procurement.view",
+    "summarize_sales": "sales.view",
+    "list_scheduled_workflows": "settings.manage"
+}
+
+MCP_SERVICE_ACCOUNT_ALLOWED_TOOLS = {
+    "search_inventory",
+    "calculate_reorder_recommendations",
+    "compare_suppliers",
+    "get_vendor_scorecard",
+    "get_order_evaluation"
+}
+
+ADMIN_ONLY_TOOLS = {"create_scheduled_workflow"}
+
 async def execute_typed_tool(
     tool_name: str,
     parameters: Dict[str, Any],
@@ -885,9 +953,84 @@ async def execute_typed_tool(
 ) -> Dict[str, Any]:
     """
     Validates and executes an authorized typed tool strictly within tenant boundary.
+    Enforces per-tool role authorization and least-privilege service account constraints (SEC-30 & SEC-43).
     """
     if tool_name not in TOOL_DISPATCH_MAP:
         return {"status": "ERROR", "message": f"Unauthorized or unknown tool '{tool_name}'"}
+
+    # SEC-30: Enforce RBAC per tool for all callers
+    req_perm = TOOL_REQUIRED_PERMISSIONS.get(tool_name)
+    
+    # 1. MCP Service Account (id 9999) permissions: Error 6 positive allowlist
+    if user_id == 9999:
+        if tool_name not in MCP_SERVICE_ACCOUNT_ALLOWED_TOOLS:
+            return {
+                "status": "ERROR",
+                "message": f"Forbidden: Dedicated MCP service account can only invoke tools in its authorized positive allowlist. Tool '{tool_name}' is not permitted."
+            }
+    # 2. Authenticated ERP User permissions - strictly loaded and verified from database (Error 3)
+    else:
+        from app.models.auth import User, UserRole, Role
+        from sqlalchemy.orm import selectinload
+        u_stmt = select(User).options(selectinload(User.roles).selectinload(UserRole.role)).where(User.id == user_id)
+        u_res = await db.execute(u_stmt)
+        u = u_res.scalar_one_or_none()
+        if not u or not u.is_active:
+            return {"status": "ERROR", "message": "Invalid or inactive caller identity."}
+
+        # Authoritatively resolve tenant organization and branch from DB record (SEC-43)
+        org_id = getattr(u, "organization_id", None)
+        user_branch_id = getattr(u, "branch_id", None)
+        if org_id is None and user_branch_id is not None:
+            from app.models.org import Branch
+            b_res = await db.execute(select(Branch.organization_id).where(Branch.id == user_branch_id))
+            org_id = b_res.scalar_one_or_none()
+
+        user_role_names = [ur.role.name for ur in (u.roles or []) if getattr(ur, "role", None)]
+        is_admin_user = u.is_superuser or any(r in ["System Administrator", "Executive", "Managing Director"] for r in user_role_names)
+
+        # SEC-61: Fail closed when organization context is absent, without fallback to 1
+        if org_id is None:
+            target_org = arguments.get("organization_id")
+            if is_admin_user and target_org:
+                organization_id = int(target_org)
+            else:
+                return {
+                    "status": "ERROR",
+                    "message": "Tenant organization context could not be established for caller. Scoped tool execution denied."
+                }
+        else:
+            organization_id = org_id
+
+        if not is_admin_user:
+            # Overwrite caller-supplied branch_id with the user's authoritative branch
+            branch_id = user_branch_id
+            if branch_id is None and tool_name in ["get_hr_leave_and_attendance_summary", "get_overdue_invoices_and_receivables"]:
+                return {
+                    "status": "ERROR",
+                    "message": f"Forbidden: Branch context required to execute '{tool_name}'. No branch assigned to caller."
+                }
+            if tool_name in ADMIN_ONLY_TOOLS:
+                return {
+                    "status": "ERROR",
+                    "message": f"Forbidden: Administrative authorization required to execute '{tool_name}'."
+                }
+            if not req_perm:
+                return {
+                    "status": "ERROR",
+                    "message": f"Forbidden: Tool '{tool_name}' lacks required permission metadata."
+                }
+            # Check effective permissions from DB
+            from app.authorization.rbac_engine import get_user_effective_permissions
+            user_perms = await get_user_effective_permissions(u, db)
+            if req_perm not in user_perms:
+                return {
+                    "status": "ERROR",
+                    "message": f"Forbidden: Insufficient permissions to execute tool '{tool_name}'. Missing '{req_perm}'."
+                }
+        else:
+            if branch_id is None:
+                branch_id = user_branch_id
 
     fn = TOOL_DISPATCH_MAP[tool_name]
     params = dict(parameters)

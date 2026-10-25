@@ -57,14 +57,17 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.some((o) => origin.startsWith(o))) {
+      if (!origin) return callback(null, true);
+      const normalized = origin.replace(/\/+$/, '').toLowerCase();
+      const isAllowed = allowedOrigins.some(o => o.replace(/\/+$/, '').toLowerCase() === normalized);
+      if (isAllowed) {
         return callback(null, true);
       }
-      callback(null, true); // Permissive in dev; tighten in prod
+      return callback(new Error(`Blocked by CORS policy: Origin ${origin} is not allowed.`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   })
 );
 

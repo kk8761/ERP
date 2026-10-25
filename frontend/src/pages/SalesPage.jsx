@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import {
   FileText, Search, Download, RotateCcw, Eye,
   CheckCircle2, Clock, Users, X, Receipt, Printer, AlertTriangle, ShieldCheck,
-  ShoppingCart, UserPlus, Plus
+  ShoppingCart, UserPlus, Plus, UploadCloud
 } from 'lucide-react';
 import { apiRequest, downloadCsv } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import UniversalDataImportModal from '../components/UniversalDataImportModal';
+import RefundModal from '../components/RefundModal';
 
 export default function SalesPage({ initialTab = 'orders', initialAction = '', onNavigate }) {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [activeTab, setActiveTab] = useState(
@@ -18,10 +20,12 @@ export default function SalesPage({ initialTab = 'orders', initialAction = '', o
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [refundTargetOrder, setRefundTargetOrder] = useState(null);
   const [statusMsg, setStatusMsg] = useState('');
 
   // Customer registration modal state
   const [showCustomerModal, setShowCustomerModal] = useState(initialAction === 'create');
+  const [showImportModal, setShowImportModal] = useState(false);
   const [newCust, setNewCust] = useState({ name: '', phone: '', email: '', address: '' });
   const [custError, setCustError] = useState('');
 
@@ -61,16 +65,8 @@ export default function SalesPage({ initialTab = 'orders', initialAction = '', o
     loadSalesData();
   }, [search]);
 
-  const handleRefund = async (orderId) => {
-    if (!confirm('Are you sure you want to process a refund? Items will be replenished back into inventory.')) return;
-    try {
-      const res = await apiRequest(`/api/sales/orders/${orderId}/refund`, { method: 'POST' });
-      setStatusMsg(res.message);
-      window.dispatchEvent(new CustomEvent('inventory-updated'));
-      loadSalesData();
-    } catch (err) {
-      alert(err.message);
-    }
+  const handleRefund = (order) => {
+    setRefundTargetOrder(order);
   };
 
   const handleExportCsv = () => {
@@ -249,7 +245,7 @@ export default function SalesPage({ initialTab = 'orders', initialAction = '', o
                           </button>
                           {hasPermission('sales.refund') && (
                             <button
-                              onClick={() => handleRefund(o.id)}
+                              onClick={() => handleRefund(o)}
                               className="btn btn-ghost"
                               style={{ padding: '4px 8px', fontSize: '12px', color: 'var(--danger)' }}
                               title="Process Refund & Return"
@@ -370,14 +366,25 @@ export default function SalesPage({ initialTab = 'orders', initialAction = '', o
               </div>
             </div>
             {hasPermission('customers.manage') && (
-              <button
-                onClick={() => setShowCustomerModal(true)}
-                className="btn btn-primary"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <UserPlus size={16} />
-                <span>+ Register Customer</span>
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => setShowImportModal(true)}
+                  className="btn btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  title="Upload Customer lists in PDF, Excel, CSV, or JSON"
+                >
+                  <UploadCloud size={16} color="var(--primary)" />
+                  <span>Upload Data (PDF/Excel/CSV)</span>
+                </button>
+                <button
+                  onClick={() => setShowCustomerModal(true)}
+                  className="btn btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <UserPlus size={16} />
+                  <span>+ Register Customer</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -536,7 +543,7 @@ export default function SalesPage({ initialTab = 'orders', initialAction = '', o
                   {refundedOrders.map((r) => (
                     <tr key={r.id}>
                       <td style={{ fontWeight: 700, color: 'var(--danger)', fontFamily: 'monospace' }}>
-                        RMA-{r.id.substring(0, 8).toUpperCase()}
+                        RMA-{String(r.id).padStart(4, '0')}
                       </td>
                       <td style={{ fontWeight: 600 }}>{r.invoice_number}</td>
                       <td>{r.customer_name}</td>
@@ -742,6 +749,28 @@ export default function SalesPage({ initialTab = 'orders', initialAction = '', o
           </div>
         </div>
       )}
+      {/* Universal Multi-Format Data Onboarding Modal */}
+      <UniversalDataImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        initialEntityType="customers"
+        onSuccess={() => {
+          loadSalesData();
+        }}
+      />
+
+      {/* Interactive Refund & Inventory Restock Dialogue Box */}
+      <RefundModal
+        isOpen={Boolean(refundTargetOrder)}
+        onClose={() => setRefundTargetOrder(null)}
+        order={refundTargetOrder}
+        user={user}
+        onSuccess={(msg) => {
+          setStatusMsg(msg);
+          loadSalesData();
+          setTimeout(() => setStatusMsg(''), 6000);
+        }}
+      />
     </div>
   );
 }

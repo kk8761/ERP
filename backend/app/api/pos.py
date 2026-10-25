@@ -20,10 +20,18 @@ async def lookup_barcode(
     current_user: User = Depends(require_permission("sales.create")),
     db: AsyncSession = Depends(get_db)
 ):
+    user_org_id = getattr(current_user, "organization_id", None)
+    if user_org_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization assignment required for POS operations."
+        )
+    filter_clause = ((Product.barcode == barcode) | (Product.sku == barcode)) & (Product.organization_id == user_org_id)
+
     stmt = (
         select(Product)
         .options(selectinload(Product.category))
-        .where((Product.barcode == barcode) | (Product.sku == barcode))
+        .where(filter_clause)
     )
     res = await db.execute(stmt)
     product = res.scalar_one_or_none()

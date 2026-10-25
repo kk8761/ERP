@@ -1,0 +1,23 @@
+[
+  {
+    "employee_id": 11,
+    "employee_code": "EMP-MUM-003",
+    "employee_name": "Priya Desai",
+    "action_type": "INCREMENT",
+    "effective_date": "2026-10-21",
+    "reason": "Annual Merit & Executive Band Increase",
+    "performed_by_id": 1,
+    "performed_by_email": "admin@nexaerp.internal",
+    "timestamp": "2026-10-21T15:53:21.473054",
+    "details": {
+      "old_basic_salary": 185150.0,
+      "new_basic_salary": 212922.5,
+      "increment_percentage": 15.0,
+      "old_net_salary": 241150.0,
+      "new_net_salary": 268922.5
+    },
+    "created_at": "2026-10-21T15:53:21.485470",
+    "updated_at": "2026-10-21T15:53:21.485470",
+    "storage_engine": "Local Free Document Store (Persistent JSON Engine)"
+  }
+]

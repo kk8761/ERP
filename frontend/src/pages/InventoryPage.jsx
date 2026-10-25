@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import StockDepletionPredictor from '../components/StockDepletionPredictor';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
-export default function InventoryPage({ initialTab = 'products', initialAction = '', onNavigate }) {
+export default function InventoryPage({ initialTab = 'products', initialAction = '', onNavigate, catalogType = 'all' }) {
   const { hasPermission } = useAuth();
   const [activeSubTab, setActiveSubTab] = useState(
     ['products', 'overview', 'movements', 'scanner', 'predictions'].includes(initialTab) ? initialTab : 'products'
@@ -125,10 +125,12 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
       let query = `?low_stock_only=${lowStockOnly}`;
       if (selectedCat) query += `&category_id=${selectedCat}`;
       if (search) query += `&search=${encodeURIComponent(search)}`;
+      if (catalogType && catalogType !== 'all') query += `&catalog_type=${encodeURIComponent(catalogType)}`;
 
+      const catQuery = catalogType && catalogType !== 'all' ? `?catalog_type=${encodeURIComponent(catalogType)}` : '';
       const [prods, cats] = await Promise.all([
         apiRequest(`/api/inventory/products${query}`),
-        apiRequest('/api/inventory/categories')
+        apiRequest(`/api/inventory/categories${catQuery}`)
       ]);
       setProducts(prods);
       setCategories(cats);
@@ -149,7 +151,7 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
 
   useEffect(() => {
     loadInventory();
-  }, [selectedCat, lowStockOnly, activeSubTab, initialTab]);
+  }, [selectedCat, lowStockOnly, activeSubTab, initialTab, catalogType]);
 
   // Real-time synchronization when a sale or refund completes
   useEffect(() => {
@@ -260,10 +262,12 @@ export default function InventoryPage({ initialTab = 'products', initialAction =
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-main)', fontFamily: 'var(--font-brand)' }}>
-            Inventory & Stock Master
+            {catalogType === 'industrial' ? 'Industrial Materials & Components Master' : 'Inventory & Stock Master'}
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            Manage warehouse inventory, real-time stock overviews, goods movements, and barcode lookup
+            {catalogType === 'industrial'
+              ? 'Plant warehouse inventory, heavy metallurgy, machinery, PLC automation, and industrial consumables'
+              : 'Manage warehouse inventory, real-time stock overviews, goods movements, and barcode lookup'}
           </p>
         </div>
 

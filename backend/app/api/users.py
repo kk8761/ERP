@@ -23,13 +23,21 @@ async def list_users(
     current_user: User = Depends(require_permission("users.view")),
     db: AsyncSession = Depends(get_db)
 ):
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required to view users."
+        )
+
     stmt = (
         select(User)
         .options(selectinload(User.roles).selectinload(UserRole.role))
-        .order_by(User.full_name.asc())
-        .offset(offset)
-        .limit(limit)
     )
+    if effective_org is not None:
+        stmt = stmt.where(User.organization_id == effective_org)
+    stmt = stmt.order_by(User.full_name.asc()).offset(offset).limit(limit)
+
     res = await db.execute(stmt)
     users = res.scalars().all()
 
@@ -75,6 +83,38 @@ async def create_user(
             detail=str(val_err)
         )
 
+    # SEC-65 Fix: Organization resolution and authorization
+    if current_user.is_superuser:
+        effective_org = getattr(data, "organization_id", None) or getattr(current_user, "organization_id", None) or 1
+    else:
+        effective_org = getattr(current_user, "organization_id", None)
+        if not effective_org:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization context required to manage users."
+            )
+        if getattr(data, "organization_id", None) and data.organization_id != effective_org:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot create users for another organization."
+            )
+
+    # Validate target branch
+    if data.branch_id:
+        b_res = await db.execute(select(Branch).where(Branch.id == data.branch_id, Branch.organization_id == effective_org))
+        if not b_res.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target branch does not belong to your organization.")
+
+    # Validate role permissions
+    if data.role_ids:
+        for r_id in data.role_ids:
+            r_res = await db.execute(select(Role).where(Role.id == r_id))
+            r_obj = r_res.scalar_one_or_none()
+            if not r_obj:
+                raise HTTPException(status_code=400, detail=f"Role with ID {r_id} not found")
+            if not current_user.is_superuser and r_obj.is_system_role:
+                raise HTTPException(status_code=403, detail="Cannot assign system-level administrative roles.")
+
     hashed_pw = hash_password(data.password)
     user = User(
         email=data.email,
@@ -82,6 +122,7 @@ async def create_user(
         password_hash=hashed_pw,
         branch_id=data.branch_id,
         department_id=data.department_id,
+        organization_id=effective_org,
         is_active=True
     )
     db.add(user)
@@ -90,6 +131,31 @@ async def create_user(
     if data.role_ids:
         for r_id in data.role_ids:
             db.add(UserRole(user_id=user.id, role_id=r_id))
+    else:
+        cashier_role = (await db.execute(select(Role).where(Role.name.ilike("%Cashier%")))).scalars().first()
+        if cashier_role:
+            db.add(UserRole(user_id=user.id, role_id=cashier_role.id))
+
+    # Also automatically create Employee record for store staff directory
+    from app.models.hr import Employee
+    from decimal import Decimal
+    from datetime import datetime, timezone
+    name_parts = data.full_name.strip().split()
+    emp = Employee(
+        employee_code=f"EMP-STF-{user.id}",
+        user_id=user.id,
+        first_name=name_parts[0],
+        last_name=" ".join(name_parts[1:]) if len(name_parts) > 1 else "Staff",
+        email=user.email,
+        phone="N/A",
+        designation="Store Cashier / Operator",
+        date_of_joining=datetime.now(timezone.utc).date(),
+        basic_salary=Decimal("25000.00"),
+        net_salary=Decimal("25000.00"),
+        branch_id=data.branch_id,
+        is_active=True
+    )
+    db.add(emp)
 
     await record_audit_log(
         db, action="USER_CREATED", entity_name="User",
@@ -136,6 +202,10 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    effective_org = getattr(current_user, "organization_id", None)
+    if not current_user.is_superuser and effective_org is not None and user.organization_id != effective_org:
+        raise HTTPException(status_code=404, detail="User not found in your organization")
+
     # Prevent admin from deactivating themselves
     if data.is_active is False and user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Administrators cannot deactivate their own account")
@@ -145,12 +215,25 @@ async def update_user(
     if data.is_active is not None:
         user.is_active = data.is_active
     if data.branch_id is not None:
+        if not current_user.is_superuser and effective_org:
+            b_res = await db.execute(select(Branch).where(Branch.id == data.branch_id, Branch.organization_id == effective_org))
+            if not b_res.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Target branch does not belong to your organization.")
         user.branch_id = data.branch_id
     if data.department_id is not None:
         user.department_id = data.department_id
 
     # Update role assignments if provided
     if data.role_ids is not None:
+        if not current_user.is_superuser:
+            from app.models.auth import Role
+            for r_id in data.role_ids:
+                r_res = await db.execute(select(Role).where(Role.id == r_id))
+                r_obj = r_res.scalar_one_or_none()
+                if not r_obj:
+                    raise HTTPException(status_code=400, detail=f"Role with ID {r_id} not found")
+                if r_obj.is_system_role:
+                    raise HTTPException(status_code=403, detail="Cannot assign system-level administrative roles.")
         await db.execute(delete(UserRole).where(UserRole.user_id == user.id))
         for r_id in data.role_ids:
             db.add(UserRole(user_id=user.id, role_id=r_id))
@@ -198,6 +281,10 @@ async def delete_user(
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    effective_org = getattr(current_user, "organization_id", None)
+    if not current_user.is_superuser and effective_org is not None and user.organization_id != effective_org:
+        raise HTTPException(status_code=404, detail="User not found in your organization")
 
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")

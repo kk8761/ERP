@@ -16,6 +16,7 @@ from app.services.intrusion_defense_service import (
 
 # Thread-safe in-memory sliding-window request tracker per IP
 _ip_request_history: Dict[str, List[float]] = defaultdict(list)
+_auth_request_history: Dict[str, List[float]] = defaultdict(list)
 _last_cleanup_time = time.time()
 
 # Malicious signatures for WAF inspection
@@ -181,19 +182,24 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 request.headers.get("x-test-suite") == "1"
             )
             if not is_test_client:
-                ip_history = _ip_request_history[client_ip]
+                is_loopback = client_ip in ("127.0.0.1", "localhost", "::1", "testclient")
+                is_auth_endpoint = path in ("/api/auth/login", "/api/auth/verify-2fa") or path.startswith("/api/auth/mfa/")
+                
+                # Use separate bucket for auth so background polls don't exhaust login attempts
+                history_dict = _auth_request_history if is_auth_endpoint else _ip_request_history
+                ip_history = history_dict[client_ip]
                 # Keep history within last 60 seconds
                 cutoff = now - 60
                 valid_history = [t for t in ip_history if t > cutoff]
-                _ip_request_history[client_ip] = valid_history
+                history_dict[client_ip] = valid_history
 
                 # Determine limit based on endpoint sensitivity
-                if path in ("/api/auth/login", "/api/auth/verify-2fa") or path.startswith("/api/auth/mfa/"):
-                    limit = 10 # Up to 10 authentication/MFA attempts/min per IP
+                if is_auth_endpoint:
+                    limit = 100 if is_loopback else 15
                 elif path.startswith("/api/ai/"):
-                    limit = 60 # Up to 60 AI calls/min per IP
+                    limit = 200 if is_loopback else 60
                 else:
-                    limit = 600 # 600 requests/min for general ERP operations
+                    limit = 1200 if is_loopback else 600
 
                 if len(valid_history) >= limit:
                     return JSONResponse(
@@ -205,8 +211,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                         headers={"Retry-After": "60"}
                     )
 
-                # Record this request
-                _ip_request_history[client_ip].append(now)
+                # Record this request in its proper bucket
+                history_dict[client_ip].append(now)
 
         # 3. Call downstream handlers
         response: Response = await call_next(request)
@@ -216,7 +222,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Permissions-Policy"] = "camera=(self), microphone=(self), geolocation=()"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         
         # Prevent caching of sensitive enterprise API data

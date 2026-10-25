@@ -52,6 +52,7 @@ class IntrusionEvent(Base, TimestampMixin):
     threat_score: Mapped[int] = mapped_column(Integer, default=50)
     action_taken: Mapped[str] = mapped_column(String(50), default="BLOCKED")
     is_mitigated: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 class QuarantinedIP(Base, TimestampMixin):

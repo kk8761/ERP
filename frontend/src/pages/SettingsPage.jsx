@@ -61,6 +61,18 @@ export default function SettingsPage({ initialTab = 'org' }) {
     soundEffects: true
   });
 
+  const [refundProofRequired, setRefundProofRequired] = useState(false);
+
+  useEffect(() => {
+    apiRequest('/api/sales/refund-policy')
+      .then(res => {
+        if (typeof res?.proof_required === 'boolean') {
+          setRefundProofRequired(res.proof_required);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Security Policies State
   const [secData, setSecData] = useState({
     sessionTimeoutMinutes: 60,
@@ -383,6 +395,43 @@ export default function SettingsPage({ initialTab = 'org' }) {
               />
               <span style={{ fontWeight: 600 }}>Enable audio beep feedback on scan and tender payment</span>
             </label>
+
+            <div style={{
+              marginTop: '6px',
+              padding: '12px 14px',
+              borderRadius: '8px',
+              backgroundColor: refundProofRequired ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+              border: refundProofRequired ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(16, 185, 129, 0.25)'
+            }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13.5px' }}>
+                <input
+                  type="checkbox"
+                  checked={refundProofRequired}
+                  onChange={async (e) => {
+                    const val = e.target.checked;
+                    setRefundProofRequired(val);
+                    try {
+                      await apiRequest('/api/sales/refund-policy', {
+                        method: 'POST',
+                        body: JSON.stringify({ proof_required: val })
+                      });
+                      handleSave(`Refund Policy (${val ? 'Proof Compulsory' : 'Proof Optional'})`);
+                    } catch (err) {
+                      alert('Could not update policy: ' + err.message);
+                    }
+                  }}
+                  style={{ width: '16px', height: '16px', accentColor: '#ef4444' }}
+                />
+                <div>
+                  <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                    Require Image / Proof Document for Return Refunds ({refundProofRequired ? 'Compulsory' : 'Optional'})
+                  </span>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    When checked (Compulsory), cashiers and operators cannot submit an order refund without attaching a proof image or condition photo.
+                  </div>
+                </div>
+              </label>
+            </div>
           </div>
 
           <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end' }}>

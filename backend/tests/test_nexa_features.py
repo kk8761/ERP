@@ -112,3 +112,50 @@ async def test_stock_exhaustion_predictions(client: AsyncClient, admin_auth_toke
             assert "projected_exhaustion_date" in item
             assert "urgency" in item
             assert "recommended_reorder_qty" in item
+            assert "sales_today" in item
+            assert "avg_daily_sales_7d" in item
+            assert "sales_trend" in item
+
+@pytest.mark.asyncio
+async def test_stock_exhaustion_dynamic_with_daily_sales(client: AsyncClient, admin_auth_token: str):
+    headers = {"Authorization": f"Bearer {admin_auth_token}"}
+    
+    # 1. Fetch initial prediction for all products
+    initial_res = await client.get("/api/inventory/stock-exhaustion-predictions?consumer_segment=all", headers=headers)
+    assert initial_res.status_code == 200
+    initial_data = initial_res.json()
+    assert len(initial_data["predictions"]) > 0
+
+    target = next((p for p in initial_data["predictions"] if p["current_stock"] >= 10), initial_data["predictions"][0])
+    target_id = target["product_id"]
+    initial_days = target["days_until_exhaustion"]
+    initial_burn = target["daily_burn_rate"]
+
+    # 2. Record a daily sale transaction of 5 units
+    sale_res = await client.post(
+        "/api/inventory/stock-exhaustion-predictions/record-daily-sale",
+        headers=headers,
+        json={
+            "product_id": target_id,
+            "quantity": 3,
+            "notes": "Testing dynamic daily sales stock exhaustion"
+        }
+    )
+    assert sale_res.status_code == 200
+    sale_data = sale_res.json()
+    assert sale_data["success"] is True
+    assert sale_data["quantity_sold"] == 3
+    assert sale_data["sales_today"] >= 3
+
+    # 3. Fetch refreshed predictions and verify the prediction changed dynamically
+    refreshed_res = await client.get("/api/inventory/stock-exhaustion-predictions?consumer_segment=all", headers=headers)
+    assert refreshed_res.status_code == 200
+    refreshed_data = refreshed_res.json()
+
+    refreshed_target = next(p for p in refreshed_data["predictions"] if p["product_id"] == target_id)
+    assert refreshed_target["sales_today"] >= 3
+    # With new sales today, daily burn rate increases and days left decreases
+    assert refreshed_target["daily_burn_rate"] >= initial_burn
+    assert refreshed_target["days_until_exhaustion"] < initial_days
+    assert refreshed_target["has_live_sales"] is True
+

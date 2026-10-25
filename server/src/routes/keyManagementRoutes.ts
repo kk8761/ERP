@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { keyManagementController } from '../controllers/KeyManagementController';
-import { authMiddleware } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
 
 /**
  * Key Management Routes
@@ -13,11 +13,9 @@ import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
 
-// Apply authentication middleware to all routes
-router.use(authMiddleware);
-
-// TODO: Add admin role check middleware
-// router.use(requireRole('admin'));
+// Apply authentication and administrator role authorization to all routes (SEC-17)
+router.use(authenticate);
+router.use(authorize('admin', 'system_admin', 'superadmin', 'administrator'));
 
 /**
  * @route   GET /api/keys/dashboard

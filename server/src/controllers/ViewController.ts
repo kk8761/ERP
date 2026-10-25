@@ -28,16 +28,18 @@ export class ViewController {
   /**
    * Render dashboard page
    */
-  static async renderDashboard(_req: Request, res: Response): Promise<void> {
-    // TODO: Get user from session/JWT
-    const user = { name: 'Demo User', email: 'demo@nexaerp.com' };
+  static async renderDashboard(req: Request, res: Response): Promise<void> {
+    const authenticatedUser = (req as any).user;
+    const user = authenticatedUser || { name: 'Demo User (Unauthenticated)', email: 'demo@nexaerp.internal', isDemo: true };
     
-    // TODO: Fetch real stats from database
+    // BUG-14: Explicitly identify simulated demo metrics across all views to prevent misleading users
     const stats = {
       revenue: 125000,
       orders: 342,
       customers: 156,
-      products: 892
+      products: 892,
+      isSimulatedDemoData: true,
+      simulationNotice: "Illustrative demo figures: Live database analytics connection pending."
     };
 
     await renderWithLayout(res, 'pages/dashboard.ejs', {
@@ -74,18 +76,19 @@ export class ViewController {
    * Render placeholder page for modules under development
    */
   static renderPlaceholder(moduleName: string) {
-    return async (_req: Request, res: Response): Promise<void> => {
-      // TODO: Get user from session/JWT
-      const user = { name: 'Demo User', email: 'demo@nexaerp.com' };
+    return async (req: Request, res: Response): Promise<void> => {
+      const authenticatedUser = (req as any).user;
+      const user = authenticatedUser || { name: 'Demo User (Unauthenticated)', email: 'demo@nexaerp.internal', isDemo: true };
 
       await renderWithLayout(res, 'pages/placeholder.ejs', {
-        title: `${moduleName} — NexaERP`,
-        description: `${moduleName} module`,
+        title: `${moduleName} (Beta / In Development) — NexaERP`,
+        description: `${moduleName} module under active development`,
         bodyClass: 'module-page',
         showHeader: true,
         showFooter: false,
         user,
         moduleName,
+        isUnderDevelopment: true,
         pageStyles: '<link rel="stylesheet" href="/css/modules.css" />',
         pageScripts: ''
       });

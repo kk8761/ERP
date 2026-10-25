@@ -53,6 +53,7 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=8)
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
+    organization_id: Optional[int] = None
     role_ids: List[int] = []
 
 class UserUpdate(BaseModel):
@@ -65,3 +66,13 @@ class UserUpdate(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=8)
+
+class StoreRegisterRequest(BaseModel):
+    store_name: str = Field(..., min_length=2, max_length=150)
+    owner_name: str = Field(..., min_length=2, max_length=150)
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    phone: Optional[str] = None
+    business_type: str = "general"
+    address: Optional[str] = None
+    city: Optional[str] = "Hyderabad"

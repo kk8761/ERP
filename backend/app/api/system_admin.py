@@ -4,11 +4,15 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_admin_user
 from app.models.auth import User
 from app.services.system_admin_service import SystemAdminService
 
-router = APIRouter(prefix="/api/admin/system", tags=["System Administration & Governance (Requirement 30)"])
+router = APIRouter(
+    prefix="/api/admin/system",
+    tags=["System Administration & Governance (Requirement 30)"],
+    dependencies=[Depends(require_admin_user())]
+)
 
 class BulkUserCreateRequest(BaseModel):
     users: List[Dict[str, Any]]

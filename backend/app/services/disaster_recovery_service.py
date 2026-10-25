@@ -1,12 +1,241 @@
 import hashlib
 import json
 import uuid
+import os
+import shutil
+import gzip
+import base64
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
+from cryptography.fernet import Fernet
 
+from app.config import settings
+import struct
+from pathlib import Path
 from app.models.disaster_recovery import BackupRecord, TransactionLogEntry, DRDrillExecution, BackupAlert
+
+MAGIC_STREAM_HEADER_V1 = b"NEXASTR1\x00\x01"
+MAGIC_STREAM_HEADER = b"NEXASTR2\x00\x02"
+STREAM_CHUNK_SIZE = 64 * 1024  # 64 KB per authenticated chunk
+
+def get_dedicated_backup_cipher() -> Fernet:
+    """
+    SEC-48 & SEC-55: Dedicated, separate backup encryption key.
+    Requires BACKUP_ENCRYPTION_KEY environment variable in production.
+    """
+    dedicated_key_str = os.environ.get("BACKUP_ENCRYPTION_KEY") or getattr(settings, "BACKUP_ENCRYPTION_KEY", None)
+    is_prod = (os.environ.get("ENVIRONMENT", "").lower() == "production") or (getattr(settings, "ENVIRONMENT", "").lower() == "production")
+    if not dedicated_key_str:
+        if is_prod:
+            raise RuntimeError(
+                "SEC-55 Production Security Violation: BACKUP_ENCRYPTION_KEY environment variable is required in production. Backup operations blocked."
+            )
+        # Derive dedicated key using domain-separated salt so JWT key rotation does not break backups in non-production
+        key = base64.urlsafe_b64encode(hashlib.sha256(f"NEXA_DEDICATED_BACKUP_SECRET_SALT_2026_{settings.SECRET_KEY}".encode()).digest())
+    else:
+        key = base64.urlsafe_b64encode(hashlib.sha256(dedicated_key_str.encode()).digest())
+    return Fernet(key)
+
+def get_legacy_backup_cipher() -> Fernet:
+    """Preserves backward compatibility for backups encrypted with earlier JWT-derived key."""
+    key = base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode()).digest())
+    return Fernet(key)
+
+def get_backup_cipher() -> Fernet:
+    return get_dedicated_backup_cipher()
+
+def encrypt_backup_file(src_path: str) -> str:
+    """
+    SEC-48, SEC-55, BUG-59, BUG-60:
+    Streaming authenticated encryption using dedicated key.
+    - Packs monotonic chunk sequence index into each chunk payload to authenticate chunk sequence and reject reordering (BUG-60).
+    - Includes whole-file plaintext SHA-256 in header.
+    - Verifies encrypted output by decrypting all chunks and checking sequence & hash before deleting source plaintext (BUG-59).
+    """
+    cipher = get_dedicated_backup_cipher()
+    enc_path = src_path + ".enc"
+    tmp_enc_path = src_path + ".tmp.enc"
+
+    try:
+        src_hasher = hashlib.sha256()
+        chunk_index = 0
+
+        with open(src_path, "rb") as f_in, open(tmp_enc_path, "wb") as f_out:
+            f_out.write(MAGIC_STREAM_HEADER)
+            # Placeholder for 32-byte plaintext SHA-256
+            f_out.write(b"\x00" * 32)
+
+            while True:
+                chunk = f_in.read(STREAM_CHUNK_SIZE)
+                if not chunk:
+                    break
+                src_hasher.update(chunk)
+                # BUG-60: Monotonically increasing sequence index authenticated inside ciphertext
+                payload = struct.pack(">I", chunk_index) + chunk
+                enc_chunk = cipher.encrypt(payload)
+                # Outer chunk framing: [4 bytes chunk_index][4 bytes chunk_length][enc_chunk]
+                f_out.write(struct.pack(">II", chunk_index, len(enc_chunk)))
+                f_out.write(enc_chunk)
+                chunk_index += 1
+
+            # Seek back and write authoritative plaintext SHA-256
+            plaintext_sha = src_hasher.digest()
+            f_out.seek(len(MAGIC_STREAM_HEADER))
+            f_out.write(plaintext_sha)
+
+        # BUG-59: Decrypt and verify every chunk and entire file checksum before deleting plaintext
+        verify_hasher = hashlib.sha256()
+        expected_chunk_idx = 0
+        with open(tmp_enc_path, "rb") as f_ver:
+            hdr = f_ver.read(len(MAGIC_STREAM_HEADER))
+            if hdr != MAGIC_STREAM_HEADER:
+                raise RuntimeError("Verification failed: Corrupt magic stream header.")
+            stored_sha = f_ver.read(32)
+            if stored_sha != plaintext_sha:
+                raise RuntimeError("Verification failed: Header checksum mismatch.")
+
+            while True:
+                hdr_bytes = f_ver.read(8)
+                if not hdr_bytes:
+                    break
+                c_idx, c_len = struct.unpack(">II", hdr_bytes)
+                if c_idx != expected_chunk_idx:
+                    raise RuntimeError(f"BUG-60 Verification failed: Chunk sequence mismatch at {c_idx}, expected {expected_chunk_idx}.")
+                enc_data = f_ver.read(c_len)
+                dec_payload = cipher.decrypt(enc_data)
+                if len(dec_payload) < 4:
+                    raise RuntimeError("Verification failed: Truncated chunk payload.")
+                payload_idx = struct.unpack(">I", dec_payload[:4])[0]
+                if payload_idx != expected_chunk_idx:
+                    raise RuntimeError(f"BUG-60 Verification failed: Inner payload chunk index {payload_idx} != expected {expected_chunk_idx}.")
+                verify_hasher.update(dec_payload[4:])
+                expected_chunk_idx += 1
+
+        if verify_hasher.digest() != plaintext_sha:
+            raise RuntimeError("BUG-59 Verification failed: Full-file decrypted SHA-256 does not match original plaintext.")
+
+        # Atomic replacement of target archive
+        if os.path.exists(enc_path):
+            os.remove(enc_path)
+        os.rename(tmp_enc_path, enc_path)
+
+        # Only delete plaintext after successful verification
+        if os.path.exists(src_path) and enc_path != src_path:
+            os.remove(src_path)
+
+        return enc_path
+    finally:
+        if os.path.exists(tmp_enc_path):
+            try:
+                os.remove(tmp_enc_path)
+            except Exception:
+                pass
+
+def decrypt_backup_file(enc_path: str, dest_path: str) -> str:
+    """
+    SEC-48, BUG-59, BUG-60:
+    Streaming decryption supporting V2 sequence-authenticated streams,
+    V1 streams, and legacy single-blob backups.
+    """
+    tmp_dest_path = dest_path + ".tmp.dec"
+    ciphers_to_try = [get_dedicated_backup_cipher(), get_legacy_backup_cipher()]
+
+    try:
+        with open(enc_path, "rb") as f_in:
+            header = f_in.read(len(MAGIC_STREAM_HEADER))
+            if header == MAGIC_STREAM_HEADER:
+                # V2 sequence-authenticated stream
+                expected_sha = f_in.read(32)
+                success = False
+                for cipher in ciphers_to_try:
+                    f_in.seek(len(MAGIC_STREAM_HEADER) + 32)
+                    hasher = hashlib.sha256()
+                    expected_idx = 0
+                    current_success = True
+                    with open(tmp_dest_path, "wb") as f_out:
+                        while True:
+                            hdr_bytes = f_in.read(8)
+                            if not hdr_bytes:
+                                break
+                            c_idx, c_len = struct.unpack(">II", hdr_bytes)
+                            if c_idx != expected_idx:
+                                current_success = False
+                                break
+                            enc_data = f_in.read(c_len)
+                            try:
+                                dec_payload = cipher.decrypt(enc_data)
+                                payload_idx = struct.unpack(">I", dec_payload[:4])[0]
+                                if payload_idx != expected_idx:
+                                    current_success = False
+                                    break
+                                chunk_data = dec_payload[4:]
+                                hasher.update(chunk_data)
+                                f_out.write(chunk_data)
+                                expected_idx += 1
+                            except Exception:
+                                current_success = False
+                                break
+                    if current_success and hasher.digest() == expected_sha:
+                        success = True
+                        break
+
+                if not success:
+                    raise RuntimeError("Failed to decrypt backup stream: authentication or sequence check failed.")
+
+            elif header == MAGIC_STREAM_HEADER_V1:
+                # V1 legacy chunked stream
+                success = False
+                for cipher in ciphers_to_try:
+                    f_in.seek(len(MAGIC_STREAM_HEADER_V1))
+                    current_success = True
+                    with open(tmp_dest_path, "wb") as f_out:
+                        while True:
+                            len_bytes = f_in.read(4)
+                            if not len_bytes:
+                                break
+                            chunk_len = struct.unpack(">I", len_bytes)[0]
+                            enc_chunk = f_in.read(chunk_len)
+                            try:
+                                dec_chunk = cipher.decrypt(enc_chunk)
+                                f_out.write(dec_chunk)
+                            except Exception:
+                                current_success = False
+                                break
+                    if current_success:
+                        success = True
+                        break
+                if not success:
+                    raise RuntimeError("Failed to decrypt legacy V1 backup stream: key authentication failed.")
+
+            else:
+                # Legacy single-blob Fernet format
+                f_in.seek(0)
+                raw_enc = f_in.read()
+                dec_data = None
+                for cipher in ciphers_to_try:
+                    try:
+                        dec_data = cipher.decrypt(raw_enc)
+                        break
+                    except Exception:
+                        pass
+                if dec_data is None:
+                    raise RuntimeError("Failed to decrypt legacy backup: invalid key or corrupt file.")
+                with open(tmp_dest_path, "wb") as f_out:
+                    f_out.write(dec_data)
+
+        if os.path.exists(dest_path):
+            os.remove(dest_path)
+        os.rename(tmp_dest_path, dest_path)
+        return dest_path
+    finally:
+        if os.path.exists(tmp_dest_path):
+            try:
+                os.remove(tmp_dest_path)
+            except Exception:
+                pass
+
 
 def ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is None:
@@ -27,6 +256,44 @@ class DisasterRecoveryService:
     Comprehensive Disaster Recovery, Backup Retention, PITR, and Backup Monitoring Service.
     Addresses Requirements 29.4, 29.5, 29.6, and 29.7.
     """
+
+    @staticmethod
+    def verify_offsite_storage_destination(dest_path: Optional[str] = None) -> bool:
+        """
+        SEC-69: Verifies that an independent remote off-site archive destination is configured
+        and accessible before reporting an archive as offsite. A local directory or named volume
+        on the same host does not count as independent disaster recovery in production.
+        """
+        remote_service = (
+            os.environ.get("REMOTE_BACKUP_SERVICE_URL")
+            or os.environ.get("REMOTE_BACKUP_S3_BUCKET")
+            or getattr(settings, "REMOTE_BACKUP_S3_BUCKET", None)
+            or getattr(settings, "REMOTE_BACKUP_SERVICE_URL", None)
+        )
+        path_to_check = dest_path or os.environ.get("OFFHOST_COLD_ARCHIVE_PATH") or getattr(settings, "OFFHOST_COLD_ARCHIVE_PATH", None)
+        is_prod = (os.environ.get("ENVIRONMENT", "").lower() == "production") or (getattr(settings, "ENVIRONMENT", "").lower() == "production")
+
+        if remote_service:
+            return True
+
+        if not path_to_check:
+            if is_prod:
+                raise RuntimeError("SEC-69 Configuration Error: Remote off-site storage destination (S3/Cloud/Remote Storage Service) is required in production.")
+            return False
+
+        p = Path(path_to_check)
+        if not p.exists() or not p.is_dir():
+            if is_prod:
+                raise RuntimeError(f"SEC-69 Storage Error: Verified offsite destination '{path_to_check}' does not exist or is not a directory.")
+            return False
+
+        # In production, local folder or default container mount on same host is not an independent failure domain
+        resolved = str(p.resolve()).replace("\\", "/").lower()
+        if is_prod and not remote_service:
+            if "/app/backups" in resolved or "local_backups" in resolved or "/backups" in resolved:
+                raise RuntimeError(f"SEC-69 Storage Error: '{path_to_check}' is a local directory and does not qualify as an independent off-site failure domain.")
+
+        return True
 
     # -------------------------------------------------------------------------
     # 43.2 DISASTER RECOVERY PLAN & MONTHLY DRILLS (Requirements 29.4, 29.5)
@@ -126,50 +393,11 @@ class DisasterRecoveryService:
     @staticmethod
     async def get_dr_drills_history(db: AsyncSession) -> List[DRDrillExecution]:
         """
-        Retrieves history of monthly disaster recovery drill executions.
-        Seeds historical monthly drills if none exist.
+        Retrieves authentic history of disaster recovery drill executions from database (BUG-31).
+        Does not inject synthetic seeds into production monitoring paths.
         """
         result = await db.execute(select(DRDrillExecution).order_by(desc(DRDrillExecution.completed_at)))
-        drills = list(result.scalars().all())
-
-        if not drills:
-            # Seed 3 historical monthly drills to demonstrate consistent monthly testing compliance
-            now = datetime.now(timezone.utc)
-            history_seeds = [
-                ("Monthly Cold-Site Activation Drill - August 2026", now - timedelta(days=62), 1180.0, "SecOps Team Lead"),
-                ("Monthly Hot Standby Failover Drill - September 2026", now - timedelta(days=31), 1050.0, "Database Recovery Lead"),
-                ("Monthly Disaster Recovery & PITR Drill - October 2026", now - timedelta(days=1), 985.0, "Automated DR Scheduler")
-            ]
-            for name, comp_time, dur, by in history_seeds:
-                seed_drill = DRDrillExecution(
-                    id=f"DR-DRILL-{uuid.uuid4().hex[:12].upper()}",
-                    drill_name=name,
-                    scheduled_frequency="MONTHLY",
-                    started_at=comp_time - timedelta(seconds=dur),
-                    completed_at=comp_time,
-                    duration_seconds=dur,
-                    rto_target_seconds=14400.0,
-                    rto_achieved_seconds=dur,
-                    rto_compliance_met=True,
-                    rpo_target_seconds=900.0,
-                    rpo_achieved_seconds=110.0,
-                    status="PASSED",
-                    step_results=json.dumps([
-                        {"step": "Failover Trigger & Cluster Isolation", "duration_seconds": dur * 0.2, "status": "PASSED"},
-                        {"step": "Snapshot Integrity & SHA-256 Checksum", "duration_seconds": dur * 0.15, "status": "PASSED"},
-                        {"step": "Transaction Log WAL Delta Replay", "duration_seconds": dur * 0.35, "status": "PASSED"},
-                        {"step": "ACID Ledger & Balance Reconciliation", "duration_seconds": dur * 0.15, "status": "PASSED"},
-                        {"step": "Global DNS Switchover & API Health Probe", "duration_seconds": dur * 0.15, "status": "PASSED"}
-                    ]),
-                    conducted_by=by,
-                    report_summary=f"Automated drill achieved full cluster restoration in {dur / 60:.1f} minutes, beating 4-hour RTO mandate."
-                )
-                db.add(seed_drill)
-            await db.commit()
-            result = await db.execute(select(DRDrillExecution).order_by(desc(DRDrillExecution.completed_at)))
-            drills = list(result.scalars().all())
-
-        return drills
+        return list(result.scalars().all())
 
     # -------------------------------------------------------------------------
     # 43.3 BACKUP RETENTION & LIFECYCLE POLICIES (Requirement 29.6)
@@ -219,9 +447,9 @@ class DisasterRecoveryService:
     async def apply_retention_lifecycle(db: AsyncSession) -> Dict[str, Any]:
         """
         Executes backup lifecycle policies:
-        - Backups > 30 days are transitioned from HOT_ACTIVE to WARM_VAULT.
-        - Backups > 90 days are transitioned to COLD_GLACIER and marked as archived.
-        - Preserves all backups for 90+ days without premature deletion.
+        - Backups > 30 days are transitioned from HOT_ACTIVE to WARM_VAULT (with physical file movement).
+        - Backups > 90 days are transitioned to COLD_GLACIER and marked as archived (with physical file movement).
+        - Preserves all backups for 90+ days without premature deletion (BUG-33).
         """
         now = datetime.now(timezone.utc)
         result = await db.execute(select(BackupRecord))
@@ -230,79 +458,115 @@ class DisasterRecoveryService:
         transitioned_to_vault = 0
         transitioned_to_glacier = 0
         total_scanned = len(backups)
+        physical_moves = 0
+
+        archive_errors = []
 
         for b in backups:
             created_dt = ensure_aware(b.created_at)
             age_days = (now - created_dt).total_seconds() / 86400.0
 
             if age_days > 90 and b.storage_tier != "COLD_GLACIER":
-                b.storage_tier = "COLD_GLACIER"
-                b.is_archived = True
-                b.archived_at = now
-                transitioned_to_glacier += 1
+                is_prod = (os.environ.get("ENVIRONMENT", "").lower() == "production") or (getattr(settings, "ENVIRONMENT", "").lower() == "production")
+                offhost_dir = os.environ.get("OFFHOST_COLD_ARCHIVE_PATH") or getattr(settings, "OFFHOST_COLD_ARCHIVE_PATH", None) or os.getenv("COLD_ARCHIVE_ROOT")
+
+                # In production, require real off-host storage destination verified before archive attempt
+                if is_prod and not DisasterRecoveryService.verify_offsite_storage_destination(offhost_dir):
+                    archive_errors.append(f"Backup {b.id} cold archive deferred: OFFHOST_COLD_ARCHIVE_PATH destination unverified or inaccessible.")
+                    continue
+
+                if not b.file_path or not os.path.exists(b.file_path):
+                    archive_errors.append(f"Backup {b.id} source file path '{b.file_path}' does not exist on disk.")
+                    continue
+
+                try:
+                    if offhost_dir and os.path.exists(offhost_dir):
+                        cold_dir = os.path.join(offhost_dir, "cold_glacier")
+                    else:
+                        base_dir = os.path.dirname(b.file_path)
+                        cold_dir = os.path.join(base_dir, "cold_glacier")
+                    os.makedirs(cold_dir, exist_ok=True)
+                    dest = os.path.join(cold_dir, os.path.basename(b.file_path))
+
+                    # Calculate source checksum before transfer
+                    src_hasher = hashlib.sha256()
+                    with open(b.file_path, "rb") as sf:
+                        while chunk := sf.read(65536):
+                            src_hasher.update(chunk)
+                    src_checksum = src_hasher.hexdigest()
+
+                    shutil.move(b.file_path, dest)
+
+                    # Post-relocation verification: ensure destination file exists, is non-empty, and verify checksum integrity
+                    if not os.path.exists(dest) or os.path.getsize(dest) == 0:
+                        raise IOError(f"Relocated backup file at '{dest}' is missing or empty.")
+
+                    dest_hasher = hashlib.sha256()
+                    with open(dest, "rb") as df:
+                        while chunk := df.read(65536):
+                            dest_hasher.update(chunk)
+                    dest_checksum = dest_hasher.hexdigest()
+
+                    if dest_checksum != src_checksum:
+                        raise IOError(f"Checksum mismatch after offsite transfer: {dest_checksum} != {src_checksum}")
+
+                    # Only transition status once physical relocation and integrity are verified
+                    b.file_path = dest
+                    b.checksum = dest_checksum
+                    b.storage_tier = "COLD_GLACIER"
+                    b.is_archived = True
+                    b.archived_at = now
+                    transitioned_to_glacier += 1
+                    physical_moves += 1
+                except Exception as ex:
+                    logger.error("Could not physically relocate and verify %s to cold vault: %s", b.file_path, ex)
+                    archive_errors.append(f"Backup {b.id} physical relocation failed: {str(ex)}")
+
             elif age_days > 30 and b.storage_tier == "HOT_ACTIVE":
-                b.storage_tier = "WARM_VAULT"
-                transitioned_to_vault += 1
+                if b.file_path and os.path.exists(b.file_path):
+                    try:
+                        base_dir = os.path.dirname(b.file_path)
+                        warm_dir = os.path.join(base_dir, "warm_vault")
+                        os.makedirs(warm_dir, exist_ok=True)
+                        dest = os.path.join(warm_dir, os.path.basename(b.file_path))
+                        shutil.move(b.file_path, dest)
+                        if not os.path.exists(dest) or os.path.getsize(dest) == 0:
+                            raise IOError(f"Warm vault relocated file at '{dest}' is missing or empty.")
+                        b.file_path = dest
+                        b.storage_tier = "WARM_VAULT"
+                        transitioned_to_vault += 1
+                        physical_moves += 1
+                    except Exception as ex:
+                        logger.warning("Could not physically relocate %s to warm vault: %s", b.file_path, ex)
+                        archive_errors.append(f"Backup {b.id} warm vault move failed: {str(ex)}")
+                else:
+                    b.storage_tier = "WARM_VAULT"
+                    transitioned_to_vault += 1
 
         await db.commit()
 
+        status_result = "SUCCESS" if not archive_errors else ("PARTIAL_ERROR" if (transitioned_to_glacier > 0 or transitioned_to_vault > 0) else "ERROR")
+
         return {
-            "status": "SUCCESS",
+            "status": status_result,
             "applied_at": now.isoformat(),
             "total_backups_evaluated": total_scanned,
             "transitioned_to_warm_vault": transitioned_to_vault,
             "archived_to_cold_glacier": transitioned_to_glacier,
+            "physical_files_relocated": physical_moves,
+            "archive_errors": archive_errors,
             "minimum_retention_enforced_days": 90,
-            "message": f"Lifecycle policy applied: {transitioned_to_vault} moved to Warm Vault, {transitioned_to_glacier} archived to Cold Glacier. Zero premature deletions."
+            "message": f"Lifecycle policy applied: {transitioned_to_vault} moved to Warm Vault, {transitioned_to_glacier} archived to Cold Glacier ({physical_moves} physical files relocated). Zero premature deletions."
         }
 
     @staticmethod
     async def list_backups(db: AsyncSession) -> List[BackupRecord]:
         """
         Lists all recorded backups with their tier and retention dates.
-        Seeds realistic historical backups if table is empty.
+        Returns authentic backup records from database without synthetic seeding (BUG-31).
         """
         result = await db.execute(select(BackupRecord).order_by(desc(BackupRecord.created_at)))
-        backups = list(result.scalars().all())
-
-        if not backups:
-            # Seed initial backups demonstrating 90+ day retention and multi-tier archiving
-            now = datetime.now(timezone.utc)
-            seed_data = [
-                ("nexaerp_full_snapshot_today.backup.gz", "FULL", "COMPLETED", "HOT_ACTIVE", 0.5, 90, False),
-                ("nexaerp_incremental_yesterday.backup.gz", "INCREMENTAL", "COMPLETED", "HOT_ACTIVE", 1.5, 90, False),
-                ("nexaerp_full_weekly_lastweek.backup.gz", "FULL", "COMPLETED", "HOT_ACTIVE", 7.0, 90, False),
-                ("nexaerp_full_archive_month1.backup.gz", "FULL", "COMPLETED", "WARM_VAULT", 35.0, 180, False),
-                ("nexaerp_full_archive_month2.backup.gz", "FULL", "COMPLETED", "WARM_VAULT", 65.0, 180, False),
-                ("nexaerp_quarterly_archive_95d.backup.gz", "SNAPSHOT", "ARCHIVED", "COLD_GLACIER", 95.0, 365, True),
-                ("nexaerp_legacy_archive_120d.backup.gz", "FULL", "ARCHIVED", "COLD_GLACIER", 120.0, 365, True),
-            ]
-
-            for filename, btype, status, tier, age_days, ret_days, is_arch in seed_data:
-                created = now - timedelta(days=age_days)
-                ret_until = created + timedelta(days=ret_days)
-                checksum = hashlib.sha256(f"{filename}-{created.isoformat()}".encode()).hexdigest()
-                rec = BackupRecord(
-                    id=f"BKP-{uuid.uuid4().hex[:12].upper()}",
-                    backup_name=filename,
-                    backup_type=btype,
-                    status=status,
-                    storage_tier=tier,
-                    retention_days=ret_days,
-                    retention_until=ret_until,
-                    file_path=f"/var/backups/nexaerp/{filename}",
-                    file_size_bytes=int(142 * 1024 * 1024 * (0.8 + 0.4 * (age_days % 3))),
-                    checksum_sha256=checksum,
-                    is_archived=is_arch,
-                    archived_at=now - timedelta(days=age_days - 90) if is_arch else None,
-                    metadata_json=json.dumps({"tables": 48, "rows": 125430, "compression": "gzip-9", "encryption": "AES-256-GCM"})
-                )
-                db.add(rec)
-            await db.commit()
-            result = await db.execute(select(BackupRecord).order_by(desc(BackupRecord.created_at)))
-            backups = list(result.scalars().all())
-
-        return backups
+        return list(result.scalars().all())
 
     # -------------------------------------------------------------------------
     # 43.4 POINT-IN-TIME RECOVERY (PITR) (Requirement 29.7)
@@ -410,25 +674,43 @@ class DisasterRecoveryService:
         restore_id = f"PITR-RESTORE-{uuid.uuid4().hex[:10].upper()}"
         delta_seconds = abs((target_aware - base_time).total_seconds())
 
+        # Verify physical backup integrity if file exists on disk
+        checksum_verified = True
+        is_physical_file = False
+        if base_backup and base_backup.file_path and os.path.exists(base_backup.file_path):
+            is_physical_file = True
+            try:
+                hasher = hashlib.sha256()
+                with open(base_backup.file_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(65536), b""):
+                        hasher.update(chunk)
+                computed = hasher.hexdigest()
+                checksum_verified = (computed == base_backup.checksum_sha256)
+            except Exception:
+                checksum_verified = False
+
         return {
             "restore_id": restore_id,
-            "status": "RESTORE_VERIFIED",
+            "status": "RESTORE_VERIFIED" if checksum_verified else "CHECKSUM_MISMATCH",
+            "mode": "DRILL_SIMULATION",
+            "is_simulated": True,
             "target_timestamp": target_aware.isoformat(),
             "base_backup": {
                 "id": base_backup.id if base_backup else "BASE-SNAPSHOT-ORIGIN",
                 "name": base_backup.backup_name if base_backup else "initial_master.backup",
-                "timestamp": base_time.isoformat()
+                "timestamp": base_time.isoformat(),
+                "file_present_on_disk": is_physical_file
             },
             "wal_replay_summary": {
                 "transactions_replayed": len(replayed_logs),
                 "delta_span_seconds": delta_seconds,
                 "first_lsn": replayed_logs[0].lsn if replayed_logs else "LSN-START",
                 "last_replayed_lsn": replayed_logs[-1].lsn if replayed_logs else "LSN-TARGET",
-                "checksum_verified": True
+                "checksum_verified": checksum_verified
             },
-            "achieved_rpo_variance_seconds": 0.00, # Exact second matched
-            "data_consistency_check": "100% PASSED (Foreign Keys, Balance Sheets & Tables Validated)",
-            "message": f"Point-in-time recovery successfully validated to {target_timestamp.isoformat()}. Replayed {len(replayed_logs)} WAL transactions from base snapshot."
+            "achieved_rpo_variance_seconds": 0.00,
+            "data_consistency_check": "DRILL_SIMULATION_VALIDATED (Logical log sequence audited)",
+            "message": f"Point-in-time recovery drill simulation completed for {target_timestamp.isoformat()}. NOTE: This is an audit simulation of transaction logs; physical database restore requires PostgreSQL WAL archive replay on an isolated target instance."
         }
 
     @staticmethod
@@ -443,11 +725,13 @@ class DisasterRecoveryService:
         return {
             "test_id": f"TEST-PITR-{uuid.uuid4().hex[:8].upper()}",
             "tested_at": now.isoformat(),
-            "procedure": "Automated WAL Roll-Forward & Point-in-Time Restore Verification",
-            "test_status": "PASSED",
+            "procedure": "Automated WAL Roll-Forward & Point-in-Time Restore Verification (Simulation)",
+            "test_status": "SIMULATED",
+            "mode": "DRILL_SIMULATION",
+            "is_simulated": True,
             "target_point": target.isoformat(),
             "details": restore_result,
-            "audit_verification": "Verified that database state at target timestamp can be fully restored without foreign key breakage or record divergence."
+            "audit_verification": "Simulation verified that transaction logs up to target timestamp can be parsed and sequenced. Production physical disaster recovery certification requires restoring a pg_dump/WAL base backup on an isolated recovery instance."
         }
 
     # -------------------------------------------------------------------------
@@ -461,13 +745,34 @@ class DisasterRecoveryService:
         simulate_failure: bool = False
     ) -> BackupRecord:
         """
-        Creates a new backup record, computes checksum, and alerts immediately if failure occurs.
+        Creates a new backup record, dumps physical state when possible, computes real SHA-256 checksum,
+        and alerts immediately if failure occurs.
         """
         now = datetime.now(timezone.utc)
-        if not backup_name:
-            backup_name = f"nexaerp_{backup_type.lower()}_{now.strftime('%Y%m%d_%H%M%S')}.backup.gz"
+        from app.config import settings
+        is_postgres = "postgres" in settings.DATABASE_URL.lower()
+
+        if backup_name:
+            if not isinstance(backup_name, str) or not backup_name.strip():
+                raise ValueError("Invalid backup name: filename cannot be empty.")
+            if ".." in backup_name or "/" in backup_name or "\\" in backup_name or os.path.isabs(backup_name):
+                raise ValueError("Invalid backup name: path traversal characters and directory separators are forbidden.")
+            safe_name = os.path.basename(backup_name)
+            if safe_name != backup_name:
+                raise ValueError("Invalid backup name: path traversal characters are forbidden.")
+            backup_name = safe_name
+        else:
+            ext = ".dump" if is_postgres else ".backup.gz"
+            backup_name = f"nexaerp_{backup_type.lower()}_{now.strftime('%Y%m%d_%H%M%S')}{ext}"
 
         backup_id = f"BKP-{uuid.uuid4().hex[:12].upper()}"
+
+        # Resolve real storage destination
+        backup_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backups"))
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_file_path = os.path.abspath(os.path.join(backup_dir, backup_name))
+        if not backup_file_path.startswith(backup_dir + os.sep) and backup_file_path != backup_dir:
+            raise ValueError("Target backup file escapes authorized backup directory.")
 
         if simulate_failure:
             # Create failed backup record and trigger critical alert
@@ -479,11 +784,11 @@ class DisasterRecoveryService:
                 storage_tier="HOT_ACTIVE",
                 retention_days=90,
                 retention_until=now + timedelta(days=90),
-                file_path=f"/var/backups/nexaerp/{backup_name}.tmp",
+                file_path=backup_file_path + ".tmp",
                 file_size_bytes=0,
                 checksum_sha256="0000000000000000000000000000000000000000000000000000000000000000",
                 is_archived=False,
-                metadata_json=json.dumps({"error": "I/O Disk Write Interruption during snapshot compression"})
+                metadata_json=json.dumps({"error": "I/O Disk Write Interruption during snapshot compression", "is_simulated": True})
             )
             db.add(failed_rec)
 
@@ -500,21 +805,118 @@ class DisasterRecoveryService:
             await db.refresh(failed_rec)
             return failed_rec
 
-        # Successful backup
-        checksum = hashlib.sha256(f"{backup_name}-{now.isoformat()}".encode()).hexdigest()
+        # Check database engine and create authentic backup (Error 5)
+        from app.config import settings
+        is_postgres = "postgres" in settings.DATABASE_URL.lower()
+        backup_success = False
+        backup_mode = "PHYSICAL_ARCHIVE"
+        failure_reason = None
+
+        if is_postgres:
+            import subprocess
+            import urllib.parse
+            clean_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+            parsed = urllib.parse.urlparse(clean_url)
+            pg_dump_bin = shutil.which("pg_dump")
+            if pg_dump_bin:
+                env = os.environ.copy()
+                if parsed.password:
+                    env["PGPASSWORD"] = parsed.password
+                cmd = [
+                    pg_dump_bin,
+                    "-h", parsed.hostname or "localhost",
+                    "-p", str(parsed.port or 5432),
+                    "-U", parsed.username or "postgres",
+                    "-F", "c",
+                    "-f", backup_file_path,
+                    parsed.path.lstrip("/") or "nexaerp"
+                ]
+                try:
+                    proc = subprocess.run(cmd, env=env, capture_output=True, timeout=60)
+                    if proc.returncode == 0 and os.path.exists(backup_file_path) and os.path.getsize(backup_file_path) > 0:
+                        backup_success = True
+                    else:
+                        failure_reason = proc.stderr.decode("utf-8", errors="ignore") or "pg_dump failed"
+                except Exception as ex:
+                    failure_reason = f"pg_dump execution error: {str(ex)}"
+            else:
+                failure_reason = "pg_dump binary not found in environment"
+        else:
+            db_file = "nexaerp.db"
+            if os.path.exists(db_file) and os.path.getsize(db_file) > 0:
+                with open(db_file, "rb") as f_in, gzip.open(backup_file_path, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+                backup_success = True
+            elif settings.ENVIRONMENT.lower() in ("testing", "development", "test"):
+                with gzip.open(backup_file_path, "wb") as f_out:
+                    f_out.write(f"NEXAERP_SNAPSHOT_{backup_id}_{now.isoformat()}\n".encode("utf-8"))
+                backup_success = True
+                backup_mode = "TEST_FIXTURE_SNAPSHOT"
+            else:
+                failure_reason = f"SQLite database file '{db_file}' not found"
+
+        if not backup_success:
+            # Error 5: Never mark placeholder as completed in production! Record FAILED.
+            failed_rec = BackupRecord(
+                id=backup_id,
+                backup_name=backup_name,
+                backup_type=backup_type,
+                status="FAILED",
+                storage_tier="HOT_ACTIVE",
+                retention_days=90,
+                retention_until=now + timedelta(days=90),
+                file_path=backup_file_path + ".failed",
+                file_size_bytes=0,
+                checksum_sha256="0000000000000000000000000000000000000000000000000000000000000000",
+                is_archived=False,
+                metadata_json=json.dumps({"error": failure_reason or "Backup creation failed", "database_engine": "postgresql" if is_postgres else "sqlite"})
+            )
+            db.add(failed_rec)
+            alert = BackupAlert(
+                id=f"ALT-{uuid.uuid4().hex[:10].upper()}",
+                severity="CRITICAL",
+                event_type="BACKUP_FAILED",
+                message=f"Backup '{backup_name}' failed: {failure_reason}",
+                details=json.dumps({"backup_id": backup_id, "reason": failure_reason}),
+                resolved=False
+            )
+            db.add(alert)
+            await db.commit()
+            await db.refresh(failed_rec)
+            return failed_rec
+
+        # BUG-44: Application-level AES-256 authenticated backup encryption
+        encrypted_backup_path = encrypt_backup_file(backup_file_path)
+        backup_file_path = encrypted_backup_path
+
+        file_size = os.path.getsize(backup_file_path) if os.path.exists(backup_file_path) else 1024
+        hasher = hashlib.sha256()
+        with open(backup_file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                hasher.update(chunk)
+        real_checksum = hasher.hexdigest()
+
         record = BackupRecord(
             id=backup_id,
-            backup_name=backup_name,
+            backup_name=os.path.basename(backup_file_path),
             backup_type=backup_type,
             status="COMPLETED",
             storage_tier="HOT_ACTIVE",
             retention_days=90, # 90+ days guarantee
             retention_until=now + timedelta(days=90),
-            file_path=f"/var/backups/nexaerp/{backup_name}",
-            file_size_bytes=154200100, # ~147 MB
-            checksum_sha256=checksum,
+            file_path=backup_file_path,
+            file_size_bytes=file_size,
+            checksum_sha256=real_checksum,
             is_archived=False,
-            metadata_json=json.dumps({"compression": "gzip-9", "engine": "postgresql-15", "encryption": "AES-256-GCM"})
+            metadata_json=json.dumps({
+                "compression": "pg_dump_custom_compression" if is_postgres else "gzip-9",
+                "backup_mode": backup_mode,
+                "encryption": "AES-128-CBC-HMAC-SHA256 (Fernet Stream)",
+                "key_version": "v2_dedicated",
+                "encrypted_at": now.isoformat(),
+                "verified_at": now.isoformat()
+            })
+
         )
         db.add(record)
         await db.commit()
@@ -527,6 +929,9 @@ class DisasterRecoveryService:
         Collects comprehensive backup monitoring metrics, success rate, storage stats, and active alerts.
         """
         now = datetime.now(timezone.utc)
+        from app.config import settings
+        is_postgres = "postgres" in settings.DATABASE_URL.lower()
+
         backups = await DisasterRecoveryService.list_backups(db)
         alerts_res = await db.execute(select(BackupAlert).where(BackupAlert.resolved == False))
         active_alerts = list(alerts_res.scalars().all())
@@ -537,7 +942,7 @@ class DisasterRecoveryService:
         total_count = len(backups)
         completed_count = sum(1 for b in backups if b.status in ("COMPLETED", "ARCHIVED"))
         failed_count = sum(1 for b in backups if b.status == "FAILED")
-        success_rate = (completed_count / total_count * 100.0) if total_count > 0 else 100.0
+        success_rate = (completed_count / total_count * 100.0) if total_count > 0 else 0.0
 
         total_storage_bytes = sum(b.file_size_bytes for b in backups)
         latest_backup = backups[0] if backups else None
@@ -546,13 +951,16 @@ class DisasterRecoveryService:
         next_run = (now + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
 
         # Check retention compliance (every backup has retention_days >= 90)
-        retention_compliant = all(b.retention_days >= 90 for b in backups)
+        retention_compliant = all(b.retention_days >= 90 for b in backups) if total_count > 0 else False
 
         # Check RTO compliance (latest drill achieved RTO <= 14400s)
-        rto_compliant = latest_drill.rto_compliance_met if latest_drill else True
+        rto_compliant = latest_drill.rto_compliance_met if latest_drill else None
+        drill_achieved_minutes = round(latest_drill.rto_achieved_seconds / 60.0, 1) if latest_drill else None
+
+        status_label = "HEALTHY" if (total_count > 0 and failed_count == 0 and len(active_alerts) == 0) else ("UNVERIFIED" if total_count == 0 else ("WARNING" if len(active_alerts) > 0 else "CRITICAL"))
 
         return {
-            "status": "HEALTHY" if failed_count == 0 and len(active_alerts) == 0 else ("WARNING" if len(active_alerts) > 0 else "CRITICAL"),
+            "status": status_label,
             "health_timestamp": now.isoformat(),
             "metrics": {
                 "total_backups": total_count,
@@ -565,11 +973,11 @@ class DisasterRecoveryService:
                 "cold_glacier_count": sum(1 for b in backups if b.storage_tier == "COLD_GLACIER")
             },
             "sla_compliance": {
-                "rto_sla_status": "COMPLIANT" if rto_compliant else "BREACHED",
+                "rto_sla_status": "COMPLIANT" if rto_compliant is True else ("BREACHED" if rto_compliant is False else "UNVERIFIED"),
                 "rto_target_hours": 4.0,
-                "latest_drill_achieved_minutes": round(latest_drill.rto_achieved_seconds / 60.0, 1) if latest_drill else 18.5,
+                "latest_drill_achieved_minutes": drill_achieved_minutes,
                 "retention_policy_90_days_met": retention_compliant,
-                "pitr_readiness": "ACTIVE (WAL Streaming Online)"
+                "pitr_readiness": "ACTIVE (WAL Streaming Online)" if is_postgres else "UNVERIFIED (Requires PostgreSQL WAL archiving)"
             },
             "schedule": {
                 "last_successful_backup": latest_backup.created_at.isoformat() if latest_backup else None,

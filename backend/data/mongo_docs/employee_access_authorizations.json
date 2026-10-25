@@ -1,0 +1,10 @@
+[
+  {
+    "email": "revoked_user@example.com",
+    "accessible_branches": [
+      1,
+      2,
+      3
+    ]
+  }
+]

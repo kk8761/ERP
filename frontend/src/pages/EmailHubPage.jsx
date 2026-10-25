@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import SafeHtmlPreview from '../components/SafeHtmlPreview';
 
 // Helper: Format bytes to human readable string
 function formatBytes(bytes, decimals = 1) {
@@ -1608,13 +1609,13 @@ ${itemsText || '  • Standard Procured Items'}
                         <span style={{
                           fontSize: '10px',
                           fontWeight: 700,
-                          backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                          color: '#10b981',
-                          border: '1px solid rgba(16, 185, 129, 0.3)',
+                          backgroundColor: item.status === 'SIMULATED' ? 'rgba(245, 158, 11, 0.15)' : (item.status === 'FAILED' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.12)'),
+                          color: item.status === 'SIMULATED' ? '#f59e0b' : (item.status === 'FAILED' ? '#ef4444' : '#10b981'),
+                          border: item.status === 'SIMULATED' ? '1px solid rgba(245, 158, 11, 0.4)' : (item.status === 'FAILED' ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid rgba(16, 185, 129, 0.3)'),
                           borderRadius: '4px',
                           padding: '1px 5px'
                         }}>
-                          {item.status}
+                          {item.status === 'SIMULATED' ? 'SANDBOX (SIMULATED)' : item.status}
                         </span>
                         {atts.length > 0 && (
                           <span style={{
@@ -2107,13 +2108,13 @@ ${itemsText || '  • Standard Procured Items'}
                   <span style={{
                     fontSize: '11px',
                     fontWeight: 700,
-                    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                    color: '#10b981',
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                    backgroundColor: selectedSentEmail.status === 'SIMULATED' ? 'rgba(245, 158, 11, 0.15)' : (selectedSentEmail.status === 'FAILED' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.12)'),
+                    color: selectedSentEmail.status === 'SIMULATED' ? '#f59e0b' : (selectedSentEmail.status === 'FAILED' ? '#ef4444' : '#10b981'),
+                    border: selectedSentEmail.status === 'SIMULATED' ? '1px solid rgba(245, 158, 11, 0.4)' : (selectedSentEmail.status === 'FAILED' ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid rgba(16, 185, 129, 0.3)'),
                     borderRadius: '6px',
                     padding: '2px 8px'
                   }}>
-                    Status: {selectedSentEmail.status}
+                    {selectedSentEmail.status === 'SIMULATED' ? '⚠️ Sandbox / Simulated (No External SMTP)' : `Status: ${selectedSentEmail.status}`}
                   </span>
                   <span style={{
                     fontSize: '11px',
@@ -2217,7 +2218,7 @@ ${itemsText || '  • Standard Procured Items'}
                     overflowX: 'auto'
                   }}>
                     {selectedSentEmail.body_html ? (
-                      <div dangerouslySetInnerHTML={{ __html: selectedSentEmail.body_html }} />
+                      <SafeHtmlPreview html={selectedSentEmail.body_html} />
                     ) : (
                       <div style={{ whiteSpace: 'pre-wrap' }}>{selectedSentEmail.body_text || 'No message content.'}</div>
                     )}

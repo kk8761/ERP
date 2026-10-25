@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # CORS — explicit trusted origins only (never use "*" in production)
     CORS_ORIGINS: str = os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173"
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
     )
 
     # Rate Limiting
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # Initial Admin Bootstrap — read from environment variables (NEVER hardcode in production)
     BOOTSTRAP_ADMIN_EMAIL: str = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@nexaerp.internal")
     BOOTSTRAP_ADMIN_NAME: str = os.getenv("BOOTSTRAP_ADMIN_NAME", "System Administrator")
-    BOOTSTRAP_ADMIN_PASSWORD: str = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "ChangeMe@FirstLogin!")
+    BOOTSTRAP_ADMIN_PASSWORD: str = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "Admin@NexaERP2026!")
     BOOTSTRAP_ADMIN_BRANCH: str = os.getenv("BOOTSTRAP_ADMIN_BRANCH", "Main Store")
     BOOTSTRAP_ADMIN_ORG: str = os.getenv("BOOTSTRAP_ADMIN_ORG", "Nexa Global Enterprises")
 
@@ -58,6 +58,19 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "procurement@nexaerp.internal"
     SMTP_FROM_NAME: str = "NexaERP Enterprise Mailer"
 
+    # MCP Integration Service Credential (SEC-20)
+    MCP_API_KEY: Optional[str] = os.getenv("MCP_API_KEY", None)
+
+    # AWS Amazon Developer Challenge 2026 Integrations (Alexa+, Fire TV, Bedrock, S3, SNS, CloudWatch)
+    AWS_REGION: str = os.getenv("AWS_REGION", "us-east-1")
+    AWS_ACCESS_KEY_ID: Optional[str] = os.getenv("AWS_ACCESS_KEY_ID", None)
+    AWS_SECRET_ACCESS_KEY: Optional[str] = os.getenv("AWS_SECRET_ACCESS_KEY", None)
+    AWS_BEDROCK_MODEL_ID: str = os.getenv("AWS_BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+    AWS_S3_BUCKET: str = os.getenv("AWS_S3_BUCKET", "nexaerp-enterprise-documents")
+    AWS_SNS_TOPIC_ARN: Optional[str] = os.getenv("AWS_SNS_TOPIC_ARN", None)
+    AWS_CLOUDWATCH_LOG_GROUP: str = os.getenv("AWS_CLOUDWATCH_LOG_GROUP", "/aws/nexaerp/audit")
+    ALEXA_SKILL_ID: str = os.getenv("ALEXA_SKILL_ID", "amzn1.ask.skill.nexaerp-voice-command")
+
     model_config = SettingsConfigDict(
         env_file=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env")),
         env_file_encoding="utf-8",
@@ -69,9 +82,31 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     def model_post_init(self, __context: Any) -> None:
-        if self.ENVIRONMENT.lower() == "production" and "dev_super_secret" in self.SECRET_KEY:
-            import secrets
-            # Generate cryptographic 256-bit entropy key to prevent insecure default in production
-            self.SECRET_KEY = secrets.token_hex(32)
+        known_insecure = (
+            "dev_super_secret",
+            "nexa_erp_dev_super_secret_key",
+            "nexa_erp_production_secret_key_override_2026",
+            "secret",
+            "changeme"
+        )
+
+        if self.ENVIRONMENT.lower() == "production":
+            # SEC-25: Fail fast if session cookies are insecure in production
+            if not self.COOKIE_SECURE:
+                raise ValueError(
+                    "[SECURITY SEC-25] Production deployment requires COOKIE_SECURE=true to prevent transmission of session cookies over unencrypted HTTP."
+                )
+
+            # SEC-03 / BUG-11: Fail fast if SECRET_KEY is missing, too short, or a known default
+            if not self.SECRET_KEY or any(s in self.SECRET_KEY.lower() for s in known_insecure) or len(self.SECRET_KEY) < 32:
+                raise ValueError(
+                    "[SECURITY SEC-03/BUG-11] Startup blocked: A strong, non-default SECRET_KEY (minimum 32 characters) must be explicitly configured in production environment variables."
+                )
+
+            # SEC-07 / BUG-11: Fail fast if BOOTSTRAP_ADMIN_PASSWORD is empty or known default
+            if not self.BOOTSTRAP_ADMIN_PASSWORD or not self.BOOTSTRAP_ADMIN_PASSWORD.strip() or self.BOOTSTRAP_ADMIN_PASSWORD == "Admin@NexaERP2026!":
+                raise ValueError(
+                    "[SECURITY SEC-07/BUG-11] Startup blocked: A strong, non-empty, non-default BOOTSTRAP_ADMIN_PASSWORD must be explicitly provided in production environment variables."
+                )
 
 settings = Settings()

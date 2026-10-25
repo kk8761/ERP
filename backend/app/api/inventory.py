@@ -1,21 +1,31 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
-from pydantic import BaseModel
+from decimal import Decimal
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user, require_permission
+from app.auth.dependencies import get_current_user, require_permission, is_admin_or_exec
 from app.models.auth import User
 from app.models.inventory import Product, ProductCategory, StockMovement
+from app.models.sales import SalesOrder, SalesOrderItem, Customer
 from app.schemas.inventory import (
     ProductCreate, ProductUpdate, ProductOut,
     CategoryCreate, CategoryOut, StockAdjustmentIn
 )
+from app.schemas.sales import SalesOrderCreate, SalesOrderItemIn
 from app.services.inventory_service import adjust_product_stock
+from app.services.sales_service import create_sales_order
 from app.services.audit_service import record_audit_log
+
+class RecordDailySaleRequest(BaseModel):
+    product_id: int
+    quantity: int = Field(1, ge=1, le=1000)
+    branch_id: Optional[int] = None
+    notes: Optional[str] = "Store Daily Sale"
 
 router = APIRouter(prefix="/api/inventory", tags=["Inventory"])
 
@@ -24,10 +34,25 @@ async def list_products(
     search: Optional[str] = Query(None),
     category_id: Optional[int] = Query(None),
     low_stock_only: bool = Query(False),
+    catalog_type: Optional[str] = Query(None),
     current_user: User = Depends(require_permission("inventory.view")),
     db: AsyncSession = Depends(get_db)
 ):
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required. User has no assigned organization."
+        )
+
     stmt = select(Product).options(selectinload(Product.category)).order_by(Product.name.asc())
+    if catalog_type == "industrial":
+        stmt = stmt.join(Product.category).where(ProductCategory.code.like("CAT-IND-%"))
+    elif catalog_type == "retail":
+        stmt = stmt.outerjoin(Product.category).where((ProductCategory.code.is_(None)) | (~ProductCategory.code.like("CAT-IND-%")))
+
+    if effective_org is not None:
+        stmt = stmt.where(Product.organization_id == effective_org)
     if category_id:
         stmt = stmt.where(Product.category_id == category_id)
     if search:
@@ -73,15 +98,31 @@ async def create_product(
     current_user: User = Depends(require_permission("inventory.create")),
     db: AsyncSession = Depends(get_db)
 ):
-    # Check uniqueness of SKU
-    existing = await db.execute(select(Product).where(Product.sku == data.sku))
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None:
+        if current_user.is_superuser and data.organization_id is not None:
+            effective_org = data.organization_id
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization context required to create products. User has no assigned organization."
+            )
+    elif current_user.is_superuser and data.organization_id is not None:
+        effective_org = data.organization_id
+
+    # Check uniqueness of SKU within the authenticated organization
+    existing = await db.execute(
+        select(Product).where(Product.sku == data.sku, Product.organization_id == effective_org)
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Product with SKU '{data.sku}' already exists"
+            detail=f"Product with SKU '{data.sku}' already exists in this organization"
         )
 
-    product = Product(**data.model_dump())
+    prod_dict = data.model_dump()
+    prod_dict.pop("organization_id", None)
+    product = Product(**prod_dict, organization_id=effective_org)
     db.add(product)
     await db.flush()
 
@@ -130,6 +171,13 @@ async def adjust_stock(
     current_user: User = Depends(require_permission("inventory.adjust")),
     db: AsyncSession = Depends(get_db)
 ):
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for stock adjustment. User has no assigned organization."
+        )
+
     qty = adj.quantity if adj.adjustment_type == "ADJUSTMENT_IN" else -adj.quantity
     movement = await adjust_product_stock(
         db=db,
@@ -137,7 +185,8 @@ async def adjust_stock(
         quantity_change=qty,
         movement_type=adj.adjustment_type,
         user_id=current_user.id,
-        notes=adj.notes or "Manual inventory audit adjustment"
+        notes=adj.notes or "Manual inventory audit adjustment",
+        organization_id=effective_org
     )
     await record_audit_log(
         db, action="INVENTORY_ADJUSTMENT", entity_name="Product",
@@ -162,6 +211,13 @@ async def adjust_specific_product_stock(
     current_user: User = Depends(require_permission("inventory.adjust")),
     db: AsyncSession = Depends(get_db)
 ):
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for stock adjustment. User has no assigned organization."
+        )
+
     if adj.quantity_delta is not None:
         qty = adj.quantity_delta
         m_type = adj.movement_type or ("ADJUSTMENT_IN" if qty > 0 else "ADJUSTMENT_OUT")
@@ -176,7 +232,8 @@ async def adjust_specific_product_stock(
         quantity_change=qty,
         movement_type=m_type,
         user_id=current_user.id,
-        notes=adj.notes or "Manual inventory audit adjustment"
+        notes=adj.notes or "Manual inventory audit adjustment",
+        organization_id=effective_org
     )
     await record_audit_log(
         db, action="INVENTORY_ADJUSTMENT", entity_name="Product",
@@ -189,10 +246,16 @@ async def adjust_specific_product_stock(
 
 @router.get("/categories", response_model=List[CategoryOut])
 async def list_categories(
+    catalog_type: Optional[str] = Query(None),
     current_user: User = Depends(require_permission("inventory.view")),
     db: AsyncSession = Depends(get_db)
 ):
-    res = await db.execute(select(ProductCategory).order_by(ProductCategory.name.asc()))
+    stmt = select(ProductCategory).order_by(ProductCategory.name.asc())
+    if catalog_type == "industrial":
+        stmt = stmt.where(ProductCategory.code.like("CAT-IND-%"))
+    elif catalog_type == "retail":
+        stmt = stmt.where(~ProductCategory.code.like("CAT-IND-%"))
+    res = await db.execute(stmt)
     return res.scalars().all()
 
 @router.post("/categories", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)
@@ -214,13 +277,35 @@ async def create_category(
 @router.get("/stock-exhaustion-predictions")
 async def get_stock_exhaustion_predictions(
     consumer_segment: str = Query("all", description="Consumer profile: all, retail_b2c, wholesale_b2b, enterprise_contract, surge_promo"),
+    branch_id: Optional[int] = Query(None, description="Optional branch ID to isolate regional velocity"),
     current_user: User = Depends(require_permission("inventory.view")),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     """
-    Predicts in how many days current stock will be exhausted,
-    tailored across different consumer demand profiles.
+    Predicts in how many days current stock will be exhausted.
+    Dynamically recalculates based on every single day's sales transactions,
+    factoring in today's sales volume, 7-day velocity, and 30-day moving average.
     """
+    effective_org = getattr(current_user, "organization_id", None)
+    if effective_org is None and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization context required for stock exhaustion predictions."
+        )
+
+    # Validate caller access to branch_id if provided
+    is_admin = current_user.is_superuser or any(
+        r.role and r.role.name in ["System Administrator", "Executive", "Managing Director"]
+        for r in getattr(current_user, "roles", [])
+    )
+    user_branch = getattr(current_user, "active_branch_id", current_user.branch_id)
+    if branch_id is not None and not is_admin:
+        if user_branch != branch_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied: Caller is not authorized for branch ID {branch_id}."
+            )
+
     segment_profiles = {
         "all": {
             "name": "All Consumers (Blended Average)",
@@ -252,45 +337,124 @@ async def get_stock_exhaustion_predictions(
     selected_segment = segment_profiles.get(consumer_segment, segment_profiles["all"])
     multiplier = selected_segment["multiplier"]
 
+    now = datetime.now(timezone.utc)
+    t_1d = now - timedelta(days=1)
+    t_7d = now - timedelta(days=7)
+    t_30d = now - timedelta(days=30)
+
+    # 1. Fetch real-time sales velocity from SalesOrderItem & SalesOrder
+    from app.models.org import Branch
+    sales_stmt = (
+        select(
+            SalesOrderItem.product_id,
+            func.coalesce(func.sum(case((SalesOrderItem.created_at >= t_1d, SalesOrderItem.quantity), else_=0)), 0).label("sales_today"),
+            func.coalesce(func.sum(case((SalesOrderItem.created_at >= t_7d, SalesOrderItem.quantity), else_=0)), 0).label("sales_7d"),
+            func.coalesce(func.sum(case((SalesOrderItem.created_at >= t_30d, SalesOrderItem.quantity), else_=0)), 0).label("sales_30d")
+        )
+        .join(SalesOrder, SalesOrderItem.order_id == SalesOrder.id)
+        .where(SalesOrder.order_status == "COMPLETED")
+    )
+    if branch_id:
+        sales_stmt = sales_stmt.where(SalesOrder.branch_id == branch_id)
+    elif effective_org is not None:
+        sales_stmt = sales_stmt.join(Branch, SalesOrder.branch_id == Branch.id).where(Branch.organization_id == effective_org)
+
+    sales_stmt = sales_stmt.group_by(SalesOrderItem.product_id)
+    sales_res = await db.execute(sales_stmt)
+    sales_map = {row.product_id: row for row in sales_res.all()}
+
+    # 2. Also check stock_movements SALE_OUT in case movements were logged directly
+    sm_stmt = (
+        select(
+            StockMovement.product_id,
+            func.coalesce(func.sum(case((StockMovement.created_at >= t_1d, StockMovement.quantity), else_=0)), 0).label("sm_today"),
+            func.coalesce(func.sum(case((StockMovement.created_at >= t_7d, StockMovement.quantity), else_=0)), 0).label("sm_7d"),
+            func.coalesce(func.sum(case((StockMovement.created_at >= t_30d, StockMovement.quantity), else_=0)), 0).label("sm_30d")
+        )
+        .where(StockMovement.movement_type == "SALE_OUT")
+    )
+    if effective_org is not None:
+        sm_stmt = sm_stmt.join(Product, StockMovement.product_id == Product.id).where(Product.organization_id == effective_org)
+
+    sm_stmt = sm_stmt.group_by(StockMovement.product_id)
+    sm_res = await db.execute(sm_stmt)
+    sm_map = {row.product_id: row for row in sm_res.all()}
+
+    # 3. Load active products scoped to organization
     stmt = select(Product).options(selectinload(Product.category)).order_by(Product.current_stock.asc())
+    if effective_org is not None:
+        stmt = stmt.where(Product.organization_id == effective_org)
     result = await db.execute(stmt)
     products = result.scalars().all()
 
-    now = datetime.now(timezone.utc)
     predictions = []
     critical_count = 0
     urgent_count = 0
     total_reorder_recommended_units = 0
 
     for p in products:
-        # Base daily consumption rate derived from item reorder level and minimum turnover
-        base_rate = max(0.5, float(p.reorder_level or 10) / 7.0)
-        daily_burn = round(base_rate * multiplier, 2)
+        p_sales = sales_map.get(p.id)
+        p_sm = sm_map.get(p.id)
 
+        sales_today = int(max(p_sales.sales_today if p_sales else 0, p_sm.sm_today if p_sm else 0))
+        sales_7d = int(max(p_sales.sales_7d if p_sales else 0, p_sm.sm_7d if p_sm else 0))
+        sales_30d = int(max(p_sales.sales_30d if p_sales else 0, p_sm.sm_30d if p_sm else 0))
+
+        avg_daily_7d = round(sales_7d / 7.0, 2)
+        avg_daily_30d = round(sales_30d / 30.0, 2)
+
+        # Dynamic Daily Sales velocity formula
+        if sales_today > 0 or sales_7d > 0 or sales_30d > 0:
+            has_live_sales = True
+            calculation_basis = "Dynamic Daily Sales Velocity (Live POS & B2B Orders)"
+
+            if sales_today > 0:
+                # Any sales today immediately increase today's burn pace
+                effective_daily_sales = (0.45 * avg_daily_7d) + (0.25 * avg_daily_30d) + (0.30 * sales_today)
+            elif sales_7d > 0:
+                effective_daily_sales = (0.75 * avg_daily_7d) + (0.25 * avg_daily_30d)
+            else:
+                effective_daily_sales = avg_daily_30d
+
+            # Sales trend indicator
+            if avg_daily_30d > 0 and avg_daily_7d >= 1.25 * avg_daily_30d:
+                sales_trend = "ACCELERATING"
+            elif avg_daily_30d > 0 and avg_daily_7d <= 0.75 * avg_daily_30d:
+                sales_trend = "DECELERATING"
+            else:
+                sales_trend = "STEADY"
+        else:
+            has_live_sales = False
+            calculation_basis = "Catalog Baseline Turnover (Awaiting First Store Sales)"
+            effective_daily_sales = max(0.5, float(p.reorder_level or 10) / 14.0)
+            sales_trend = "NO_RECENT_SALES"
+
+        daily_burn = round(max(0.1, effective_daily_sales) * multiplier, 2)
         stock = p.current_stock
+
         if stock <= 0:
             days_left = 0.0
             urgency = "OUT_OF_STOCK"
             stockout_risk = 100
         else:
             days_left = round(stock / daily_burn, 1)
-            if days_left <= 4.0:
+            if days_left <= 3.0:
                 urgency = "CRITICAL"
                 stockout_risk = 95
-            elif days_left <= 8.0:
+            elif days_left <= 7.0:
                 urgency = "URGENT"
                 stockout_risk = 75
-            elif days_left <= 15.0:
+            elif days_left <= 14.0:
                 urgency = "MODERATE"
                 stockout_risk = 45
-            elif days_left <= 45.0:
+            elif days_left <= 35.0:
                 urgency = "SAFE"
                 stockout_risk = 15
             else:
                 urgency = "OVERSTOCKED"
                 stockout_risk = 5
 
-        exhaust_date = (now + timedelta(days=days_left)).strftime("%b %d, %Y")
+        exhaust_date = (now + timedelta(days=days_left)).strftime("%b %d, %Y") if days_left > 0 else "Immediate (Stockout)"
         reorder_qty = max(10, int((daily_burn * 30) - max(0, stock)))
 
         if urgency in ("OUT_OF_STOCK", "CRITICAL"):
@@ -314,7 +478,15 @@ async def get_stock_exhaustion_predictions(
             "urgency": urgency,
             "stockout_risk_percent": stockout_risk,
             "recommended_reorder_qty": reorder_qty,
-            "estimated_reorder_cost": round(reorder_qty * float(p.cost_price or 0), 2)
+            "estimated_reorder_cost": round(reorder_qty * float(p.cost_price or 0), 2),
+            "sales_today": sales_today,
+            "sales_last_7d": sales_7d,
+            "avg_daily_sales_7d": avg_daily_7d,
+            "sales_last_30d": sales_30d,
+            "avg_daily_sales_30d": avg_daily_30d,
+            "sales_trend": sales_trend,
+            "has_live_sales": has_live_sales,
+            "calculation_basis": calculation_basis
         })
 
     # Sort so most critical (fewest days remaining) appear first
@@ -327,6 +499,8 @@ async def get_stock_exhaustion_predictions(
         "consumer_segment_name": selected_segment["name"],
         "consumer_segment_description": selected_segment["description"],
         "consumer_segment_multiplier": multiplier,
+        "branch_id": branch_id,
+        "prediction_engine": "Real-Time Sales-Driven Adaptive Velocity Engine",
         "available_segments": [
             {"id": k, "name": v["name"], "description": v["description"], "multiplier": v["multiplier"]}
             for k, v in segment_profiles.items()
@@ -336,7 +510,142 @@ async def get_stock_exhaustion_predictions(
             "critical_stockouts_count": critical_count,
             "urgent_reorders_count": urgent_count,
             "average_days_inventory_remaining": avg_days,
-            "total_recommended_replenishment_units": total_reorder_recommended_units
+            "total_recommended_replenishment_units": total_reorder_recommended_units,
+            "live_sales_active_skus": sum(1 for p in predictions if p["has_live_sales"])
         },
         "predictions": predictions
     }
+
+
+@router.post("/stock-exhaustion-predictions/record-daily-sale")
+async def record_daily_sale_and_update_prediction(
+    payload: RecordDailySaleRequest,
+    current_user: User = Depends(require_permission("sales.create")),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Records an immediate sale transaction for a product and recalculates
+    the updated stock exhaustion prediction and shift in exhaustion date.
+    """
+    effective_org = getattr(current_user, "organization_id", None)
+    if not effective_org and not getattr(current_user, "is_superuser", False):
+        raise HTTPException(status_code=403, detail="Organization context required to record sales.")
+    effective_org = effective_org or 1
+
+    # Scope product lookup by organization
+    prod_res = await db.execute(
+        select(Product).where(Product.id == payload.product_id, Product.organization_id == effective_org)
+    )
+    product = prod_res.scalar_one_or_none()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if product.current_stock < payload.quantity:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient stock for '{product.name}'. In stock: {product.current_stock}, requested: {payload.quantity}"
+        )
+
+    # BUG-67 Fix: Branch authorization - ordinary users derive branch from active context
+    is_admin = is_admin_or_exec(current_user)
+    user_branch = getattr(current_user, "active_branch_id", current_user.branch_id)
+    if not is_admin:
+        effective_branch = user_branch or payload.branch_id
+        if user_branch is not None and payload.branch_id is not None and payload.branch_id != user_branch:
+            user_perms = getattr(current_user, "effective_permissions", set())
+            if "reports.consolidated" not in user_perms and "branches.switch" not in user_perms:
+                raise HTTPException(status_code=403, detail="Not authorized to record sales for another branch.")
+    else:
+        effective_branch = payload.branch_id or user_branch
+
+    # Validate branch belongs to organization
+    if effective_branch:
+        from app.models.org import Branch
+        b_res = await db.execute(select(Branch).where(Branch.id == effective_branch, Branch.organization_id == effective_org))
+        if not b_res.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Specified branch does not belong to your organization.")
+
+    # 1. Fetch walk-in or default customer scoped to organization
+    cust_res = await db.execute(
+        select(Customer).where(Customer.organization_id == effective_org).limit(1)
+    )
+    customer = cust_res.scalar_one_or_none()
+    customer_id = customer.id if customer else None
+
+    # 2. Record official SalesOrder via service
+    order_in = SalesOrderCreate(
+        customer_id=customer_id,
+        branch_id=effective_branch,
+        payment_method="CASH",
+        discount_amount=Decimal("0.00"),
+        notes=payload.notes,
+        items=[
+            SalesOrderItemIn(
+                product_id=product.id,
+                quantity=payload.quantity
+            )
+        ]
+    )
+    sales_order = await create_sales_order(
+        db=db,
+        order_in=order_in,
+        cashier_user_id=current_user.id,
+        organization_id=effective_org
+    )
+
+    # Audit log
+    await record_audit_log(
+        db=db,
+        user_id=current_user.id,
+        user_email=current_user.email,
+        action="RECORD_DAILY_SALE",
+        entity_name="sales_orders",
+        entity_id=str(sales_order.id),
+        details=f"Recorded sale of {payload.quantity} units of {product.name} ({product.sku}). Stock updated from {product.current_stock + payload.quantity} to {product.current_stock}."
+    )
+
+    # 3. Calculate new exhaustion prediction for this product
+    now = datetime.now(timezone.utc)
+    t_1d = now - timedelta(days=1)
+    t_7d = now - timedelta(days=7)
+    t_30d = now - timedelta(days=30)
+
+    sales_stmt = (
+        select(
+            func.coalesce(func.sum(case((SalesOrderItem.created_at >= t_1d, SalesOrderItem.quantity), else_=0)), 0).label("sales_today"),
+            func.coalesce(func.sum(case((SalesOrderItem.created_at >= t_7d, SalesOrderItem.quantity), else_=0)), 0).label("sales_7d"),
+            func.coalesce(func.sum(case((SalesOrderItem.created_at >= t_30d, SalesOrderItem.quantity), else_=0)), 0).label("sales_30d")
+        )
+        .join(SalesOrder, SalesOrderItem.order_id == SalesOrder.id)
+        .where(SalesOrder.order_status == "COMPLETED", SalesOrderItem.product_id == product.id)
+    )
+    res = await db.execute(sales_stmt)
+    s_row = res.one_or_none()
+    sales_today = s_row.sales_today if s_row else payload.quantity
+    sales_7d = s_row.sales_7d if s_row else payload.quantity
+    sales_30d = s_row.sales_30d if s_row else payload.quantity
+
+    avg_7d = sales_7d / 7.0
+    avg_30d = sales_30d / 30.0
+    daily_burn = round((0.45 * avg_7d) + (0.25 * avg_30d) + (0.30 * sales_today), 2)
+    daily_burn = max(0.1, daily_burn)
+
+    new_stock = product.current_stock
+    days_left = round(new_stock / daily_burn, 1) if new_stock > 0 else 0.0
+    exhaust_date = (now + timedelta(days=days_left)).strftime("%b %d, %Y") if days_left > 0 else "Immediate (Stockout)"
+
+    return {
+        "success": True,
+        "invoice_number": sales_order.invoice_number,
+        "product_id": product.id,
+        "product_name": product.name,
+        "sku": product.sku,
+        "quantity_sold": payload.quantity,
+        "remaining_stock": new_stock,
+        "sales_today": sales_today,
+        "updated_daily_burn_rate": daily_burn,
+        "updated_days_until_exhaustion": days_left,
+        "updated_projected_exhaustion_date": exhaust_date,
+        "message": f"Sale of {payload.quantity}x {product.name} recorded successfully. Prediction updated immediately based on today's sales."
+    }
+

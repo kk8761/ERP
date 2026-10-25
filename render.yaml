@@ -30,6 +30,10 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
+      - key: BACKUP_ENCRYPTION_KEY
+        generateValue: true
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        generateValue: true
       - key: CORS_ORIGINS
         value: "https://nexaerp-frontend.onrender.com,https://nexaerp-frontend-mlae.onrender.com,http://localhost:5173,http://127.0.0.1:5173"
       - key: COOKIE_SECURE

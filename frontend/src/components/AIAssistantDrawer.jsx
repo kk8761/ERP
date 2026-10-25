@@ -4,7 +4,8 @@ import {
   ShieldCheck, Lock, Plus, FileText, CheckCircle2, 
   ChevronRight, ArrowLeft, Maximize2, Minimize2,
   Calendar, Clock, AlertTriangle, Check, RotateCcw, 
-  Play, Sliders, Star, Award, TrendingUp, ThumbsUp, ThumbsDown
+  Play, Sliders, Star, Award, TrendingUp, ThumbsUp, ThumbsDown,
+  Tv, Mic, Volume2, ExternalLink, Radio
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 import MarkdownContent from './MarkdownContent';
@@ -44,7 +45,34 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
   const [loadingWorkflows, setLoadingWorkflows] = useState(false);
   const [runningWorkflowId, setRunningWorkflowId] = useState(null);
 
+  // Alexa+ Voice Recognition & MCP state
+  const [alexaVoiceResult, setAlexaVoiceResult] = useState(null);
+  const [alexaLoading, setAlexaLoading] = useState(false);
+  const [awsStatus, setAwsStatus] = useState(null);
+  const [isListening, setIsListening] = useState(false);
+  const [listeningTranscript, setListeningTranscript] = useState('');
+  const [voiceError, setVoiceError] = useState(null);
+  const [isAlexaSpeaking, setIsAlexaSpeaking] = useState(false);
+  const recognitionRef = useRef(null);
+  const transcriptRef = useRef('');
+  const silenceTimerRef = useRef(null);
+
   const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    const handleRemoteVoice = (e) => {
+      const wakePrompt = e?.detail?.wakePrompt;
+      setTimeout(() => {
+        if (wakePrompt) {
+          handleExecuteVoiceCommand(wakePrompt);
+        } else {
+          toggleVoiceListening();
+        }
+      }, 300);
+    };
+    window.addEventListener('start-alexa-voice', handleRemoteVoice);
+    return () => window.removeEventListener('start-alexa-voice', handleRemoteVoice);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -107,6 +135,239 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
       alert(`Failed to run workflow: ${err.message}`);
     } finally {
       setRunningWorkflowId(null);
+    }
+  };
+
+  const toggleVoiceListening = async () => {
+    // Immediately silence any ongoing speech output
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsAlexaSpeaking(false);
+    setVoiceError(null);
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      const fallbackPrompt = input.trim();
+      if (!fallbackPrompt) {
+        setVoiceError("Your browser doesn't support Web Speech API. You can click any voice sample below to test Alexa MCP.");
+        return;
+      }
+      handleExecuteVoiceCommand(fallbackPrompt);
+      return;
+    }
+
+    if (isListening) {
+      // User tapped mic to stop listening -> process whatever was heard so far
+      setIsListening(false);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+      }
+      const heard = transcriptRef.current.trim();
+      if (heard) {
+        handleExecuteVoiceCommand(heard);
+      }
+      return;
+    }
+
+    // Explicitly prompt for microphone permission via getUserMedia
+    // This forces Chrome to show the native "127.0.0.1:8000 wants to use your microphone: [Allow] [Block]" dialog
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Release audio tracks immediately so SpeechRecognition has full microphone access
+        stream.getTracks().forEach(t => t.stop());
+      } catch (mediaErr) {
+        console.warn("getUserMedia error:", mediaErr);
+        if (mediaErr.name === 'NotAllowedError' || mediaErr.name === 'PermissionDeniedError') {
+          setVoiceError("PERMISSION_BLOCKED");
+          return;
+        }
+      }
+    }
+
+    try {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch (e) {}
+      }
+
+      const recognition = new SpeechRec();
+      recognitionRef.current = recognition;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      transcriptRef.current = '';
+      setListeningTranscript('');
+      setIsListening(true);
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceError(null);
+      };
+
+      recognition.onresult = (event) => {
+        let interim = '';
+        let final = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            final += event.results[i][0].transcript;
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+        const text = (final || interim).trim();
+        if (text) {
+          transcriptRef.current = text;
+          setListeningTranscript(text);
+          setInput(text);
+
+          // Auto-finalize after 2 seconds of natural silence following spoken words
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            if (recognitionRef.current) {
+              try { recognitionRef.current.stop(); } catch (e) {}
+            }
+          }, 2000);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Speech recognition event:", event.error);
+        setIsListening(false);
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        if (event.error === 'not-allowed') {
+          setVoiceError("PERMISSION_BLOCKED");
+        } else if (event.error === 'network') {
+          setVoiceError("Browser speech service network issue. You can click any sample voice query below to test Alexa MCP.");
+        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          setVoiceError(`Voice recognition status: ${event.error}. You can use sample voice commands below.`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        const spoken = transcriptRef.current.trim();
+        if (spoken) {
+          handleExecuteVoiceCommand(spoken);
+        }
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.warn("Failed to activate microphone:", err);
+      setIsListening(false);
+      setVoiceError("Could not access microphone. Tap any sample voice command below to test Alexa MCP.");
+    }
+  };
+
+  const handleExecuteVoiceCommand = async (spokenPrompt) => {
+    const raw = (spokenPrompt || transcriptRef.current || input).trim();
+    if (!raw) return;
+
+    // Immediately stop any prior synthesis
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    setInput('');
+    setListeningTranscript('');
+    transcriptRef.current = '';
+
+    setMessages(prev => [...prev, { sender: 'user', text: `🎙️ "${raw}"` }]);
+    setLoading(true);
+    setAlexaLoading(true);
+
+    try {
+      // Check if user specifically addressed the wake word (e.g. "Hey Alexa", "Alexa", "Hey Alexa also", "Hi Alexa", etc.)
+      const isJustWake = /^(?:hey\s+|ok\s+|okay\s+|hi\s+|hello\s+|wake\s+up\s+)?(?:alexa|nexa|assistant)(?:\s+(?:wake\s+up|also|there|please))?(?:[,.!?\s]+(?:what\'?s\s+up|help|are\s+you\s+there|how\s+are\s+you|talk\s+to\s+me|what\s+can\s+you\s+do|good\s+(?:morning|afternoon|evening)|can\s+you\s+hear\s+me|listen))?[.!?\s]*$/i.test(raw);
+
+      // If just the wake word, preserve it to trigger AlexaWakeIntent with full greeting and hands-free prompt.
+      // Otherwise, strip the leading wake phrase prefix (e.g. "Hey Alexa, compare suppliers" -> "compare suppliers")
+      const cleaned = isJustWake
+        ? raw
+        : (raw
+            .replace(/^(?:hey\s+|ok\s+|okay\s+|hi\s+|hello\s+)?(?:alexa|nexa|computer|assistant)[, ]+(?:can\s+you\s+|please\s+)?(?:ask\s+nexa(?:\s+erp)?\s+(?:to\s+|for\s+)?|tell\s+nexa(?:\s+erp)?\s+(?:to\s+|for\s+)?|show\s+me\s+|give\s+me\s+)?/i, '')
+            .replace(/^(?:can\s+you\s+|please\s+)/i, '')
+            .trim() || raw);
+
+      // Dispatches to Alexa Multimodal gateway, seamlessly integrating RAG and API tools
+      const res = await apiRequest('/api/alexa/simulate', {
+        method: 'POST',
+        body: JSON.stringify({ query: cleaned })
+      });
+
+      setAlexaVoiceResult(res);
+      const speech = res?.response?.outputSpeech?.ssml?.replace(/<[^>]*>/g, '') || '';
+      const customData = res?.custom_payload || {};
+      const fullText = customData.markdown_answer
+        ? `🔊 **Alexa+ Voice & Governance Response**:\n\n${customData.markdown_answer}`
+        : `🔊 **Alexa+ Response**: ${speech}`;
+
+      // Clean speech playback with speech synthesis & continuous conversational handoff
+      if ('speechSynthesis' in window && speech) {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(speech.substring(0, 320));
+        utter.rate = 1.05;
+
+        utter.onstart = () => {
+          setIsAlexaSpeaking(true);
+        };
+
+        // When Alexa finishes speaking, automatically reopen mic so the user can speak hands-free!
+        utter.onend = () => {
+          setIsAlexaSpeaking(false);
+          setTimeout(() => {
+            toggleVoiceListening();
+          }, 350);
+        };
+
+        utter.onerror = () => {
+          setIsAlexaSpeaking(false);
+        };
+
+        window.speechSynthesis.speak(utter);
+      }
+
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'ai',
+          isAlexaMCP: true,
+          text: fullText,
+          comparison_table: customData.comparison_table || null,
+          plan: customData.plan_steps || null,
+          scorecard: customData.scorecard || null,
+          alexaVoiceResult: res,
+          task_type: customData.task_type || 'ALEXA_MCP_VOICE',
+          suggestions: [
+            "Find low-stock products",
+            "Generate a purchase order using Adani Wilmar",
+            "Show vendor scorecard for Adani Wilmar",
+            "Summarize today's sales"
+          ]
+        }
+      ]);
+
+      // Ensure view auto-scrolls so user immediately sees the rich tables and answer
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 120);
+    } catch (err) {
+      console.warn("Voice command error:", err);
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'ai',
+          text: `⚠️ **Voice Processing**: ${err.message || "Failed to process voice request."}`,
+          suggestions: ["Find low-stock products"]
+        }
+      ]);
+    } finally {
+      setAlexaLoading(false);
+      setLoading(false);
     }
   };
 
@@ -240,17 +501,19 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
 
   return (
     <div style={{
-      width: isExpanded ? '780px' : '520px',
+      width: isExpanded ? '780px' : '480px',
       maxWidth: '92vw',
       transition: 'width 0.25s ease',
       height: 'calc(100vh - var(--header-height, 64px))',
       backgroundColor: 'var(--bg-surface, #ffffff)',
       borderLeft: '1px solid var(--border-color, #e2e8f0)',
-      boxShadow: 'var(--shadow-lg, 0 10px 25px -5px rgba(0,0,0,0.1))',
+      boxShadow: '-8px 0 24px rgba(0,0,0,0.15)',
       display: 'flex',
       flexDirection: 'column',
-      zIndex: 90,
-      position: 'relative'
+      zIndex: 200,
+      position: 'fixed',
+      right: 0,
+      top: 'var(--header-height, 64px)'
     }}>
       {/* Header */}
       <div style={{
@@ -325,15 +588,27 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
             <strong>Tenant Isolated:</strong> {currentOrgName}
           </span>
         </div>
-        <span style={{
-          backgroundColor: '#dcfce7',
-          padding: '1px 6px',
-          borderRadius: '4px',
-          fontWeight: 700,
-          fontSize: '10px'
-        }}>
-          AUDITED & TYPED TOOLS
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{
+            backgroundColor: '#e0e7ff',
+            color: '#4338ca',
+            padding: '1px 6px',
+            borderRadius: '4px',
+            fontWeight: 700,
+            fontSize: '10px'
+          }}>
+            ALEXA MCP 2024-11-05
+          </span>
+          <span style={{
+            backgroundColor: '#dcfce7',
+            padding: '1px 6px',
+            borderRadius: '4px',
+            fontWeight: 700,
+            fontSize: '10px'
+          }}>
+            AUDITED & TYPED TOOLS
+          </span>
+        </div>
       </div>
 
       {/* Navigation Tabs */}
@@ -822,6 +1097,36 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
                       ))}
                     </div>
                   )}
+                  {/* Alexa MCP Visual Directive Rendering */}
+                  {isAI && msg.isAlexaMCP && msg.alexaVoiceResult && (
+                    <div style={{
+                      width: '100%',
+                      background: '#0b1120',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      border: '1px solid #38bdf8',
+                      color: '#ffffff'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#38bdf8' }}>
+                          {msg.alexaVoiceResult?.response?.directives?.[0]?.datasources?.data?.title || "Alexa+ Multimodal Directives"}
+                        </span>
+                        <span style={{ fontSize: '9px', color: '#94a3b8', backgroundColor: '#1e293b', padding: '1px 5px', borderRadius: '4px' }}>
+                          APL 2024.1 · JSON-RPC 2.0 MCP
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                        {(msg.alexaVoiceResult?.response?.directives?.[0]?.datasources?.data?.cards || []).map((c, i) => (
+                          <div key={i} style={{ minWidth: '130px', background: '#1e293b', borderRadius: '6px', padding: '8px', border: '1px solid #334155' }}>
+                            <div style={{ fontSize: '9px', fontWeight: 800, color: c.badgeColor || '#6366f1' }}>{c.badge}</div>
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: '#ffffff', marginTop: '2px' }}>{c.title}</div>
+                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>{c.details}</div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#38bdf8', marginTop: '4px' }}>{c.metric}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -833,6 +1138,246 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
               </div>
             )}
             <div ref={messagesEndRef} />
+          </div>
+
+          {/* Active Voice Listening Banner */}
+          {isListening && (
+            <div style={{
+              padding: '8px 14px',
+              backgroundColor: '#fef2f2',
+              borderTop: '1px solid #fecaca',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                <span style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor: '#ef4444',
+                  boxShadow: '0 0 8px #ef4444',
+                  display: 'inline-block'
+                }} className="animate-ping" />
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Listening:
+                </span>
+                <span style={{ fontSize: '12px', color: '#1e293b', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {listeningTranscript || "Speak your query or command (e.g. 'Find low-stock products')..."}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  onClick={() => {
+                    if (recognitionRef.current) {
+                      try { recognitionRef.current.stop(); } catch (e) {}
+                    }
+                  }}
+                  style={{
+                    fontSize: '11px',
+                    padding: '3px 8px',
+                    borderRadius: '4px',
+                    backgroundColor: '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  Done
+                </button>
+                <button
+                  onClick={() => {
+                    transcriptRef.current = '';
+                    setListeningTranscript('');
+                    setInput('');
+                    setIsListening(false);
+                    if (recognitionRef.current) {
+                      try { recognitionRef.current.abort(); } catch (e) {}
+                    }
+                  }}
+                  style={{
+                    fontSize: '11px',
+                    padding: '3px 6px',
+                    borderRadius: '4px',
+                    backgroundColor: '#e2e8f0',
+                    color: '#64748b',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Alexa Speaking Live Interactive Banner */}
+          {isAlexaSpeaking && (
+            <div style={{
+              padding: '8px 14px',
+              backgroundColor: '#eff6ff',
+              borderTop: '1px solid #bfdbfe',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '11.5px',
+              color: '#1d4ed8'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Volume2 size={16} color="#2563eb" />
+                <span>
+                  <strong>Alexa is speaking...</strong> Hands-free mic opens automatically when done.
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+                  setIsAlexaSpeaking(false);
+                  toggleVoiceListening();
+                }}
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  backgroundColor: '#2563eb',
+                  color: '#ffffff',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                Interrupt & Ask
+              </button>
+            </div>
+          )}
+
+          {/* Voice Notice / Error Banner */}
+          {voiceError && (
+            <div style={{
+              padding: '10px 14px',
+              backgroundColor: voiceError === 'PERMISSION_BLOCKED' ? '#fff7ed' : '#fef3c7',
+              borderTop: `1px solid ${voiceError === 'PERMISSION_BLOCKED' ? '#fed7aa' : '#fde68a'}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              fontSize: '11.5px',
+              color: voiceError === 'PERMISSION_BLOCKED' ? '#9a3412' : '#92400e'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+                  <Mic size={15} color={voiceError === 'PERMISSION_BLOCKED' ? '#ea580c' : '#d97706'} />
+                  <span>
+                    {voiceError === 'PERMISSION_BLOCKED'
+                      ? "Microphone access is currently blocked by Chrome for this address."
+                      : voiceError}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setVoiceError(null)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9a3412', fontWeight: 700, padding: 0 }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {voiceError === 'PERMISSION_BLOCKED' && (
+                <div style={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #ffedd5',
+                  borderRadius: '6px',
+                  padding: '8px 10px',
+                  fontSize: '11px',
+                  lineHeight: '1.5',
+                  color: '#374151'
+                }}>
+                  <div style={{ fontWeight: 600, color: '#c2410c', marginBottom: '3px' }}>
+                    Quick 2-Step Fix in Chrome:
+                  </div>
+                  <div>1. Click the <strong>(i)</strong> or settings icon on the far left of <code>127.0.0.1:8000</code> in your address bar.</div>
+                  <div>2. Toggle <strong>Microphone</strong> to <strong>Allow</strong> (or choose "Site Settings" &rarr; Microphone &rarr; Allow).</div>
+                  <div style={{ marginTop: '7px', display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => toggleVoiceListening()}
+                      style={{
+                        padding: '4px 10px',
+                        backgroundColor: '#ea580c',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: 600
+                      }}
+                    >
+                      🔄 Try Microphone Now
+                    </button>
+                    <button
+                      onClick={() => setVoiceError(null)}
+                      style={{
+                        padding: '4px 10px',
+                        backgroundColor: '#f3f4f6',
+                        color: '#4b5563',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                    >
+                      Use 1-Click Presets Below
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Alexa+ Quick Voice Command Presets */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            overflowX: 'auto',
+            padding: '6px 14px',
+            backgroundColor: 'var(--bg-subtle, #f8fafc)',
+            borderTop: '1px solid var(--border-color, #e2e8f0)',
+            whiteSpace: 'nowrap'
+          }}>
+            <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#0284c7', display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+              <Mic size={12} /> Alexa Voice:
+            </span>
+            {[
+              { label: "Low Stock Scan", query: "Find low-stock products" },
+              { label: "Compare Vendors", query: "Compare suppliers for Basmati Rice" },
+              { label: "PO Approval Policy", query: "What is the policy for purchase order approvals?" },
+              { label: "Adani Scorecard", query: "Show vendor scorecard for Adani Wilmar" },
+              { label: "Today's Sales", query: "Summarize today's sales" }
+            ].map((vCmd, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleExecuteVoiceCommand(vCmd.query)}
+                disabled={loading || alexaLoading}
+                style={{
+                  fontSize: '11px',
+                  padding: '3px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid #bae6fd',
+                  color: '#0369a1',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontWeight: 500,
+                  flexShrink: 0,
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>🎙️</span>
+                <span>{vCmd.label}</span>
+              </button>
+            ))}
           </div>
 
           {/* Input Box */}
@@ -849,10 +1394,31 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
-              placeholder="Instruct ERP actions, compare vendors, or schedule workflows..."
+              placeholder={isListening ? "Listening... Speak your command now" : "Instruct ERP actions, compare vendors, or ask via Alexa MCP..."}
               className="form-input"
               style={{ flex: 1, padding: '8px 12px', borderRadius: '20px', fontSize: '12px' }}
             />
+            <button
+              onClick={toggleVoiceListening}
+              disabled={loading || alexaLoading}
+              title={isListening ? "Listening to your voice... Tap to finish & execute" : "Click to speak via Alexa+ Voice MCP"}
+              style={{
+                width: '34px',
+                height: '34px',
+                borderRadius: '50%',
+                backgroundColor: isListening ? '#ef4444' : '#0284c7',
+                boxShadow: isListening ? '0 0 10px rgba(239, 68, 68, 0.7)' : 'none',
+                color: '#ffffff',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <Mic size={14} className={isListening ? "animate-pulse" : ""} />
+            </button>
             <button
               onClick={() => handleSend()}
               disabled={!input.trim() || loading}
@@ -1231,3 +1797,4 @@ export default function AIAssistantDrawer({ isOpen, onClose }) {
     </div>
   );
 }
+

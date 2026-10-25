@@ -6,11 +6,11 @@ import {
   ShieldAlert, Sparkles, BarChart3, Sliders, ArrowLeftRight,
   Factory, Layers, Cpu, ShieldCheck, Award, TrendingDown,
   Database, KeyRound, FileSpreadsheet, Mail, Camera, Building2,
-  LogOut
+  LogOut, GitFork, Store
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
+export default function Sidebar({ currentTab, onNavigate, onToggleAI, onSwitchPortal }) {
   const { user, logout, hasPermission } = useAuth();
 
   // Track accordion expand/collapse state
@@ -39,27 +39,27 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
   const menuSections = [
     {
       id: 'sales',
-      title: 'Sales',
+      title: 'B2B Commercial & Sales',
       icon: ShoppingCart,
       items: [
-        { id: 'pos', label: 'Point of Sale', icon: ShoppingCart, perm: 'sales.create' },
-        { id: 'sales_orders', label: 'Sales Orders', icon: FileText, perm: 'sales.view' },
-        { id: 'customers', label: 'Customers', icon: UserCheck, perm: 'customers.manage' },
-        { id: 'returns', label: 'Returns', icon: RotateCcw, perm: 'sales.refund' }
+        { id: 'sales_orders', label: 'Sales Orders & Contracts', icon: FileText, perm: 'sales.view' },
+        { id: 'customers', label: 'Corporate Clients & CRM', icon: UserCheck, perm: 'customers.manage' },
+        { id: 'invoices', label: 'Commercial Invoices', icon: FileText, perm: 'sales.view' },
+        { id: 'returns', label: 'RMA & Credit Memos', icon: RotateCcw, perm: 'sales.refund' }
       ]
     },
     {
       id: 'inventory',
-      title: 'Inventory',
+      title: 'Materials & Plant Inventory',
       icon: Package,
       items: [
-        { id: 'products', label: 'Products', icon: Boxes, perm: 'inventory.view' },
-        { id: 'inventory', label: 'Stock Overview', icon: Package, perm: 'inventory.view' },
-        { id: 'procurement', label: 'Purchase Orders', icon: FileText, perm: 'procurement.view' },
-        { id: 'suppliers', label: 'Suppliers', icon: Truck, perm: 'procurement.view' },
-        { id: 'stock_movements', label: 'Stock Movements', icon: ArrowLeftRight, perm: 'inventory.adjust' },
-        { id: 'barcode_scanner', label: 'Barcode Scanner', icon: ScanLine, perm: 'sales.create' },
-        { id: 'stock_depletion', label: 'Stock Exhaustion Predictor', icon: TrendingDown, perm: 'inventory.view' }
+        { id: 'products', label: 'Industrial Components & Materials', icon: Boxes, perm: 'inventory.view' },
+        { id: 'inventory', label: 'Warehouse Stock Overview', icon: Package, perm: 'inventory.view' },
+        { id: 'procurement', label: 'Purchase Orders & Procurement', icon: FileText, perm: 'procurement.view' },
+        { id: 'suppliers', label: 'Industrial Vendors & Suppliers', icon: Truck, perm: 'procurement.view' },
+        { id: 'stock_movements', label: 'Stock Movements Ledger', icon: ArrowLeftRight, perm: 'inventory.adjust' },
+        { id: 'barcode_scanner', label: 'Asset Barcode Scanner', icon: ScanLine, perm: 'sales.create' },
+        { id: 'stock_depletion', label: 'Safety Stock Exhaustion Predictor', icon: TrendingDown, perm: 'inventory.view' }
       ]
     },
     {
@@ -101,6 +101,7 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
       icon: Users,
       items: [
         { id: 'employees', label: 'Employees', icon: Users, perm: 'hr.view' },
+        { id: 'org_hierarchy', label: 'Org Hierarchy & Chains', icon: GitFork, perm: 'hr.view' },
         { id: 'attendance', label: 'Attendance', icon: Clock, perm: 'attendance.record' },
         { id: 'leaves', label: 'Leave Management', icon: Calendar, perm: 'hr.view' },
         { id: 'users', label: 'User Directory & Roles', icon: UserCheck, perm: 'users.view' },
@@ -133,11 +134,14 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
       display: 'flex',
       flexDirection: 'column',
       height: 'calc(100vh - var(--header-height))',
-      userSelect: 'none'
+      userSelect: 'none',
+      overflow: 'hidden',
+      flexShrink: 0
     }}>
       {/* Scrollable Navigation Area */}
       <div style={{
         flex: 1,
+        minHeight: 0,
         overflowY: 'auto',
         padding: '12px 10px'
       }}>
@@ -247,6 +251,8 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
         </div>
       </div>
 
+
+
       {/* Sticky Bottom User Profile & Direct Sign Out */}
       <div style={{
         padding: '12px 10px',
@@ -258,7 +264,20 @@ export default function Sidebar({ currentTab, onNavigate, onToggleAI }) {
         gap: '8px',
         flexShrink: 0
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+        <div 
+          onClick={() => window.dispatchEvent(new CustomEvent('nexaerp:open_user_profile'))}
+          title="Click to view and edit User Profile & Security"
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px', 
+            overflow: 'hidden', 
+            cursor: 'pointer',
+            padding: '2px 4px',
+            borderRadius: '6px',
+            transition: 'background var(--transition-fast)'
+          }}
+        >
           <div style={{
             width: '32px',
             height: '32px',

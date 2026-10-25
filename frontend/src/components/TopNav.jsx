@@ -1,22 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Search, Bell, HelpCircle, Sun, Moon, ChevronDown, 
+  Search, Bell, HelpCircle, Sun, Moon, ChevronDown, ChevronLeft, ChevronRight,
   Store, User, Shield, LogOut, KeyRound, Sparkles,
   ScanLine, PenTool, Wifi, WifiOff, Sliders, ShieldAlert, Eye, Check,
-  RefreshCw, Mail, Building2, Clock
+  RefreshCw, Mail, Building2, Clock, Mic, Globe, UploadCloud, Database
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ModuleSearchModal from './ModuleSearchModal';
 import ScreenshotIncidentModal from './ScreenshotIncidentModal';
+import UniversalDataImportModal from './UniversalDataImportModal';
+import MNCBranchSwitcherModal from './MNCBranchSwitcherModal';
+import UserProfileModal from './UserProfileModal';
+import CompanySettingsModal from './CompanySettingsModal';
+import UserPreferencesModal from './UserPreferencesModal';
 import { triggerSyncNow } from '../services/syncManager';
 import { API_BASE_URL } from '../services/api';
 
 export default function TopNav({
   onToggleAI,
+  onOpenAI,
   onNavigate,
   currentTab,
   onOpenScanner,
   onOpenSignature,
+  onSwitchPortal,
   theme,
   setTheme
 }) {
@@ -28,6 +35,17 @@ export default function TopNav({
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchCategory, setSearchCategory] = useState('all');
+  
+  // MNC Multi-Branch & Universal Data Onboarding Modals
+  const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [currentBranchId, setCurrentBranchId] = useState(1);
+  const [currentBranchName, setCurrentBranchName] = useState('Hyderabad Global HQ');
+  
+  // User Profile, Company Settings & User Preferences Modals
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isPrefsModalOpen, setIsPrefsModalOpen] = useState(false);
   
   // DLP Screenshot Security Incidents State
   const [screenshotIncidents, setScreenshotIncidents] = useState([]);
@@ -41,6 +59,79 @@ export default function TopNav({
     lastSyncTimestamp: null
   });
 
+  const profileRef = useRef(null);
+  const notifRef = useRef(null);
+
+  // Close profile and notification dropdowns on click outside or Escape key
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
+        setProfileOpen(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        setNotifOpen(false);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setProfileOpen(false);
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  // Horizontal sideways scroll state for top action toolbar
+  const scrollContainerRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScroll = () => {
+    if (scrollContainerRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current;
+      setCanScrollLeft(scrollLeft > 4);
+      setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 4);
+    }
+  };
+
+  useEffect(() => {
+    checkScroll();
+    const timer = setTimeout(checkScroll, 350);
+    window.addEventListener('resize', checkScroll);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', checkScroll);
+    };
+  }, []);
+
+  const handleScrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -220, behavior: 'smooth' });
+      setTimeout(checkScroll, 250);
+    }
+  };
+
+  const handleScrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 220, behavior: 'smooth' });
+      setTimeout(checkScroll, 250);
+    }
+  };
+
+  const handleWheel = (e) => {
+    if (scrollContainerRef.current) {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        scrollContainerRef.current.scrollLeft += e.deltaY;
+        checkScroll();
+      }
+    }
+  };
+
   useEffect(() => {
     const handleSyncUpdate = (e) => {
       if (e.detail) {
@@ -49,6 +140,23 @@ export default function TopNav({
     };
     window.addEventListener('nexaerp:sync_update', handleSyncUpdate);
     return () => window.removeEventListener('nexaerp:sync_update', handleSyncUpdate);
+  }, []);
+
+  // Global event triggers for profile, settings, preferences
+  useEffect(() => {
+    const handleOpenProfile = () => setIsProfileModalOpen(true);
+    const handleOpenSettings = () => setIsSettingsModalOpen(true);
+    const handleOpenPrefs = () => setIsPrefsModalOpen(true);
+
+    window.addEventListener('nexaerp:open_user_profile', handleOpenProfile);
+    window.addEventListener('nexaerp:open_company_settings', handleOpenSettings);
+    window.addEventListener('nexaerp:open_user_preferences', handleOpenPrefs);
+
+    return () => {
+      window.removeEventListener('nexaerp:open_user_profile', handleOpenProfile);
+      window.removeEventListener('nexaerp:open_company_settings', handleOpenSettings);
+      window.removeEventListener('nexaerp:open_user_preferences', handleOpenPrefs);
+    };
   }, []);
 
   useEffect(() => {
@@ -164,22 +272,23 @@ export default function TopNav({
       zIndex: 100,
       overflow: 'visible'
     }}>
-      {/* Brand Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+      {/* Brand Header (Compact & space-efficient) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
         <div 
           onClick={() => onNavigate('dashboard')}
-          style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
+          title="NexaERP Home"
+          style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
         >
           <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '9px',
+            width: '24px',
+            height: '24px',
+            borderRadius: '6px',
             background: '#010c22',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 2px 10px rgba(0, 100, 210, 0.35)',
-            border: '1px solid rgba(0, 152, 255, 0.35)',
+            boxShadow: '0 2px 6px rgba(0, 100, 210, 0.35)',
+            border: '1px solid rgba(0, 152, 255, 0.4)',
             overflow: 'hidden',
             padding: '2px',
             flexShrink: 0
@@ -194,22 +303,19 @@ export default function TopNav({
             <div style={{ 
               fontFamily: 'var(--font-brand)', 
               fontWeight: 800, 
-              fontSize: '17px', 
+              fontSize: '14.5px', 
               color: 'var(--text-main)', 
               lineHeight: 1.1,
-              letterSpacing: '-0.3px'
+              letterSpacing: '-0.2px'
             }}>
               Nexa<span style={{ color: 'var(--primary)' }}>ERP</span>
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.2px' }}>
-              An ERP Tool For Everyone
             </div>
           </div>
         </div>
       </div>
 
-      {/* Global Module & Function Search Bar */}
-      <div style={{ flex: '1 1 200px', maxWidth: '380px', minWidth: '140px', position: 'relative' }}>
+      {/* Global Module & Function Search Bar (Compact) */}
+      <div style={{ flex: '0 1 180px', maxWidth: '180px', minWidth: '100px', position: 'relative' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -221,8 +327,10 @@ export default function TopNav({
             backgroundColor: 'var(--bg-subtle)',
             border: '1px solid var(--border-color)',
             borderRadius: 'var(--radius-sm)',
-            padding: '3px 4px 3px 8px',
-            gap: '8px',
+            padding: '2px 5px',
+            gap: '4px',
+            overflow: 'hidden',
+            width: '100%',
             transition: 'all 0.15s ease'
           }}
         >
@@ -234,31 +342,33 @@ export default function TopNav({
               border: 'none',
               background: 'var(--bg-surface)',
               borderRadius: '4px',
-              padding: '4px 6px',
-              fontSize: '11.5px',
+              padding: '2px 4px',
+              fontSize: '10.5px',
               fontWeight: 600,
               color: 'var(--text-secondary)',
               cursor: 'pointer',
               outline: 'none',
-              borderRight: '1px solid var(--border-color)'
+              borderRight: '1px solid var(--border-color)',
+              maxWidth: '75px',
+              flexShrink: 0
             }}
           >
-            <option value="all">All Modules</option>
-            <option value="sales">Sales & POS</option>
-            <option value="inventory">Inventory & Stock</option>
-            <option value="manufacturing">Manufacturing</option>
-            <option value="finance">Finance & GL</option>
-            <option value="hr">People & HR</option>
-            <option value="grc">GRC & Risk</option>
-            <option value="security">Security & Admin</option>
-            <option value="ai">AI & Tools</option>
+            <option value="all">Modules</option>
+            <option value="sales">Sales</option>
+            <option value="inventory">Stock</option>
+            <option value="manufacturing">Mfg</option>
+            <option value="finance">Finance</option>
+            <option value="hr">HR</option>
+            <option value="grc">GRC</option>
+            <option value="security">Security</option>
+            <option value="ai">AI</option>
           </select>
 
-          <Search size={15} color="var(--text-muted)" />
+          <Search size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
 
           <input
             type="text"
-            placeholder="Search modules, functions, operations..."
+            placeholder="Search (Ctrl+K)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onClick={() => setIsSearchModalOpen(true)}
@@ -266,8 +376,9 @@ export default function TopNav({
               border: 'none',
               background: 'transparent',
               outline: 'none',
-              fontSize: '13px',
-              width: '100%',
+              fontSize: '11px',
+              flex: 1,
+              minWidth: 0,
               color: 'var(--text-main)'
             }}
           />
@@ -275,59 +386,69 @@ export default function TopNav({
           <kbd
             onClick={() => setIsSearchModalOpen(true)}
             style={{
-              fontSize: '11px',
+              fontSize: '9px',
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border-color)',
-              borderRadius: '4px',
-              padding: '2px 6px',
+              borderRadius: '3px',
+              padding: '1px 4px',
               color: 'var(--text-secondary)',
               cursor: 'pointer',
-              whiteSpace: 'nowrap'
+              whiteSpace: 'nowrap',
+              flexShrink: 0
             }}
           >
-            Ctrl + K
+            Ctrl+K
           </kbd>
-
-          <button
-            type="submit"
-            className="btn btn-primary"
-            style={{
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              borderRadius: '4px',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            <Search size={13} />
-            <span>Search</span>
-          </button>
         </form>
       </div>
 
-      {/* Right Controls: Branch, Time, Sync, Badges, Tools, Theme, Profile & Sign Out */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto' }}>
-        {/* Branch Selector */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '5px',
-          fontSize: '12px',
-          fontWeight: 600,
-          color: 'var(--text-main)',
-          padding: '5px 8px',
-          backgroundColor: 'var(--bg-subtle)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 'var(--radius-sm)',
-          cursor: 'pointer',
-          whiteSpace: 'nowrap'
-        }}>
-          <Store size={14} color="var(--primary)" />
-          <span>{user?.branch_name || 'Main Store'}</span>
-        </div>
+      {/* Scrollable Middle Action Toolbar with Sideways Navigation */}
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '4px', 
+        flex: '1 1 auto', 
+        minWidth: 0,
+        position: 'relative',
+        margin: '0 8px'
+      }}>
+        {/* Scroll Left Button */}
+        {canScrollLeft && (
+          <button
+            onClick={handleScrollLeft}
+            className="btn btn-ghost"
+            title="Scroll sideways left"
+            style={{
+              padding: '3px 5px',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+              flexShrink: 0,
+              cursor: 'pointer',
+              zIndex: 10
+            }}
+          >
+            <ChevronLeft size={13} color="var(--primary)" />
+          </button>
+        )}
+
+        {/* Scrollable Action Track */}
+        <div
+          ref={scrollContainerRef}
+          onScroll={checkScroll}
+          onWheel={handleWheel}
+          className="no-scrollbar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            overflowX: 'auto',
+            scrollBehavior: 'smooth',
+            width: '100%',
+            whiteSpace: 'nowrap'
+          }}
+        >
 
         {/* Compact Clock Indicator */}
         <div style={{
@@ -444,6 +565,137 @@ export default function TopNav({
           <PenTool size={17} />
         </button>
 
+        {/* Alexa+ Voice Quick Trigger */}
+        <button
+          onClick={() => {
+            if (onOpenAI) onOpenAI();
+            else onToggleAI();
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('start-alexa-voice'));
+            }, 250);
+          }}
+          className="btn btn-ghost"
+          title="Alexa+ Voice Assistant & MCP Tool Calling"
+          style={{
+            position: 'relative',
+            color: '#0284c7',
+            backgroundColor: 'rgba(2, 132, 199, 0.1)',
+            border: '1px solid rgba(2, 132, 199, 0.3)',
+            padding: '4px 7px',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+            fontSize: '10.5px',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
+        >
+          <Mic size={14} />
+          <span>Alexa</span>
+        </button>
+
+        {/* MNC Branch Selector Trigger */}
+        <button
+          onClick={() => setIsBranchModalOpen(true)}
+          className="btn btn-ghost"
+          title="Switch Operating Branch Context or View MNC Consolidated Data"
+          style={{
+            position: 'relative',
+            color: 'var(--text-main)',
+            backgroundColor: 'var(--bg-subtle)',
+            border: '1px solid var(--border-color)',
+            padding: '5px 10px',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '11.5px',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
+        >
+          <Building2 size={13} color="var(--primary)" />
+          <span style={{ maxWidth: '175px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {currentBranchName}
+          </span>
+          <ChevronDown size={11} color="var(--text-secondary)" />
+        </button>
+
+
+
+        {/* Universal Document & Data Onboarding Quick Trigger */}
+        <button
+          onClick={() => setIsImportModalOpen(true)}
+          className="btn btn-ghost"
+          title="Universal Data Onboarding: Upload Vendor lists, Customer data, Products, Employees, GL Accounts, Expenses, Warehouses (PDF, Excel, CSV, JSON)"
+          style={{
+            position: 'relative',
+            color: '#16a34a',
+            backgroundColor: 'rgba(22, 163, 74, 0.08)',
+            border: '1px solid rgba(22, 163, 74, 0.25)',
+            padding: '4px 6px',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+            fontSize: '10.5px',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
+        >
+          <UploadCloud size={12} />
+          <span>Onboard Data</span>
+        </button>
+
+        {/* Company Settings Quick Trigger */}
+        <button
+          onClick={() => setIsSettingsModalOpen(true)}
+          className="btn btn-ghost"
+          title="Organization & Company Settings: GSTIN, Tax Slabs, Currency, Audit Policies"
+          style={{
+            position: 'relative',
+            color: '#475569',
+            backgroundColor: 'var(--bg-subtle)',
+            border: '1px solid var(--border-color)',
+            padding: '4px 6px',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+            fontSize: '10.5px',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
+        >
+          <Building2 size={12} color="var(--primary)" />
+          <span>Settings</span>
+        </button>
+
+        {/* User Preferences Quick Trigger */}
+        <button
+          onClick={() => setIsPrefsModalOpen(true)}
+          className="btn btn-ghost"
+          title="User Preferences: Appearance Themes, Currency Formatting, Date Standards, Alexa Voice"
+          style={{
+            position: 'relative',
+            color: '#6366f1',
+            backgroundColor: 'rgba(99, 102, 241, 0.08)',
+            border: '1px solid rgba(99, 102, 241, 0.25)',
+            padding: '4px 6px',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+            fontSize: '10.5px',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
+        >
+          <Sliders size={12} />
+          <span>Prefs</span>
+        </button>
+
         {/* AI Assistant Quick Trigger */}
         <button
           onClick={onToggleAI}
@@ -493,9 +745,41 @@ export default function TopNav({
             </span>
           )}
         </button>
+        </div>
 
+        {/* Scroll Right Button */}
+        {canScrollRight && (
+          <button
+            onClick={handleScrollRight}
+            className="btn btn-ghost"
+            title="Scroll sideways right"
+            style={{
+              padding: '3px 5px',
+              borderRadius: 'var(--radius-sm)',
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+              flexShrink: 0,
+              cursor: 'pointer',
+              zIndex: 10
+            }}
+          >
+            <ChevronRight size={13} color="var(--primary)" />
+          </button>
+        )}
+      </div>
+
+      {/* Pinned User & Security Area (Always 100% visible on screen, never cut off, overflow visible) */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        flexShrink: 0,
+        marginLeft: 'auto',
+        overflow: 'visible'
+      }}>
         {/* Notifications Icon with Real-Time DLP Alert Badge */}
-        <div style={{ position: 'relative' }}>
+        <div ref={notifRef} style={{ position: 'relative' }}>
           <button 
             onClick={() => setNotifOpen(!notifOpen)}
             className="btn btn-ghost" 
@@ -771,9 +1055,22 @@ export default function TopNav({
         </button>
 
         {/* User Profile Chip */}
-        <div style={{ position: 'relative', flexShrink: 0 }}>
+        <div ref={profileRef} style={{ position: 'relative', flexShrink: 0 }}>
           <div
-            onClick={() => setProfileOpen(!profileOpen)}
+            id="top-nav-profile-chip"
+            onClick={(e) => {
+              e.stopPropagation();
+              setProfileOpen(prev => !prev);
+            }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setProfileOpen(prev => !prev);
+              }
+            }}
+            title="User Profile & Settings"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -781,9 +1078,10 @@ export default function TopNav({
               cursor: 'pointer',
               padding: '4px 8px',
               borderRadius: 'var(--radius-sm)',
-              transition: 'background var(--transition-fast)',
-              backgroundColor: 'var(--bg-subtle)',
-              border: '1px solid var(--border-color)'
+              transition: 'all var(--transition-fast)',
+              backgroundColor: profileOpen ? 'var(--bg-active, rgba(0, 100, 210, 0.15))' : 'var(--bg-subtle)',
+              border: profileOpen ? '1px solid var(--primary)' : '1px solid var(--border-color)',
+              userSelect: 'none'
             }}
           >
             <div style={{
@@ -809,7 +1107,14 @@ export default function TopNav({
                 {userRole}
               </div>
             </div>
-            <ChevronDown size={13} color="var(--text-muted)" />
+            <ChevronDown 
+              size={13} 
+              color="var(--text-muted)"
+              style={{
+                transform: profileOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease'
+              }}
+            />
           </div>
 
           {/* Profile Dropdown */}
@@ -819,9 +1124,9 @@ export default function TopNav({
               style={{
                 position: 'absolute',
                 right: 0,
-                top: '44px',
-                width: '230px',
-                zIndex: 200,
+                top: 'calc(100% + 6px)',
+                width: '240px',
+                zIndex: 9999,
                 padding: '8px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -829,13 +1134,40 @@ export default function TopNav({
                 backgroundColor: 'var(--bg-surface)',
                 border: '1px solid var(--border-color)',
                 borderRadius: '8px',
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.25)'
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.35)'
               }}
             >
               <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)', marginBottom: '4px' }}>
                 <div style={{ fontWeight: 600, fontSize: '13px' }}>{user?.full_name}</div>
                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{user?.email}</div>
               </div>
+
+              <button
+                onClick={() => { setProfileOpen(false); setIsProfileModalOpen(true); }}
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'flex-start', fontSize: '13px' }}
+              >
+                <User size={15} color="var(--primary)" />
+                <span>My Profile & Security (2FA)</span>
+              </button>
+
+              <button
+                onClick={() => { setProfileOpen(false); setIsSettingsModalOpen(true); }}
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'flex-start', fontSize: '13px' }}
+              >
+                <Building2 size={15} color="var(--primary)" />
+                <span>Company & Org Settings</span>
+              </button>
+
+              <button
+                onClick={() => { setProfileOpen(false); setIsPrefsModalOpen(true); }}
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'flex-start', fontSize: '13px' }}
+              >
+                <Sliders size={15} color="var(--primary)" />
+                <span>Preferences & Themes</span>
+              </button>
 
               <button
                 onClick={() => { setProfileOpen(false); onNavigate('elevation'); }}
@@ -938,6 +1270,48 @@ export default function TopNav({
           onReviewed={() => fetchSecurityIncidents()}
         />
       )}
+      {/* Universal Multi-Format Data Onboarding Modal */}
+      <UniversalDataImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        initialEntityType="auto"
+        onSuccess={(type, res) => {
+          window.dispatchEvent(new CustomEvent('inventory-updated'));
+          alert(`Successfully onboarded ${res.created_count || res.total_processed} ${type} into NexaERP!`);
+        }}
+      />
+
+      {/* MNC Multi-Branch Controller Modal */}
+      <MNCBranchSwitcherModal
+        isOpen={isBranchModalOpen}
+        onClose={() => setIsBranchModalOpen(false)}
+        currentBranchId={currentBranchId}
+        onSelectBranch={(id, name) => {
+          setCurrentBranchId(id);
+          setCurrentBranchName(name);
+        }}
+      />
+
+      {/* User Profile & Security Center Modal */}
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        onLogout={logout}
+      />
+
+      {/* Enterprise Company Configuration Modal */}
+      <CompanySettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+      />
+
+      {/* Workspace & Personal Preferences Modal */}
+      <UserPreferencesModal
+        isOpen={isPrefsModalOpen}
+        onClose={() => setIsPrefsModalOpen(false)}
+        currentTheme={theme}
+        onThemeChange={setTheme}
+      />
     </header>
   );
 }

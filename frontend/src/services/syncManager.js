@@ -7,8 +7,9 @@
 import { apiRequest } from './api';
 
 const SYNC_INTERVAL_SEC = 30;
-let syncTimer = null;
+let initialTimeout = null;
 let countdownTimer = null;
+let isRunning = false;
 let secondsRemaining = SYNC_INTERVAL_SEC;
 let lastSyncTimestamp = null;
 let isSyncing = false;
@@ -72,18 +73,44 @@ export async function triggerSyncNow() {
       })
     });
 
+    // BUG-63 & BUG-66: Invoke authorized processing endpoint to durably commit drafts
+    const processingRequired = Object.keys(modulesPayload).length > 0 || res.status === 'PENDING';
+    let processRes = null;
+    let processError = null;
+
+    if (processingRequired) {
+      try {
+        processRes = await apiRequest('/api/sync/process', {
+          method: 'POST'
+        });
+      } catch (procErr) {
+        processError = procErr;
+        console.error('[SyncManager] Draft processing failed:', procErr);
+      }
+    }
+
     lastSyncTimestamp = new Date();
     lastMetrics = res.module_metrics || null;
     secondsRemaining = SYNC_INTERVAL_SEC;
 
-    broadcastSyncState('success');
+    // BUG-66: Validate the actual response returned by the backend
+    const processSucceeded = !processingRequired || (
+      !processError &&
+      processRes?.status === 'SUCCESS' &&
+      Array.isArray(processRes.errors) &&
+      processRes.errors.length === 0 &&
+      processRes.synced === processRes.total_evaluated
+    );
+
+    broadcastSyncState(processSucceeded ? 'success' : 'error');
 
     // Notify modules that server sync has completed so they can update themselves
     window.dispatchEvent(new CustomEvent('nexaerp:module_synced', {
       detail: {
         serverTime: res.server_time,
         metrics: res.module_metrics,
-        syncId: res.sync_id
+        syncId: res.sync_id,
+        processResult: processRes
       }
     }));
   } catch (err) {
@@ -95,10 +122,12 @@ export async function triggerSyncNow() {
 }
 
 export function startAutoSync() {
-  if (syncTimer) return;
+  if (isRunning) return;
+  isRunning = true;
 
-  // Run initial sync after a short delay
-  setTimeout(() => {
+  // Run initial sync after a short delay and track the timer ID (BUG-64)
+  initialTimeout = setTimeout(() => {
+    initialTimeout = null;
     triggerSyncNow();
   }, 1500);
 
@@ -113,9 +142,10 @@ export function startAutoSync() {
 }
 
 export function stopAutoSync() {
-  if (syncTimer) {
-    clearInterval(syncTimer);
-    syncTimer = null;
+  isRunning = false;
+  if (initialTimeout) {
+    clearTimeout(initialTimeout);
+    initialTimeout = null;
   }
   if (countdownTimer) {
     clearInterval(countdownTimer);
