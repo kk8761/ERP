@@ -544,11 +544,21 @@ async def register_store(
     )
     db.add(emp)
 
-    # 8. Seed Starter Retail Catalog for this store
+    # 8. Seed Starter Retail Catalog for this store based on store merchandise type
+    retail_cat_codes = ["CAT-CLOTH", "CAT-SPORTS", "CAT-FOOT", "CAT-GROC", "CAT-DAIRY", "CAT-BEV"]
+    if payload.business_type == "apparel":
+        target_codes = ["CAT-CLOTH", "CAT-FOOT"]
+    elif payload.business_type == "sports":
+        target_codes = ["CAT-SPORTS", "CAT-FOOT"]
+    elif payload.business_type == "grocery":
+        target_codes = ["CAT-GROC", "CAT-DAIRY", "CAT-BEV"]
+    else:
+        target_codes = retail_cat_codes
+
     retail_prods = await db.execute(
         select(Product)
         .join(Product.category)
-        .where(~ProductCategory.code.like("CAT-IND-%"))
+        .where(ProductCategory.code.in_(target_codes))
         .limit(25)
     )
     template_prods = retail_prods.scalars().all()

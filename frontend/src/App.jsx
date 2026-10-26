@@ -458,7 +458,6 @@ function MainApp() {
           currentTab={currentTab}
           onNavigate={setCurrentTab}
           onOpenScanner={() => setIsScannerOpen(true)}
-          onSwitchPortal={() => switchPortal('enterprise')}
           theme={theme}
           onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
         />
@@ -467,7 +466,6 @@ function MainApp() {
           <RetailSidebar
             currentTab={currentTab}
             onNavigate={setCurrentTab}
-            onSwitchPortal={() => switchPortal('enterprise')}
           />
 
           <main style={{

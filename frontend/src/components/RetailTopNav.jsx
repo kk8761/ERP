@@ -9,7 +9,6 @@ export default function RetailTopNav({
   onNavigate, 
   currentTab, 
   onOpenScanner, 
-  onSwitchPortal, 
   theme, 
   onToggleTheme 
 }) {
@@ -151,27 +150,6 @@ export default function RetailTopNav({
           </button>
         )}
 
-        {/* Portal Switcher Button */}
-        <button
-          onClick={onSwitchPortal}
-          title="Switch to Enterprise & Heavy Industry Portal"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '6px 10px',
-            borderRadius: '8px',
-            border: '1px solid rgba(59, 130, 246, 0.3)',
-            backgroundColor: 'rgba(59, 130, 246, 0.08)',
-            color: '#2563eb',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer'
-          }}
-        >
-          <ArrowLeftRight size={13} />
-          <span>Enterprise Portal</span>
-        </button>
 
         {/* Theme Toggle */}
         <button

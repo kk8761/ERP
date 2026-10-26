@@ -101,30 +101,6 @@ export default function RetailSidebar({ currentTab, onNavigate, onSwitchPortal }
         })}
       </nav>
 
-      {/* Switch to Enterprise Portal Shortcut */}
-      <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-color, #e2e8f0)', backgroundColor: 'var(--bg-subtle, #f8fafc)' }}>
-        <button
-          onClick={onSwitchPortal}
-          style={{
-            width: '100%',
-            padding: '9px 12px',
-            borderRadius: '8px',
-            border: '1px solid rgba(59, 130, 246, 0.3)',
-            backgroundColor: 'rgba(59, 130, 246, 0.08)',
-            color: '#2563eb',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px'
-          }}
-        >
-          <ArrowLeftRight size={14} />
-          <span>Go to Enterprise ERP</span>
-        </button>
-      </div>
 
       {/* Operator Session Info Footer */}
       <div style={{
