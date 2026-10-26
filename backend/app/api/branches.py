@@ -54,7 +54,9 @@ async def list_mnc_branches(
             has_global_perm = True
 
     stmt = select(Branch).order_by(Branch.id)
-    if not has_global_perm:
+    if current_user.organization_id is not None:
+        stmt = stmt.where(Branch.organization_id == current_user.organization_id)
+    elif not has_global_perm:
         stmt = stmt.where(Branch.id.in_(allowed_branch_ids if allowed_branch_ids else [-1]))
 
     res = await db.execute(stmt)
@@ -125,9 +127,11 @@ async def create_mnc_branch(
     if existing_res.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"Branch code '{payload.code}' already exists in MNC registry.")
 
-    org_res = await db.execute(select(Organization).limit(1))
-    org = org_res.scalar_one_or_none()
-    org_id = org.id if org else 1
+    org_id = current_user.organization_id
+    if not org_id:
+        org_res = await db.execute(select(Organization).limit(1))
+        org = org_res.scalar_one_or_none()
+        org_id = org.id if org else 1
 
     new_branch = Branch(
         organization_id=org_id,
@@ -360,19 +364,21 @@ async def switch_branch_context(
         raise HTTPException(status_code=404, detail="Branch not found")
 
     if not is_exec_or_admin:
-        # SEC-28: Fail closed. If employee has no access authorization record, deny cross-branch access.
-        is_primary = (current_user.branch_id == branch.id)
-        doc = await document_store.find_document("employee_access_authorizations", {"email": current_user.email})
-        if not doc:
-            if not is_primary:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Access Denied: No cross-branch access authorization record found for {current_user.email}."
-                )
-        else:
-            allowed = doc.get("accessible_branches", [])
-            raw_policy = doc.get("branch_access_policy", "ASSIGNED_ONLY")
-            policy = raw_policy if raw_policy in {"ASSIGNED_ONLY", "ALL_BRANCHES", "CUSTOM_LIST"} else "ASSIGNED_ONLY"
+        is_same_org = bool(current_user.organization_id is not None and branch.organization_id == current_user.organization_id)
+        if not is_same_org:
+            # SEC-28: Fail closed. If employee has no access authorization record, deny cross-branch access.
+            is_primary = (current_user.branch_id == branch.id)
+            doc = await document_store.find_document("employee_access_authorizations", {"email": current_user.email})
+            if not doc:
+                if not is_primary:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Access Denied: No cross-branch access authorization record found for {current_user.email}."
+                    )
+            else:
+                allowed = doc.get("accessible_branches", [])
+                raw_policy = doc.get("branch_access_policy", "ASSIGNED_ONLY")
+                policy = raw_policy if raw_policy in {"ASSIGNED_ONLY", "ALL_BRANCHES", "CUSTOM_LIST"} else "ASSIGNED_ONLY"
             if policy == "ASSIGNED_ONLY" and "ALL" not in allowed:
                 # Error 12 Fix: Reject substring matching. Compare exact branch ID, code, or exact full name.
                 def branch_matches(entry: Any) -> bool:

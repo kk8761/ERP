@@ -9,6 +9,7 @@ import RetailTopNav from './components/RetailTopNav';
 import RetailSidebar from './components/RetailSidebar';
 import RetailLoginPage from './pages/RetailLoginPage';
 import RetailDashboardPage from './pages/RetailDashboardPage';
+import { RetailBranchProvider } from './contexts/RetailBranchContext';
 
 // Dedicated Enterprise Portal Components
 import EnterpriseLoginPage from './pages/EnterpriseLoginPage';
@@ -453,40 +454,42 @@ function MainApp() {
   // ─── RETAIL PORTAL LAYOUT ───────────────────────────────
   if (portal === 'retail') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
-        <RetailTopNav
-          currentTab={currentTab}
-          onNavigate={setCurrentTab}
-          onOpenScanner={() => setIsScannerOpen(true)}
-          theme={theme}
-          onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-        />
-
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <RetailSidebar
+      <RetailBranchProvider>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+          <RetailTopNav
             currentTab={currentTab}
             onNavigate={setCurrentTab}
+            onOpenScanner={() => setIsScannerOpen(true)}
+            theme={theme}
+            onToggleTheme={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
           />
 
-          <main style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '20px',
-            backgroundColor: 'var(--bg-app)'
-          }}>
-            {renderRetailContent()}
-          </main>
-        </div>
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+            <RetailSidebar
+              currentTab={currentTab}
+              onNavigate={setCurrentTab}
+            />
 
-        {/* Universal Barcode Scanner Modal */}
-        <BarcodeScannerModal
-          isOpen={isScannerOpen}
-          onClose={() => setIsScannerOpen(false)}
-          onBarcodeDetected={(prod) => {
-            setCurrentTab('pos');
-          }}
-        />
-      </div>
+            <main style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '20px',
+              backgroundColor: 'var(--bg-app)'
+            }}>
+              {renderRetailContent()}
+            </main>
+          </div>
+
+          {/* Universal Barcode Scanner Modal */}
+          <BarcodeScannerModal
+            isOpen={isScannerOpen}
+            onClose={() => setIsScannerOpen(false)}
+            onBarcodeDetected={(prod) => {
+              setCurrentTab('pos');
+            }}
+          />
+        </div>
+      </RetailBranchProvider>
     );
   }
 

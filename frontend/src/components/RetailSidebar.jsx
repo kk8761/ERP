@@ -2,12 +2,14 @@ import React from 'react';
 import { 
   ShoppingCart, Tag, Package, Users, Receipt, 
   RotateCcw, DollarSign, BarChart3, ScanLine, LayoutDashboard,
-  Store, Award, Sparkles, LogOut, ArrowLeftRight
+  Store, Award, Sparkles, LogOut, ArrowLeftRight, MapPin
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useRetailBranch } from '../contexts/RetailBranchContext';
 
 export default function RetailSidebar({ currentTab, onNavigate, onSwitchPortal }) {
   const { user, logout } = useAuth();
+  const { currentBranch } = useRetailBranch();
 
   const retailNavItems = [
     { id: 'dashboard', label: 'Store Overview', icon: LayoutDashboard },
@@ -111,12 +113,15 @@ export default function RetailSidebar({ currentTab, onNavigate, onSwitchPortal }
         justifyContent: 'space-between',
         backgroundColor: 'var(--bg-surface)'
       }}>
-        <div style={{ overflow: 'hidden' }}>
+        <div style={{ overflow: 'hidden', flex: 1, marginRight: '8px' }}>
           <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
             {user?.full_name || 'Store Cashier'}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-            Counter Staff
+          <div style={{ fontSize: '11px', color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', marginTop: '1px' }}>
+            <MapPin size={11} flexShrink={0} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {currentBranch?.name || 'Main Store'}
+            </span>
           </div>
         </div>
         <button

@@ -6,11 +6,13 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useRetailBranch } from '../contexts/RetailBranchContext';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 import SignatureCaptureModal from '../components/SignatureCaptureModal';
 
 export default function POSTerminalPage({ onNavigate }) {
   const { user } = useAuth();
+  const { currentBranch } = useRetailBranch();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -612,7 +614,8 @@ export default function POSTerminalPage({ onNavigate }) {
               lineHeight: 1.6
             }}>
               <div style={{ textAlign: 'center', marginBottom: '10px' }}>
-                <h3 style={{ fontSize: '16px', fontWeight: 800 }}>NexaERP Store</h3>
+                <h3 style={{ fontSize: '16px', fontWeight: 800 }}>NexaRetail Store</h3>
+                <p style={{ fontWeight: 700, color: '#10b981', margin: '2px 0' }}>{currentBranch?.name || 'Main Store (Flagship Outlet)'}</p>
                 <p>Tax Invoice: {completedOrder.invoice_number}</p>
                 <p>Date: {new Date(completedOrder.created_at).toLocaleString()}</p>
                 <p>Customer: {completedOrder.customer_name}</p>

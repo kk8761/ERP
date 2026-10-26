@@ -4,13 +4,15 @@ import {
   TrendingUp, Clock, AlertTriangle, CheckCircle, Package, 
   DollarSign, Sparkles, Plus, ScanLine, ArrowRight, Store,
   X, Search, Printer, ChevronRight, Eye, RefreshCw, CreditCard,
-  QrCode, Banknote, ShieldAlert, CheckCircle2, UserCheck, ArrowDownLeft
+  QrCode, Banknote, ShieldAlert, CheckCircle2, UserCheck, ArrowDownLeft, MapPin
 } from 'lucide-react';
 import { apiRequest } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useRetailBranch } from '../contexts/RetailBranchContext';
 
 export default function RetailDashboardPage({ onNavigate }) {
   const { user } = useAuth();
+  const { currentBranch, branches, switchBranch } = useRetailBranch();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -276,14 +278,19 @@ export default function RetailDashboardPage({ onNavigate }) {
         marginBottom: '28px'
       }}>
         <div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 10px', borderRadius: '999px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#059669', fontSize: '12px', fontWeight: 700, marginBottom: '8px' }}>
-            <Store size={13} /> Retail Storefront Mode Active
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 10px', borderRadius: '999px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#059669', fontSize: '12px', fontWeight: 700 }}>
+              <Store size={13} /> Retail Storefront Mode Active
+            </div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#2563eb', fontSize: '12px', fontWeight: 700 }}>
+              <MapPin size={13} /> Active Branch: {currentBranch?.name || 'Main Store (Flagship Outlet)'}
+            </div>
           </div>
           <h1 style={{ fontSize: '1.75rem', fontWeight: 800, margin: '0 0 6px', color: 'var(--text-primary)' }}>
             Welcome back, {user?.full_name?.split(' ')[0] || 'Ramesh'}! 👋
           </h1>
           <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>
-            Ready for billing: Counter #1 is active. Barcode scanning and instant checkout are ready.
+            Ready for billing at <strong>{currentBranch?.name || 'Main Store'}</strong>: Counter #1 is active. Barcode scanning and instant checkout are ready.
           </p>
         </div>
 
@@ -615,7 +622,7 @@ export default function RetailDashboardPage({ onNavigate }) {
               Cash Drawer Status: Active & Reconciled
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              Opening float: ₹ 5,000.00 • In-drawer cash: ₹ 14,200.00
+              Opening float: ₹ 5,000.00 • In-drawer cash: ₹ 14,200.00 • Register #1 @ {currentBranch?.name || 'Main Store (Flagship)'}
             </div>
           </div>
         </div>
