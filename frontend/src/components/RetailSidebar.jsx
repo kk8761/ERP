@@ -118,7 +118,7 @@ export default function RetailSidebar({ currentTab, onNavigate, onSwitchPortal }
             {user?.full_name || 'Store Cashier'}
           </div>
           <div style={{ fontSize: '11px', color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', marginTop: '1px' }}>
-            <MapPin size={11} flexShrink={0} />
+            <MapPin size={11} style={{ flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {currentBranch?.name || 'Main Store'}
             </span>
